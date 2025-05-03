@@ -1,0 +1,18 @@
+{
+  "name": "CtrlApp UI",
+  "version": "0.1.0",
+  "slug": "ctrlapp",
+  "description": "Input Labs CtrlApp for the Alpakka Controller, self-hosted with HTTPS (self-signed), as a Home Assistant add-on.",
+  "startup": "services",
+  "boot": "auto",
+  "webui": "https://[HOST]:8443",
+  "ports": {
+    "8443/tcp": 8443
+  },
+  "host_network": false,
+  "privileged": [],
+  "map": [],
+  "options": {},
+  "schema": {},
+  "arch": ["aarch64", "amd64", "armv7"]
+}
