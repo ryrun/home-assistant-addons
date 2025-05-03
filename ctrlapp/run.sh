@@ -17,6 +17,9 @@ cat <<EOF > /etc/nginx/nginx.conf
 events {}
 
 http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
     server {
         listen 8443 ssl;
         ssl_certificate $CERT_PATH;
