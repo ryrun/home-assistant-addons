@@ -1,7 +1,7 @@
 #!/bin/sh
 
-CERT_PATH="/certs/cert.pem"
-KEY_PATH="/certs/key.pem"
+CERT_PATH="/data/cert.pem"
+KEY_PATH="/data/key.pem"
 RENEW_DAYS=30
 RENEW_SECS=$((RENEW_DAYS * 86400))
 CERT_RENEW_REQUIRED=0
