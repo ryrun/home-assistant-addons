@@ -3,6 +3,23 @@
 This repository includes third-party code imported from other open source
 projects. The notices below document the original source and license terms.
 
+The repository-level `LICENSE` file applies to this repository's own wrapper,
+configuration, and maintenance code. Third-party components keep their original
+licenses as documented here and in their own license files.
+
+## CtrlApp UI
+
+- Included path in this repository: `ctrlapp/www/`
+- Component: prebuilt CtrlApp web UI
+- Copyright notice found in `ctrlapp/www/index.html`: `Copyright (C) 2023, Input Labs Oy.`
+- License identifier found in `ctrlapp/www/index.html`: `GPL-2.0-only`
+- Bundled dependency notices: `ctrlapp/www/3rdpartylicenses.txt`
+
+The add-on wrapper files around the web UI (`ctrlapp/Dockerfile`,
+`ctrlapp/run.sh`, and `ctrlapp/config.json`) are maintained in this repository.
+The prebuilt web UI under `ctrlapp/www/` is third-party software and is not
+relicensed by this repository's MIT license.
+
 ## Unbound Home Assistant Add-on
 
 - Imported path in this repository: `unbound/`

@@ -2,5 +2,5 @@
   "name": "ryrun Home Assistant Add-ons",
   "url": "https://github.com/ryrun/home-assistant-addons",
   "maintainer": "ryrun",
-  "addons": ["ctrlapp"]
+  "addons": ["ctrlapp", "unbound"]
 }
