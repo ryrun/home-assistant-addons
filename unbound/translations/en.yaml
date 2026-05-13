@@ -1,0 +1,8 @@
+configuration:
+  log_level:
+    name: Log Level
+    description: Controls the logging verbosity of the addon supervisor process.
+
+network:
+  53/tcp: DNS queries over TCP
+  53/udp: DNS queries over UDP

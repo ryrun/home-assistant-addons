@@ -1,0 +1,40 @@
+ARG BUILD_FROM
+FROM ${BUILD_FROM}
+
+# Install unbound, python/flask, and dependencies
+RUN apk add --no-cache \
+    unbound \
+    bash \
+    jq \
+    curl \
+    drill \
+    python3 \
+    py3-flask \
+    py3-waitress \
+    openssl
+
+# Create necessary directories and download root hints
+RUN mkdir -p /var/run/unbound /etc/unbound /var/lib/unbound /data && \
+    curl -o /etc/unbound/root.hints https://www.internic.net/domain/named.root && \
+    unbound-anchor -a /var/lib/unbound/root.key || true && \
+    chmod 777 /var/lib/unbound /var/run/unbound && \
+    chmod 666 /var/lib/unbound/root.key
+
+# Set up unbound-control keys for stats access
+RUN unbound-control-setup
+
+# Copy web application
+COPY web/ /web/
+
+# Copy run script
+COPY run.sh /
+RUN chmod a+x /run.sh
+
+# Health check: verify unbound responds to DNS queries
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD drill @127.0.0.1 -p 53 localhost || exit 1
+
+# Expose DNS ports and ingress port
+EXPOSE 53/tcp 53/udp 2137
+
+CMD ["/run.sh"]

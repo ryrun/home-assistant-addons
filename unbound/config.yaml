@@ -1,0 +1,29 @@
+name: "Unbound"
+description: "Self-managed recursive DNS resolver with built-in web UI"
+url: "https://github.com/fenio/ha-addons/tree/main/unbound"
+version: "1.24.2-ha35"
+slug: "unbound"
+image: "ghcr.io/fenio/unbound-{arch}"
+init: false
+ingress: true
+ingress_port: 2137
+panel_icon: "mdi:dns"
+arch:
+  - amd64
+  - aarch64
+ports:
+  53/tcp: 5053
+  53/udp: 5053
+ports_description:
+  53/tcp: DNS TCP queries
+  53/udp: DNS UDP queries
+map:
+  - addon_config:rw
+options:
+  log_level: info
+schema:
+  log_level: list(trace|debug|info|notice|warning|error|fatal)
+
+startup: system
+apparmor: true
+homeassistant_api: false
