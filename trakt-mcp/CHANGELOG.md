@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- Add the Trakt API app management address to the Client ID configuration help.
+- Provide clickable shortcuts at the top of the Documentation tab and service
+  monitor; Home Assistant's configuration helper itself renders plain text.
+
 ## 0.2.0
 
 - Remove the direct TMDb/JustWatch integration, its configuration fields, provider

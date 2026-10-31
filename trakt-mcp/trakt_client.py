@@ -45,7 +45,7 @@ class TraktClient:
         self.http, self.auth = http, auth
         self.metrics = metrics
         self.headers = {'trakt-api-version': '2', 'trakt-api-key': client_id,
-                        'User-Agent': 'HomeAssistant-TraktMCP/0.2.0'}
+                        'User-Agent': 'HomeAssistant-TraktMCP/0.2.1'}
         self.cache = cache
         self.snapshots = PersonalSnapshots(self) if personal_cache else None
         self.cache_locks = [asyncio.Lock() for _ in range(32)]

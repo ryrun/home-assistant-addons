@@ -5,6 +5,11 @@
 This guide appears in the add-on's **Documentation** tab in Home Assistant.
 Configuration fields also include explanatory descriptions.
 
+**[Open Trakt API apps to create or manage your application](https://developer.trakt.tv/apps).**
+The same link is available in the add-on Web UI. The Client ID configuration
+description includes the address, but Home Assistant renders that helper as plain
+text, so use the Documentation or Web UI link for one-click navigation.
+
 - **Server URL:** `http://homeassistant.local:8765/mcp`. Alternatively, use your
   Home Assistant's local IP address and adjust the port if you changed its mapping.
 - **Transport:** Streamable HTTP.

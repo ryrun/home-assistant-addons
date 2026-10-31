@@ -1,7 +1,7 @@
 configuration:
   trakt_client_id:
     name: Trakt-Client-ID
-    description: "ID deiner eigenen Trakt-API-App. Registrierung und Einrichtung stehen im Reiter Dokumentation."
+    description: "API-App unter https://developer.trakt.tv/apps erstellen oder verwalten und die Client ID hier eintragen. Anklickbare Links findest du im Reiter Dokumentation und in der Add-on-Weboberfläche."
   trakt_client_secret:
     name: Trakt-Client-Secret
     description: "Client-Secret deiner Trakt-App, falls benötigt. Keine Access- oder Refresh-Tokens eintragen."
