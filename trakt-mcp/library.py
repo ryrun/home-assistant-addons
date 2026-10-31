@@ -209,8 +209,16 @@ class LibraryReader:
 
     @consistent_account
     async def watched_shows(self, page=1, limit=50):
-        return await self._page('/sync/watched/shows', page, limit, personal=True, paginated=False,
-                                extended=False, projector=compact)
+        positive(page, 1)
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise TraktError('limit must be between 1 and 100.')
+        # Live responses can be paginated even though the contract describes a
+        # complete list. The bounded sync reader supports either response form.
+        items = await self.client._all_items_live('/sync/watched/shows')
+        result = local_page(items, page, limit)
+        result['items'] = [compact(item) for item in result['items']]
+        return {**result, 'source': 'trakt:/sync/watched/shows',
+                'freshness': {'validation': 'live_request'}}
 
     @consistent_account
     async def personal_ratings(self, media_type, page=1, limit=50):

@@ -372,7 +372,7 @@ statistics shown in the service monitor.
 
 After installing an update, reconnect the MCP client and start a new assistant thread.
 If an old tool list persists in Zed/Codex, fully quit and reopen Zed before starting
-the new thread. Confirm `server_version: 0.3.3` via `trakt_get_status` and check
+the new thread. Confirm `server_version: 0.3.4` via `trakt_get_status` and check
 that `trakt_get_show_progress` and `trakt_get_history` are available. Stored Trakt
 authorization stays valid; no new device authorization is normally required.
 

@@ -338,7 +338,7 @@ async def test_series_season_and_episode_scores_use_the_correct_public_endpoint(
 async def test_watched_show_aggregates_are_locally_paged_without_nested_history():
     def handler(request):
         assert request.url.path == '/sync/watched/shows'
-        assert 'page' not in request.url.params and 'extended' not in request.url.params
+        assert request.url.params['page'] == '1' and 'extended' not in request.url.params
         return httpx.Response(200, json=[{'show': show(n), 'plays': 5, 'last_watched_at': '2026-01-01T00:00:00Z',
                                          'seasons': [{'episodes': [{'number': 1}]}]} for n in range(3)])
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
@@ -355,7 +355,7 @@ async def test_watched_show_aggregates_are_locally_paged_without_nested_history(
 ])
 async def test_large_watched_show_arrays_use_local_pagination(headers):
     def handler(request):
-        assert 'page' not in request.url.params and 'limit' not in request.url.params
+        assert request.url.params['page'] == '1' and request.url.params['limit'] == '100'
         return httpx.Response(200, headers=headers, json=[{'show': show(n)} for n in range(125)])
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         reader = LibraryReader(TraktClient(http, FakeAuth(), 'id'))
@@ -367,11 +367,12 @@ async def test_large_watched_show_arrays_use_local_pagination(headers):
 
 
 @pytest.mark.asyncio
-async def test_full_list_endpoint_rejects_an_actual_partial_upstream_page():
+async def test_watched_shows_follow_actual_upstream_pages_before_local_paging():
     def handler(request):
-        return httpx.Response(200, json=[{'show': show(1)}], headers={
-            'X-Pagination-Page': '1', 'X-Pagination-Page-Count': '2',
+        return httpx.Response(200, json=[{'show': show(int(request.url.params['page']))}], headers={
+            'X-Pagination-Page': request.url.params['page'], 'X-Pagination-Page-Count': '2',
             'X-Pagination-Limit': '1', 'X-Pagination-Item-Count': '2'})
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        with pytest.raises(TraktError, match='unexpectedly paginated'):
-            await LibraryReader(TraktClient(http, FakeAuth(), 'id')).watched_shows()
+        result = await LibraryReader(TraktClient(http, FakeAuth(), 'id')).watched_shows(page=2, limit=1)
+    assert result['total_items'] == 2 and result['items'] == [{'show': show(2)}]
+    assert result['next_page'] is None

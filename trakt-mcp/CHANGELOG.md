@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.4
+
+- Read watched shows through the bounded live sync reader, following actual
+  upstream pagination before producing MCP pages. Support complete arrays too.
+- Retain per-page validation, stable total checks, and the 200-page/16 MiB sync
+  limits; never treat a partial first page as the complete watched library.
+- Cover multi-page upstream responses alongside unpaginated watched libraries.
+
 ## 0.3.3
 
 - Validate complete-array endpoint responses before applying local MCP pagination.
