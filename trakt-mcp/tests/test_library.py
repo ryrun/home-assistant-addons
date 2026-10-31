@@ -345,3 +345,33 @@ async def test_watched_show_aggregates_are_locally_paged_without_nested_history(
         result = await LibraryReader(TraktClient(http, FakeAuth(), 'id')).watched_shows(page=2, limit=2)
     assert result['total_items'] == 3 and result['next_page'] is None
     assert result['items'] == [{'show': show(2), 'plays': 5, 'last_watched_at': '2026-01-01T00:00:00Z'}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('headers', [
+    {},
+    {'X-Pagination-Page': '1', 'X-Pagination-Page-Count': '1',
+     'X-Pagination-Limit': '125', 'X-Pagination-Item-Count': '125'},
+])
+async def test_large_watched_show_arrays_use_local_pagination(headers):
+    def handler(request):
+        assert 'page' not in request.url.params and 'limit' not in request.url.params
+        return httpx.Response(200, headers=headers, json=[{'show': show(n)} for n in range(125)])
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        reader = LibraryReader(TraktClient(http, FakeAuth(), 'id'))
+        results = [await reader.watched_shows(page=p, limit=50) for p in (1, 2, 3, 4)]
+    assert [len(r['items']) for r in results] == [50, 50, 25, 0]
+    assert [r['next_page'] for r in results] == [2, 3, None, None]
+    assert all(r['total_items'] == 125 and r['page_count'] == 3 and r['limit'] == 50 for r in results)
+    assert [item['show']['ids']['trakt'] for r in results for item in r['items']] == list(range(125))
+
+
+@pytest.mark.asyncio
+async def test_full_list_endpoint_rejects_an_actual_partial_upstream_page():
+    def handler(request):
+        return httpx.Response(200, json=[{'show': show(1)}], headers={
+            'X-Pagination-Page': '1', 'X-Pagination-Page-Count': '2',
+            'X-Pagination-Limit': '1', 'X-Pagination-Item-Count': '2'})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        with pytest.raises(TraktError, match='unexpectedly paginated'):
+            await LibraryReader(TraktClient(http, FakeAuth(), 'id')).watched_shows()

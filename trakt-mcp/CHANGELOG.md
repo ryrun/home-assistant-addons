@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.3
+
+- Validate complete-array endpoint responses before applying local MCP pagination.
+  Watched-show libraries larger than a requested page and full-array pagination
+  headers no longer cause false page-number or page-size errors.
+- Continue rejecting unexpected partial upstream pages and inconsistent headers.
+- Cover 125-show libraries across first, middle, final and out-of-range pages,
+  with and without upstream pagination headers.
+
 ## 0.3.2
 
 - Include `library.py` and `version.py` in the Docker build context; the previous

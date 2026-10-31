@@ -105,7 +105,15 @@ class LibraryReader:
             self.client._check_personal_pagination(response, path)
         if require_pagination and 'X-Pagination-Page-Count' not in response.headers:
             raise TraktError('Pagination metadata missing; completeness cannot be verified for this endpoint.')
-        result = self.client._decode_page(response, page, limit)
+        if paginated:
+            result = self.client._decode_page(response, page, limit)
+        else:
+            # The upstream request deliberately has no page/limit. Validate the
+            # complete array before applying the caller's local page selection.
+            upstream = self.client._decode_page(response, 1, limit, full=True)
+            if upstream['next_page'] is not None:
+                raise TraktError('Trakt unexpectedly paginated a full-list endpoint; completeness cannot be verified.')
+            result = local_page(upstream['items'], page, limit)
         if len(result['items']) > limit:
             raise TraktError('Trakt returned more items than the requested page limit.')
         if projector:
