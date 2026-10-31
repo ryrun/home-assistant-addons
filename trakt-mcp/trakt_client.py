@@ -45,7 +45,7 @@ class TraktClient:
         self.http, self.auth = http, auth
         self.metrics = metrics
         self.headers = {'trakt-api-version': '2', 'trakt-api-key': client_id,
-                        'User-Agent': 'HomeAssistant-TraktMCP/0.1.0'}
+                        'User-Agent': 'HomeAssistant-TraktMCP/0.1.3'}
         self.cache = cache
         self.snapshots = PersonalSnapshots(self) if personal_cache else None
         self.cache_locks = [asyncio.Lock() for _ in range(32)]
@@ -228,6 +228,51 @@ class TraktClient:
 
     async def favorites(self, page=1, limit=100):
         return await self.personal_page('/users/me/favorites/movies/rank', page, limit)
+
+    @consistent_account
+    async def user_preferences(self):
+        """Allowlist explicit preferences; never expose or cache full account settings."""
+        data = json_data(await self.get('/users/settings', {'extended': 'browsing'}, personal=True))
+        def section(value):
+            if value is None:
+                return {}
+            if not isinstance(value, dict):
+                raise TraktError('Invalid Trakt preference settings response.')
+            return value
+        browsing = section(section(data).get('browsing'))
+        genres = section(browsing.get('genres'))
+        streaming = section(browsing.get('watchnow'))
+
+        def strings(value, genre=False):
+            if value is None:
+                return None
+            if not isinstance(value, list) or len(value) > 100 or any(
+                not isinstance(v, str) or not v.strip() or len(v) > 256
+                or any(ord(c) < 32 or ord(c) == 127 for c in v)
+                or (genre and not re.fullmatch(r'[a-z][a-z-]{0,49}', v)) for v in value
+            ):
+                raise TraktError('Invalid Trakt preference settings response.')
+            return list(dict.fromkeys(value))
+
+        country = streaming.get('country')
+        if country == '':
+            country = None
+        if country is not None and (not isinstance(country, str) or not re.fullmatch(r'[A-Za-z]{2}', country)):
+            raise TraktError('Invalid Trakt streaming country in preference settings.')
+        only_favorites = streaming.get('only_favorites')
+        if only_favorites is not None and type(only_favorites) is not bool:
+            raise TraktError('Invalid Trakt streaming preference settings.')
+        return {
+            'genres': {'favorites': strings(genres.get('favorites'), genre=True),
+                       'disliked': strings(genres.get('disliked'), genre=True)},
+            'streaming': {'country': country.upper() if country else None,
+                          'favorite_sources': strings(streaming.get('favorites')),
+                          'only_favorites': only_favorites},
+            'source': 'trakt:/users/settings?extended=browsing',
+            'note': 'Explicit user settings, not inferred preferences. Null means not provided; an empty list means no selections. '
+                    'Streaming source identifiers are Trakt values, not TMDb provider IDs or verified subscriptions. '
+                    'These settings do not establish movie availability and do not change HA streaming configuration.',
+        }
 
     async def person_movies(self, identifier, limit=50, offset=0):
         data = json_data(await self.get('/people/' + movie_id(identifier) + '/movies', {'extended': 'full'}))

@@ -103,6 +103,10 @@ and timing fields before displaying them.
 
 ## Set up streaming availability
 
+Your explicitly selected Trakt genres and streaming favorites can be read without
+TMDb using `trakt_get_user_preferences`, described below. These settings do not
+include movie availability.
+
 Trakt tools work without additional credentials. For streaming offers, register
 [TMDb API access](https://www.themoviedb.org/settings/api) and enter its
 **API Read Access Token** in `tmdb_read_access_token`. Use the bearer token,
@@ -278,7 +282,38 @@ legacy negotiation modes are covered by local tests.
 | `trakt_clear_cache` | Clear public disk cache and personal RAM snapshots without changing Trakt |
 | `trakt_get_streaming_shortlist` | Up to ten movie availability lookups with per-movie errors and duplicate coalescing |
 | `trakt_get_preference_data` | Compact high/low ratings and favorites with totals and explicit truncation |
+| `trakt_get_user_preferences` | Explicit favorite/disliked genres, streaming country, and favorite streaming source identifiers from Trakt settings; no TMDb required |
 | `trakt_get_recommendation_candidates` | Filtered `popular`, `trending`, or `related` movies with optional personal-list exclusions |
+
+### Explicit Trakt preferences
+
+Ask your assistant to call `trakt_get_user_preferences` before making personal
+recommendations. It reads `GET /users/settings?extended=browsing` using your
+existing Trakt authorization. No new HA options or TMDb credentials are needed.
+
+The output contains only `genres.favorites`, `genres.disliked`, and
+`streaming.country`, `streaming.favorite_sources`, `streaming.only_favorites`,
+plus source information and interpretation notes. Other account fields, including
+email, birth date, account tokens, sharing codes, and connections, are excluded.
+Settings are fetched live for every call and bypass both public disk caches and
+personal list snapshots. Full settings are not persisted or logged.
+
+An empty list means Trakt explicitly returned no selections. `null` means the
+field was absent or unavailable; do not invent preferences in that case. Genre
+settings express the user's stated preferences and should be considered alongside
+actual movie ratings and favorites, not treated as conclusions inferred from them.
+
+Streaming favorites are Trakt source identifiers as returned by the API. They are
+not automatically converted to names or TMDb provider IDs, do not verify active
+subscriptions, and do not establish whether a movie can currently be streamed.
+They do not override the HA streaming configuration. Actual offer lookups still
+require the optional TMDb integration.
+
+For example: “Read my explicit Trakt preferences and personal movie ratings, then
+recommend five movies from my watchlist. Explain each recommendation and include
+a Trakt link. Do not claim streaming availability without offer data.”
+
+### Pagination and candidate limits
 
 Paginated personal lists return `next_page`; keep requesting pages until it is
 `null` for a complete analysis. Some Trakt endpoints return all data without

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.3
+
+- Add read-only `trakt_get_user_preferences` for explicit favorite/disliked genres,
+  streaming country, and favorite streaming source identifiers from Trakt settings.
+- Fetch settings live with OAuth, return only allowlisted preference fields, and
+  keep complete account settings out of caches, tool outputs, and logs.
+- Distinguish missing settings from empty selections and streaming favorites from
+  verified subscriptions, TMDb provider IDs, and actual movie availability.
+- No TMDb credentials, new options, or additional authorization are required.
+
 ## 0.1.2
 
 - Report actionable startup validation errors without logging option values.

@@ -2,7 +2,7 @@
 
 Goal: a personal, read-only Trakt MCP server as a standalone Home Assistant add-on.
 Codex/Zed handles analysis and recommendations. Existing add-ons remain unchanged.
-Status: experimental version 0.1.0.
+Status: experimental version 0.1.3.
 
 Setup uses the existing Home Assistant interface through configuration and logs,
 or alternatively MCP tools. Home Assistant displays process status and logs.
@@ -17,6 +17,8 @@ or separate publicly exposed dashboard.
 - [x] Device flow through HA configuration/logs and MCP tools
 - [x] Private persistent token file, atomic writes, and serialized refresh
 - [x] Aggregated watched history, ratings, watchlist, search, and details
+- [x] Explicit genre preferences, streaming country, and favorite streaming sources
+  from allowlisted Trakt settings without TMDb credentials or unrelated account data
 - [x] Pagination using actual response headers and support for unpaginated endpoints
 - [x] Popular, trending, and related candidates with filters and complete fresh exclusions
 - [x] Movie credits including directors, related movies, and person filmographies

@@ -235,6 +235,7 @@ async def test_default_tool_surface_disables_authorization(tmp_path):
     ) as http:
         async with Client(streamable_http_client('http://testserver/mcp', http_client=http)) as client:
             names = {tool.name for tool in (await client.list_tools()).tools}
-            assert len(names) == 17
+            assert len(names) == 18
             assert 'trakt_auth_start' not in names and 'trakt_auth_poll' not in names
             assert 'trakt_get_preference_data' in names
+            assert 'trakt_get_user_preferences' in names

@@ -1,6 +1,6 @@
 # Trakt MCP Server
 
-Experimental Home Assistant add-on (0.1.2) for personal movie data from Trakt.tv.
+Experimental Home Assistant add-on (0.1.3) for personal movie data from Trakt.tv.
 AI assistants receive read-only access through authenticated MCP Streamable HTTP
 at `http://homeassistant.local:8765/mcp`.
 
@@ -14,6 +14,8 @@ port is published. The server has no chatbot or built-in LLM.
 - Watched movies with play counts and last viewing dates
 - Personal ratings, explicit favorites, movie watchlist, search, and movie details
 - Personal Trakt recommendations and directors' or actors' movie credits
+- Explicit favorite/disliked genres, streaming country, and streaming favorites
+  from Trakt settings, without TMDb credentials or unrelated account details
 - Streaming offers by country and selected services, grouped into subscription,
   free, ad-supported, rental, and purchase options (optional TMDb integration)
 - Candidates from popular, trending, or related movies with genre, year, and rating filters
