@@ -77,6 +77,22 @@ If the device code expires or is denied, restart the add-on with authorization
 enabled. After successful authorization, token refresh is automatic.
 Repeat setup if the refresh token is revoked.
 
+### Startup troubleshooting
+
+Version 0.1.2 and later report which startup stage failed without printing option
+values or raw exception details. Configuration errors identify the field to fix.
+In particular, `mcp_auth_token` must be your own random password with 32–512
+visible ASCII characters and no whitespace. Leave `trakt_client_secret` empty
+when Trakt does not issue one; an empty secret is supported by the device flow.
+
+For unexpected failures, the log reports the exception type, OS error number
+(when available), and source location. A failure while preparing persistent
+storage and the runtime user points to filesystem or privilege permissions;
+one while initializing the server needs investigation of the indicated source
+location. Share that sanitized line when reporting a problem, never the contents
+of the options or OAuth token files. Earlier versions only print a generic
+startup error; update first if changing the configuration does not resolve it.
+
 If you explicitly enable `enable_mcp_auth_tools` and restart, your assistant can
 alternatively call `trakt_auth_start` and display the URL and
 `user_code`, then call `trakt_auth_poll` while respecting its returned wait times.

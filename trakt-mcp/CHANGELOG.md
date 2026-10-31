@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2
+
+- Report actionable startup validation errors without logging option values.
+- Identify failing startup stages and unexpected exception types, error numbers,
+  and source locations while withholding raw exception text and tracebacks.
+- Validate configuration before changing persistent storage ownership or runtime
+  privileges, and align the MCP-reported version with the add-on version.
+
 ## 0.1.1
 
 - Use `http://localhost` for token refresh and document the matching Trakt app
