@@ -132,6 +132,8 @@ class TraktClient:
         items = json_data(response)
         if not isinstance(items, list):
             raise TraktError('Unerwartetes Trakt-Datenformat.')
+        if any(k.startswith('x-pagination-') for k in response.headers) and 'X-Pagination-Page-Count' not in response.headers:
+            raise TraktError('Incomplete Trakt pagination headers; completeness cannot be verified.')
         try:
             # Non-paginated endpoints (notably sync/watched) return the entire dataset.
             pages = int(response.headers.get('X-Pagination-Page-Count', 1))
@@ -144,11 +146,22 @@ class TraktClient:
             raise TraktError('Inkonsistente Trakt-Pagination; vollständige Ergebnisse nicht sichergestellt.')
         if not items and page < pages:
             raise TraktError('Leere Trakt-Seite vor Listenende; vollständige Ergebnisse nicht sichergestellt.')
+        if all(k in response.headers for k in ('X-Pagination-Page-Count', 'X-Pagination-Limit', 'X-Pagination-Item-Count')):
+            if size == 0:
+                valid = total == 0 and not items and pages in (0, 1)
+            else:
+                expected_pages = (total + size - 1) // size
+                expected_items = min(size, max(0, total - (current - 1) * size))
+                valid = pages in ((0, 1) if total == 0 else (expected_pages,)) and len(items) == expected_items
+            if not valid:
+                raise TraktError('Inconsistent Trakt pagination totals; completeness cannot be verified.')
         if 'X-Pagination-Page-Count' not in response.headers:
             total = len(items)
             pages = 1 if full else (total + limit - 1) // limit
             if not full:
                 items = items[(page - 1) * limit:page * limit]
+        if not full and len(items) > limit:
+            raise TraktError('Trakt returned more items than the requested page limit.')
         return {'items': items, 'page': current, 'page_count': pages, 'limit': size,
                 'total_items': total, 'next_page': page + 1 if page < pages else None}
 

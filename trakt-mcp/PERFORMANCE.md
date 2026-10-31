@@ -11,6 +11,8 @@ assessment, not a completed Green hardware benchmark or a guarantee for every in
 
 ## Resource controls
 
+- Two executing MCP tool handlers per process; queued calls share the 120-second
+  deadline and release capacity on cancellation. This includes cached responses.
 - Two concurrent GETs per upstream service; six HTTP pool connections in total
 - At most 8 MiB of decoded data per upstream response; OAuth responses use 64 KiB
 - At most 16 MiB transferred per complete personal-list sync

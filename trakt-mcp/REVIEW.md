@@ -4,6 +4,17 @@ Reviewed on 2026-10-31. This assessment covers source code, specifications, and
 local tests. It does not replace acceptance testing with a Trakt account,
 Zed/Codex, and Home Assistant Green.
 
+## Series extension review, version 0.3.1
+
+The follow-up review found and fixed three issues: absent/partial pagination could
+look like a complete first page on new personal routes; compound series exclusions
+did not check global activity across reads; and the HTTP request limit alone did
+not constrain whole-tool execution with large decoded results. These now have
+explicit validation, before/after activity checks, and a shared two-handler limit.
+Regression tests also cover empty results, cancellation and time spent queued.
+The tool surface is unchanged. Real-account endpoint behavior, large series
+libraries, and ARM64/Supervisor operation still require target-device acceptance.
+
 ## Framework decision
 
 The server uses the official MCP Python SDK 2.3.0 and its high-level `MCPServer`

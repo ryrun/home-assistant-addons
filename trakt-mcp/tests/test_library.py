@@ -208,6 +208,8 @@ def test_date_ranges_use_utc_and_reject_invalid_or_reversed_ranges():
 async def test_show_recommendations_exclude_started_watchlisted_hidden_and_dropped_and_keep_rank():
     def handler(request):
         path = request.url.path
+        if path == '/sync/last_activities':
+            return httpx.Response(200, json={'all': '2026-01-01T00:00:00Z'})
         if path == '/recommendations/shows':
             return httpx.Response(200, json=[{**show(n), 'favorited_by': [{'notes': 'private-note'}],
                                              'recommended_by': [{'notes': 'private-note'}]} for n in range(1, 7)])
@@ -225,6 +227,8 @@ async def test_show_recommendations_exclude_started_watchlisted_hidden_and_dropp
 @pytest.mark.asyncio
 async def test_hidden_exclusion_fails_closed_when_pagination_is_missing():
     def handler(request):
+        if request.url.path == '/sync/last_activities':
+            return httpx.Response(200, json={'all': '2026-01-01T00:00:00Z'})
         return httpx.Response(200, json=[show()] if '/recommendations/shows' in request.url.path else [])
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         with pytest.raises(TraktError, match='Pagination metadata missing'):
@@ -277,6 +281,8 @@ async def test_hidden_read_and_exclusion_walk_multiple_pages():
     calls = []
     def handler(request):
         calls.append(request)
+        if request.url.path == '/sync/last_activities':
+            return httpx.Response(200, json={'all': '2026-01-01T00:00:00Z'})
         if request.url.path == '/recommendations/shows':
             return httpx.Response(200, json=[show(1), show(2), show(3)])
         if request.url.path.endswith('/dropped'):

@@ -314,6 +314,10 @@ Their results do not enter the public SQLite cache or the existing film-list RAM
 snapshots. Private reads check for authorization changes during the operation.
 Paginated results use Trakt headers when present and local slicing for endpoints
 that return complete arrays. Follow `next_page` until null for a complete analysis.
+History, up-next, list items, movie/episode collection and requested playback
+pages require pagination metadata. Partial headers or inconsistent declared page
+counts, totals and final-page lengths cause an error instead of an apparent
+list end. Known non-paginated responses retain local slicing.
 The 8 MiB per-response limit still applies even when an upstream endpoint returns
 all data in one response; large accounts can encounter an explicit size error.
 
@@ -345,6 +349,9 @@ dropped shows. Watchlist exclusion is optional. Exclusion lists are read fully
 within the existing 200-page/16-MiB sync budgets, and required pagination or IDs
 must be present; failures produce an error rather than unreliable exclusions.
 Other users' `favorited_by`/`recommended_by` profiles and notes are omitted.
+With exclusions enabled, global Trakt activity is validated before and after the
+compound series lookup. Changed, missing or invalid activity timestamps produce
+an error; retry the request for consistent exclusions.
 As with other compound lookups, Trakt does not supply a cross-request transaction;
 viewing or list changes made after a read can still race with a recommendation.
 
@@ -363,9 +370,9 @@ statistics shown in the service monitor.
 
 #### Updating and checking the tool list
 
-After installing 0.3.0, reconnect the MCP client and start a new assistant thread.
+After installing an update, reconnect the MCP client and start a new assistant thread.
 If an old tool list persists in Zed/Codex, fully quit and reopen Zed before starting
-the new thread. Confirm `server_version: 0.3.0` via `trakt_get_status` and check
+the new thread. Confirm `server_version: 0.3.1` via `trakt_get_status` and check
 that `trakt_get_show_progress` and `trakt_get_history` are available. Stored Trakt
 authorization stays valid; no new device authorization is normally required.
 
@@ -547,7 +554,11 @@ retried because refresh tokens are single-use. A damaged token file can be
 replaced by authorizing again through HA. A recognized OAuth `invalid_grant`
 requires reauthorization; client-configuration errors retain saved credentials.
 
-The Trakt client allows at most two concurrent API GETs. The shared
+At most two MCP tool handlers execute concurrently, including cache hits and
+decoding work, to reduce overlapping large results on Home Assistant Green.
+Other calls wait within their existing 120-second timeout; cancellation releases
+capacity. In-progress counters and tool durations include this queue wait.
+The Trakt client also allows at most two concurrent API GETs. The shared
 HTTP pool has at most six connections and four keepalive connections.
 The HTTP server also limits concurrent connections/tasks. Network failures,
 invalid parameters, and missing movies return tool errors without exposing raw

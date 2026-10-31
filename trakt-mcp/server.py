@@ -1,6 +1,6 @@
 """Authenticated Streamable HTTP MCP, with an ingress-only service monitor and no model dependency."""
 import asyncio
-from contextlib import asynccontextmanager, suppress, contextmanager
+from contextlib import asynccontextmanager, suppress, contextmanager, nullcontext
 import time
 from functools import wraps, partial
 import hmac
@@ -41,16 +41,18 @@ Year = Annotated[int, Field(ge=1800, le=9999)]
 Season = Annotated[int, Field(ge=0, le=100000)]
 Episode = Annotated[int, Field(ge=1, le=100000)]
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, open_world_hint=True)
+MAX_ACTIVE_TOOLS = 2
 
 
-def safe_tool(function, *, metrics=None):
+def safe_tool(function, *, metrics=None, slots=None):
     @wraps(function)
     async def wrapped(*args, **kwargs):
         started = metrics.begin_tool(function.__name__) if metrics else time.monotonic()
         outcome = 'cancelled'
         try:
             async with asyncio.timeout(120):
-                result = await function(*args, **kwargs)
+                async with (slots if slots is not None else nullcontext()):
+                    result = await function(*args, **kwargs)
             outcome = 'ok'
             LOGGER.info('MCP %s erfolgreich (%.2fs)', function.__name__, time.monotonic() - started)
             return result
@@ -136,7 +138,7 @@ def validate_options(options):
 def create_app(options, data_dir=Path('/data'), http=None):
     client_id, token = validate_options(options)
     metrics = Metrics()
-    instrument_tool = partial(safe_tool, metrics=metrics)
+    instrument_tool = partial(safe_tool, metrics=metrics, slots=asyncio.Semaphore(MAX_ACTIVE_TOOLS))
     owned_http = http is None
     http = http or httpx.AsyncClient(timeout=httpx.Timeout(20, connect=10), follow_redirects=False,
                                      limits=httpx.Limits(max_connections=6, max_keepalive_connections=4))

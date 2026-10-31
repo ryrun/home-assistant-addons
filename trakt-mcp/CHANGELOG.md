@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.1
+
+- Require pagination metadata for paged history, up-next, list items, movie/episode
+  collections and playback; incomplete headers no longer imply a complete result.
+- Validate declared page sizes, totals and final-page lengths while retaining
+  legitimate empty and non-paginated endpoint responses.
+- Validate Trakt activity before/after series recommendation exclusions; reject
+  results if activity changes or freshness cannot be established.
+- Limit execution to two concurrent MCP tool handlers per process. Waiting calls
+  remain covered by the 120-second timeout, and cancellation releases capacity.
+- Extend regression coverage for pagination failures, changed activity, shared
+  execution limits and queued-call timeout/cancellation behavior.
+
 ## 0.3.0
 
 - Add read-only series search/details, seasons and episodes, cast/crew, related

@@ -21,12 +21,12 @@ async def main():
                     'trakt_get_playback', 'trakt_get_user_stats', 'trakt_get_lists'} <= tools
             assert len(tools) == 41
             assert not any(name in tools for name in ('trakt_get_streaming_shortlist', 'trakt_get_streaming_providers', 'trakt_get_movie_streaming'))
-            for _ in range(2):
-                result = await client.call_tool('trakt_get_status', {})
+            results = await asyncio.gather(*(client.call_tool('trakt_get_status', {}) for _ in range(4)))
+            for result in results:
                 assert not result.is_error
                 assert result.structured_content['trakt_tokens_stored'] is True
                 assert result.structured_content['server_version'] == VERSION
-    print('Container MCP handshake, default tool permissions, and repeated status calls passed.')
+    print('Container MCP handshake, default tool permissions, and concurrent status calls passed.')
 
 
 asyncio.run(main())

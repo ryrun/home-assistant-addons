@@ -93,7 +93,7 @@ class LibraryReader:
         self.client, self.auth = client, client.auth
 
     async def _page(self, path, page=1, limit=50, params=None, *, personal=False,
-                    paginated=True, extended=True, projector=None):
+                    paginated=True, extended=True, projector=None, require_pagination=False):
         positive(page, 1)
         if type(limit) is not int or not 1 <= limit <= 100:
             raise TraktError('limit must be between 1 and 100.')
@@ -103,6 +103,8 @@ class LibraryReader:
         response = await self.client.get(path, query, personal=personal)
         if personal:
             self.client._check_personal_pagination(response, path)
+        if require_pagination and 'X-Pagination-Page-Count' not in response.headers:
+            raise TraktError('Pagination metadata missing; completeness cannot be verified for this endpoint.')
         result = self.client._decode_page(response, page, limit)
         if len(result['items']) > limit:
             raise TraktError('Trakt returned more items than the requested page limit.')
@@ -195,7 +197,7 @@ class LibraryReader:
 
     @consistent_account
     async def up_next(self, page=1, limit=50):
-        return await self._page('/sync/progress/up_next', page, limit, personal=True, projector=compact)
+        return await self._page('/sync/progress/up_next', page, limit, personal=True, projector=compact, require_pagination=True)
 
     @consistent_account
     async def watched_shows(self, page=1, limit=50):
@@ -223,7 +225,8 @@ class LibraryReader:
             if media_type == 'all':
                 raise TraktError('Select a media type when providing item_id.')
             path += '/' + identifier(item_id)
-        return await self._page(path, page, limit, date_range(start_at, end_at, timestamps=True), personal=True, projector=compact)
+        return await self._page(path, page, limit, date_range(start_at, end_at, timestamps=True), personal=True,
+                                projector=compact, require_pagination=True)
 
     @consistent_account
     async def lists(self, page=1, limit=50):
@@ -238,7 +241,7 @@ class LibraryReader:
         choice(media_type, ('all', 'movie', 'show', 'season', 'episode'))
         suffix = 'movie,show,season,episode' if media_type == 'all' else media_type
         return await self._page(f'/users/me/lists/{identifier(list_id)}/items/{suffix}', page, limit,
-                                personal=True, projector=compact)
+                                personal=True, projector=compact, require_pagination=True)
 
     @consistent_account
     async def hidden(self, section='recommendations', media_type=None, page=1, limit=50):
@@ -296,7 +299,8 @@ class LibraryReader:
     @consistent_account
     async def collection(self, media_type='movies', page=1, limit=50):
         choice(media_type, ('movies', 'shows', 'episodes'))
-        result = await self._page('/sync/collection/' + media_type, page, limit, personal=True, projector=compact)
+        result = await self._page('/sync/collection/' + media_type, page, limit, personal=True,
+                                  projector=compact, require_pagination=media_type != 'shows')
         result['note'] = 'Items recorded in your Trakt collection, not proof of current ownership, access or streaming availability. '
         if media_type == 'shows':
             result['note'] += 'Show entries omit nested episode collections; use media_type=episodes for individual episodes.'
@@ -306,12 +310,14 @@ class LibraryReader:
     async def playback(self, media_type='all', page=1, limit=50, start_date=None, end_date=None):
         choice(media_type, ('all', 'movies', 'episodes'))
         path = '/sync/playback' + ('' if media_type == 'all' else '/' + media_type)
-        result = await self._page(path, page, limit, date_range(start_date, end_date), personal=True, projector=compact)
+        result = await self._page(path, page, limit, date_range(start_date, end_date), personal=True,
+                                  projector=compact, require_pagination=True)
         result['note'] = 'Paused playback positions reported to Trakt by compatible players. Empty data does not prove that nothing was started.'
         return result
 
     @consistent_account
     async def show_recommendations(self, limit=10, exclude_started=True, exclude_watchlist=False, exclude_hidden=True):
+        activity_before = await self._activity() if (exclude_started or exclude_watchlist or exclude_hidden) else None
         data = json_data(await self.client.get('/recommendations/shows',
             {'limit': 100, 'extended': 'full', 'ignore_watchlisted': str(exclude_watchlist).lower()}, personal=True))
         if not isinstance(data, list):
@@ -346,7 +352,20 @@ class LibraryReader:
             if value not in excluded and value not in seen:
                 seen.add(value)
                 selected.append({**{k: v for k, v in show.items() if k not in ('favorited_by', 'recommended_by')}, 'recommendation_rank': rank})
+        if activity_before is not None and activity_before != await self._activity():
+            raise TraktError('Trakt activity changed during series recommendations. Retry for consistent exclusions.')
         return {'items': selected[:limit], 'candidates_received': len(data), 'available_after_exclusions': len(selected),
                 'selection_truncated': len(selected) > limit, 'source': 'trakt:/recommendations/shows',
                 'excluded_started': exclude_started, 'excluded_watchlist': exclude_watchlist, 'excluded_hidden': exclude_hidden,
                 'note': 'Trakt personal order preserved. At most 100 upstream candidates; fewer may remain after exclusions.'}
+
+    async def _activity(self):
+        data = object_data(await self.client.get('/sync/last_activities', personal=True))
+        stamp = data.get('all')
+        try:
+            parsed = datetime.fromisoformat(stamp.replace('Z', '+00:00'))
+            if parsed.tzinfo is None:
+                raise ValueError()
+        except (AttributeError, ValueError, TypeError):
+            raise TraktError('Trakt activity timestamp is missing or invalid; exclusions cannot be verified.') from None
+        return stamp

@@ -2,7 +2,7 @@ name: "Trakt MCP Server"
 slug: "trakt_mcp"
 description: "Read-only Trakt movies, series and personal library over authenticated MCP"
 url: "https://github.com/ryrun/home-assistant-addons/tree/main/trakt-mcp"
-version: "0.3.0"
+version: "0.3.1"
 stage: experimental
 arch:
   - aarch64
