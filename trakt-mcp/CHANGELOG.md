@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+- Use `http://localhost` for token refresh and document the matching Trakt app
+  redirect URI, compatible with Trakt's development app restrictions.
+- Verify refresh request parameters with and without a client secret while
+  preserving single-use token rotation under concurrent requests.
+
 ## 0.1.0
 
 Initial experimental release.

@@ -33,9 +33,11 @@ use. The local development version has not been published automatically.
 
 ## Trakt application and options
 
-Register your own API application under [Trakt Apps](https://app.trakt.tv/settings/apps).
-Set its redirect URI to `urn:ietf:wg:oauth:2.0:oob`. The device flow does not require
-a local callback server. The same URI is sent when refreshing tokens.
+Register your own API application under [Trakt Apps](https://developer.trakt.tv/apps).
+Set its redirect URI to exactly `http://localhost` (without a trailing slash).
+Trakt development apps only allow localhost redirects. The add-on uses the device
+flow, so no callback server needs to run at that address. The same URI is sent
+when refreshing tokens.
 
 | Option | Description |
 | --- | --- |

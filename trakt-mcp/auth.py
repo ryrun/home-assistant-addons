@@ -161,7 +161,7 @@ class Auth:
             ):
                 return tokens['access_token']
             payload = {'client_id': self.client_id, 'refresh_token': tokens['refresh_token'], 'grant_type': 'refresh_token',
-                       'redirect_uri': 'urn:ietf:wg:oauth:2.0:oob'}
+                       'redirect_uri': 'http://localhost'}
             if self.client_secret:
                 payload['client_secret'] = self.client_secret
             response = await self._post('/token', payload)

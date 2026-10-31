@@ -35,15 +35,22 @@ async def test_device_flow_keeps_secrets_private_and_handles_interval(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_parallel_refresh_rotates_only_once(tmp_path):
+@pytest.mark.parametrize('client_secret', ['', 'secret'])
+async def test_parallel_refresh_rotates_only_once(tmp_path, client_secret):
     calls = []
     async def handler(request):
         calls.append(request)
         await asyncio.sleep(0.01)
-        assert json.loads(request.content)['refresh_token'] == 'private-refresh'
+        expected = {
+            'client_id': 'id', 'refresh_token': 'private-refresh',
+            'grant_type': 'refresh_token', 'redirect_uri': 'http://localhost',
+        }
+        if client_secret:
+            expected['client_secret'] = client_secret
+        assert json.loads(request.content) == expected
         return httpx.Response(200, json=tokens('new', 'rotated'))
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        auth = Auth(http, 'id', 'secret', tmp_path / 'oauth.json')
+        auth = Auth(http, 'id', client_secret, tmp_path / 'oauth.json')
         auth._save(tokens(expired=True))
         assert await asyncio.gather(*(auth.access_token() for _ in range(8))) == ['new'] * 8
         assert len(calls) == 1
