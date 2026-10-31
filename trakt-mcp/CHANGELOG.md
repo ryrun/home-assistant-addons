@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2
+
+- Include `library.py` and `version.py` in the Docker build context; the previous
+  allowlist excluded these required modules and prevented add-on updates.
+- Remove the obsolete streaming module entry from the build allowlist.
+- Check Docker COPY sources against the build-context allowlist in regression tests.
+
 ## 0.3.1
 
 - Require pagination metadata for paged history, up-next, list items, movie/episode

@@ -4,10 +4,11 @@
 !errors.py
 !server.py
 !trakt_client.py
+!library.py
+!version.py
 !run.sh
 !setup_flow.py
 !cache.py
-!streaming.py
 !http_utils.py
 !personal_cache.py
 !security.py
