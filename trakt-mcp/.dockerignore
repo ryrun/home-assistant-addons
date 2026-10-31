@@ -1,0 +1,17 @@
+*
+!requirements.txt
+!auth.py
+!errors.py
+!server.py
+!trakt_client.py
+!run.sh
+!setup_flow.py
+!cache.py
+!streaming.py
+!http_utils.py
+!personal_cache.py
+!security.py
+!metrics.py
+!dashboard.py
+!web/
+!web/**

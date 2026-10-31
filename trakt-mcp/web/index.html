@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Trakt MCP · Service monitor</title>
+  <link rel="stylesheet" href="./assets/status.css">
+  <script src="./assets/status.js" defer></script>
+</head>
+<body>
+<main>
+  <header class="masthead">
+    <div><p class="eyebrow">HOME ASSISTANT / SERVICE MONITOR</p><h1>Trakt MCP<span class="status" id="ready">Loading</span></h1>
+      <p class="subtitle">A live view of requests, cache efficiency and process health.</p></div>
+    <button id="refresh" type="button">Refresh now</button>
+  </header>
+  <div id="connection" class="notice" role="status" aria-live="polite">Reading local statistics…</div>
+  <section class="flow" aria-label="Service state">
+    <div><span class="label">MCP server</span><strong id="server-state">—</strong><small id="uptime">Uptime —</small></div>
+    <span class="flow-link" aria-hidden="true">→</span>
+    <div><span class="label">Trakt authorization</span><strong id="auth">—</strong><small>Stored credentials; not a live sign-in check</small></div>
+    <span class="flow-link" aria-hidden="true">→</span>
+    <div><span class="label">Streaming lookup</span><strong id="streaming">—</strong><small>TMDb / JustWatch configuration</small></div>
+  </section>
+  <section class="numbers" aria-label="Tool statistics">
+    <article><h2>Tool calls</h2><p class="number" id="calls">—</p><p id="active">— in progress</p></article>
+    <article><h2>Successful calls</h2><p class="number" id="success">—</p><p id="errors">— errors since startup</p></article>
+    <article><h2>Average response</h2><p class="number" id="latency">—</p><p id="p95">95th percentile —</p></article>
+  </section>
+  <section class="section">
+    <div class="section-heading"><h2>Cache efficiency</h2><span>Hits since startup · live entry counts</span></div>
+    <div class="cache-grid" id="caches"><p class="empty">No cache statistics yet.</p></div>
+  </section>
+  <section class="section">
+    <div class="section-heading"><h2>Upstream services</h2><span>HTTP attempts including retries · decoded bytes</span></div>
+    <div class="table-scroll"><table><thead><tr><th>Service</th><th>Requests</th><th>Failed attempts</th><th>Rate limits</th><th>Average</th><th>Received</th><th>Cooldown</th></tr></thead><tbody id="upstreams"></tbody></table></div>
+    <p class="hint">A retried upstream failure may still result in a successful tool call. Expected OAuth pending responses are not counted as failures.</p>
+  </section>
+  <section class="section">
+    <div class="section-heading"><h2>Process resources</h2><span>Add-on process only</span></div>
+    <div class="resources"><p><span class="label" id="memory-label">Memory</span><strong id="memory">—</strong></p>
+      <p><span class="label">CPU / one core</span><strong id="cpu">—</strong></p>
+      <p><span class="label">Rejected MCP requests</span><strong id="rejected">—</strong></p></div>
+    <p class="hint">Memory includes Python, connections and decoded data. CPU is sampled between page updates; it is not total Home Assistant usage.</p>
+  </section>
+  <section class="section">
+    <div class="section-heading"><h2>By tool</h2><span>Handler executions · bounded latency samples</span></div>
+    <div class="table-scroll"><table><thead><tr><th>Tool</th><th>Calls</th><th>Errors</th><th>Average</th><th>95th percentile</th></tr></thead><tbody id="tools"></tbody></table></div>
+  </section>
+  <section class="section">
+    <div class="section-heading"><h2>Recent calls</h2><span>Last 30 · names and outcomes only</span></div>
+    <div class="table-scroll recent-scroll" tabindex="0" aria-label="Recent calls, scrollable"><table><thead><tr><th>Time</th><th>Tool</th><th>Outcome</th><th>Duration</th></tr></thead><tbody id="recent"></tbody></table></div>
+  </section>
+  <footer><p id="updated">Waiting for first update.</p><p>Counters reset on restart. Updates every 10 seconds while visible. No movie data or credentials are displayed.</p></footer>
+</main>
+</body>
+</html>

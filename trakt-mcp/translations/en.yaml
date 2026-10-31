@@ -1,0 +1,45 @@
+configuration:
+  trakt_client_id:
+    name: Trakt client ID
+    description: "Your own Trakt API application's client ID. See the Documentation tab for registration and setup."
+  trakt_client_secret:
+    name: Trakt client secret
+    description: "Your Trakt application's client secret, if required. Do not enter access or refresh tokens."
+  mcp_auth_token:
+    name: MCP access password
+    description: "Use a random password of 32–512 visible ASCII characters without whitespace or control characters. Configure Authorization: Bearer <password> in your MCP client. Home Assistant login does not protect this separate port."
+  authorize_trakt:
+    name: Start Trakt authorization
+    description: "Enable, save and restart the app. Open the Log tab for the activation URL and code. Disable again after authorization succeeds."
+  log_level:
+    name: Log level
+    description: "info shows tool names, durations and operational status. Credentials and movie results are not logged."
+  cache_ttl_seconds:
+    name: Cache lifetime (seconds)
+    description: "Cache public movie metadata for 3600 seconds by default. Set 0 to disable. Personal lists use activity-validated RAM snapshots when enabled. An MCP tool can clear the cache."
+  tmdb_read_access_token:
+    name: TMDb API Read Access Token (optional)
+    description: "Required for streaming availability and provider discovery. Register TMDb API access and enter the API Read Access Token. Trakt tools work without it."
+  streaming_country:
+    name: Streaming country
+    description: "Two-letter ISO country code, e.g. DE, AT or CH. Defaults to DE. Availability differs by country."
+  streaming_services:
+    name: Your streaming subscriptions
+    description: "Exact provider names from trakt_get_streaming_providers, e.g. Netflix. Add-on channels and ad-supported plans can be separate providers. Do not enter credentials. Empty means no subscription selection."
+  personal_cache_enabled:
+    name: Validate personal snapshots
+    description: "Keep up to 16 MiB of personal list data in RAM; validate against Trakt activity on each use. Never persist personal lists to disk. Default enabled."
+  enable_mcp_auth_tools:
+    name: Enable MCP authorization tools
+    description: "Default off: authorize through HA configuration and logs. Enable only if you want the assistant to start or poll Trakt account authorization. Restart after changing."
+  allowed_networks:
+    name: Allowed client networks
+    description: "CIDR networks permitted to connect to MCP. Defaults to private LAN and loopback ranges. Empty disables IP filtering. Proxy/NAT addresses can mask the original client; keep router firewall protection."
+  streaming_provider_ids:
+    name: Streaming provider IDs
+    description: "Preferred stable numeric IDs from trakt_get_streaming_providers. Names remain supported but are validated against the regional catalog. Additional channels stay separate."
+  allowed_hosts:
+    name: Allowed Host headers (optional)
+    description: "Allowed destination hosts including port, e.g. homeassistant.local:8765. Empty allows all host names. This does not restrict client IP addresses or prevent Internet exposure."
+network:
+  8765/tcp: "MCP endpoint /mcp. Use on a trusted LAN or via VPN; do not forward this port on your router. See Documentation for client setup."

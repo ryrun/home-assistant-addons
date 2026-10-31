@@ -1,0 +1,45 @@
+configuration:
+  trakt_client_id:
+    name: Trakt-Client-ID
+    description: "ID deiner eigenen Trakt-API-App. Registrierung und Einrichtung stehen im Reiter Dokumentation."
+  trakt_client_secret:
+    name: Trakt-Client-Secret
+    description: "Client-Secret deiner Trakt-App, falls benötigt. Keine Access- oder Refresh-Tokens eintragen."
+  mcp_auth_token:
+    name: MCP-Zugriffspasswort
+    description: "Eigenes zufälliges Passwort mit 32–512 sichtbaren ASCII-Zeichen ohne Leerraum oder Steuerzeichen. Im MCP-Client als Authorization: Bearer <Passwort> verwenden. Dieses Passwort schützt den separaten MCP-Port; der HA-Login gilt dort nicht."
+  authorize_trakt:
+    name: Trakt-Anmeldung starten
+    description: "Einschalten, speichern und Add-on neu starten. Aktivierungslink und Code erscheinen im Protokoll. Nach erfolgreicher Anmeldung wieder ausschalten."
+  log_level:
+    name: Protokollstufe
+    description: "info zeigt Tool-Namen, Laufzeiten und Betriebsstatus. Zugangsdaten und Film-Ergebnisse werden nicht ausgegeben."
+  cache_ttl_seconds:
+    name: Cache-Lebensdauer (Sekunden)
+    description: "Öffentliche Filmdaten zwischenspeichern: Standard 3600 Sekunden, 0 schaltet den Cache aus. Persönliche Listen nutzen auf Wunsch aktivitätsgeprüfte RAM-Snapshots. Cache-Leerung über MCP möglich."
+  tmdb_read_access_token:
+    name: TMDb API Read Access Token (optional)
+    description: "Für Streaming-Verfügbarkeit und Anbieterliste. Kostenlosen API-Zugang bei TMDb einrichten und den API Read Access Token hier eintragen. Trakt-Funktionen laufen auch ohne diesen Token."
+  streaming_country:
+    name: Land für Streaming
+    description: "Zweistelliger ISO-Ländercode, z. B. DE, AT oder CH. Standard DE. Verfügbarkeit unterscheidet sich nach Land."
+  streaming_services:
+    name: Deine Streaming-Abos
+    description: "Liste exakter Anbieternamen aus trakt_get_streaming_providers, z. B. Netflix. Zusatz-Channels und werbefinanzierte Tarife sind gegebenenfalls eigene Anbieter. Keine Zugangsdaten eintragen. Leer bedeutet keine Abo-Vorauswahl."
+  personal_cache_enabled:
+    name: Persönliche Snapshots validieren
+    description: "Hält bis zu 16 MiB persönlicher Listen im RAM und prüft bei jedem Zugriff Trakts Aktivitäten. Keine Speicherung persönlicher Listen auf der Festplatte. Standard ein."
+  enable_mcp_auth_tools:
+    name: MCP-Anmeldetools aktivieren
+    description: "Standard aus: Anmeldung über HA-Konfiguration und Protokoll. Nur einschalten, wenn der Assistent die Trakt-Anmeldung starten oder prüfen soll. Danach neu starten."
+  allowed_networks:
+    name: Erlaubte Client-Netze
+    description: "Erlaubte CIDR-Netze. Standardmäßig private LAN- und Loopback-Netze. Leer deaktiviert IP-Filter. Proxy/NAT kann die echte Herkunft verdecken; Router-Firewall weiterhin verwenden."
+  streaming_provider_ids:
+    name: Streaming-Anbieter-IDs
+    description: "Bevorzugt stabile numerische IDs aus trakt_get_streaming_providers eintragen. Namen werden weiterhin unterstützt und gegen den regionalen Katalog geprüft. Zusatz-Channels bleiben separat."
+  allowed_hosts:
+    name: Erlaubte Host-Header (optional)
+    description: "Zulässige Zielnamen einschließlich Port, z. B. homeassistant.local:8765. Leer erlaubt alle Host-Namen. Dies ist keine Beschränkung der Client-IP und kein Schutz vor Internetfreigaben."
+network:
+  8765/tcp: "MCP-Endpunkt /mcp. Nur im vertrauenswürdigen Heimnetz oder per VPN nutzen; nicht im Router freigeben. Client-Einrichtung siehe Dokumentation."

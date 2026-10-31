@@ -1,0 +1,65 @@
+name: "Trakt MCP Server"
+slug: "trakt_mcp"
+description: "Read-only Trakt movie data for AI assistants over authenticated MCP"
+url: "https://github.com/ryrun/home-assistant-addons/tree/main/trakt-mcp"
+version: "0.1.0"
+stage: experimental
+arch:
+  - aarch64
+  - amd64
+startup: application
+boot: auto
+init: false
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:chart-line
+panel_title: Trakt MCP
+panel_admin: true
+homeassistant_api: false
+hassio_api: false
+watchdog: "http://[HOST]:[PORT:8765]/health"
+ports:
+  8765/tcp: 8765
+ports_description:
+  8765/tcp: "Authenticated MCP Streamable HTTP endpoint (/mcp)"
+options:
+  trakt_client_id: ""
+  trakt_client_secret: ""
+  mcp_auth_token: ""
+  authorize_trakt: false
+  log_level: info
+  personal_cache_enabled: true
+  enable_mcp_auth_tools: false
+  allowed_networks:
+    - 127.0.0.0/8
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - "::1/128"
+    - "fc00::/7"
+    - "fe80::/10"
+  cache_ttl_seconds: 3600
+  tmdb_read_access_token: ""
+  streaming_country: DE
+  streaming_services: []
+  streaming_provider_ids: []
+  allowed_hosts: []
+schema:
+  trakt_client_id: str
+  trakt_client_secret: password
+  mcp_auth_token: password
+  authorize_trakt: bool
+  log_level: list(debug|info|warning|error)
+  personal_cache_enabled: bool
+  enable_mcp_auth_tools: bool
+  allowed_networks:
+    - str
+  streaming_provider_ids:
+    - int(1,)
+  cache_ttl_seconds: int(0,86400)
+  tmdb_read_access_token: password
+  streaming_country: match(^[A-Za-z]{2}$)
+  streaming_services:
+    - str
+  allowed_hosts:
+    - str
