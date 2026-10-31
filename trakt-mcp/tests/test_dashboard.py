@@ -11,7 +11,7 @@ from metrics import Metrics
 from server import create_app
 
 OPTIONS = {'trakt_client_id': 'private-client-id', 'mcp_auth_token': 'private-mcp-token-'+'x'*40,
-           'trakt_client_secret': 'private-client-secret', 'tmdb_read_access_token': 'private-tmdb-token',
+           'trakt_client_secret': 'private-client-secret',
            'personal_cache_enabled': False}
 INGRESS = ('172.30.32.2', 12345)
 

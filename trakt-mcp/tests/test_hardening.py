@@ -13,7 +13,6 @@ from errors import TraktError
 from http_utils import bounded_request
 from security import client_allowed, parse_networks
 from server import create_app
-from streaming import StreamingClient
 from test_auth import tokens
 from test_trakt_client import FakeAuth, movie
 from trakt_client import TraktClient
@@ -47,8 +46,7 @@ async def test_invalid_cached_body_refetches(tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('service', ['trakt', 'tmdb'])
-async def test_waiting_request_obeys_new_cooldown(service):
+async def test_waiting_request_obeys_new_cooldown():
     started, release = asyncio.Event(), asyncio.Event()
     calls = []
     async def handler(request):
@@ -59,11 +57,8 @@ async def test_waiting_request_obeys_new_cooldown(service):
             return httpx.Response(429, headers={'Retry-After': '7200'})
         return httpx.Response(200, json={})
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        client = TraktClient(http, FakeAuth(), 'id') if service == 'trakt' else StreamingClient(http, None, 'token')
-        if service == 'trakt':
-            client.request_slots = asyncio.Semaphore(1)
-        else:
-            client.slots = asyncio.Semaphore(1)
+        client = TraktClient(http, FakeAuth(), 'id')
+        client.request_slots = asyncio.Semaphore(1)
         first = asyncio.create_task(client.get('/1'))
         await started.wait()
         second = asyncio.create_task(client.get('/2'))
@@ -143,16 +138,6 @@ async def test_personal_cache_never_serves_stale_data_when_activity_fails():
 
 
 @pytest.mark.asyncio
-async def test_shortlist_returns_per_movie_errors_and_deduplicates():
-    client = StreamingClient(None, None)
-    client.availability = AsyncMock(side_effect=[{'status': 'offers_found'}, TraktError('Not found')])
-    result = await client.shortlist(['1', '1', '2'])
-    assert len(result['items']) == 2
-    assert result['items'][1]['error'] == 'Not found'
-    assert client.availability.await_count == 2
-
-
-@pytest.mark.asyncio
 async def test_preference_data_has_totals_and_explicit_truncation():
     client = TraktClient(None, None, 'id')
     client._all_items_live = AsyncMock(side_effect=[
@@ -162,22 +147,6 @@ async def test_preference_data_has_totals_and_explicit_truncation():
     assert result['totals']['ratings'] == 3
     assert result['selection_truncated'] and result['source_lists_complete']
     assert result['high_ratings'][0]['rating'] == 10
-
-
-@pytest.mark.asyncio
-async def test_provider_ids_work_and_unknown_names_do_not_look_unavailable(tmp_path):
-    def handler(request):
-        if request.url.path.endswith('/watch/providers/movie'):
-            return httpx.Response(200, json={'results': [{'provider_id': 8, 'provider_name': 'Netflix'}]})
-        return httpx.Response(200, json={'results': {'DE': {'flatrate': [{'provider_id': 8, 'provider_name': 'Netflix'}]}}})
-    trakt = AsyncMock()
-    trakt.details.return_value = {'title': 'Example', 'ids': {'tmdb': 1}}
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        client = StreamingClient(http, trakt, 'token', provider_ids=[8], cache=PublicCache(tmp_path/'cache.sqlite3'))
-        assert (await client.availability('1'))['available_with_configured_subscription'] is True
-        with pytest.raises(TraktError, match='Unknown streaming provider'):
-            await client.availability('1', services=['Netfliix'])
-        assert (await client.cache.status())['hits'] >= 1
 
 
 def test_privilege_drop_prepares_only_known_files(tmp_path, monkeypatch):
@@ -235,7 +204,9 @@ async def test_default_tool_surface_disables_authorization(tmp_path):
     ) as http:
         async with Client(streamable_http_client('http://testserver/mcp', http_client=http)) as client:
             names = {tool.name for tool in (await client.list_tools()).tools}
-            assert len(names) == 18
+            assert len(names) == 16
             assert 'trakt_auth_start' not in names and 'trakt_auth_poll' not in names
             assert 'trakt_get_preference_data' in names
             assert 'trakt_get_user_preferences' in names
+            assert 'trakt_get_movie_ratings_summary' in names
+            assert not names.intersection({'trakt_get_streaming_providers', 'trakt_get_movie_streaming', 'trakt_get_streaming_shortlist'})

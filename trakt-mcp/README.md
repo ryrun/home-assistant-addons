@@ -1,6 +1,6 @@
 # Trakt MCP Server
 
-Experimental Home Assistant add-on (0.1.3) for personal movie data from Trakt.tv.
+Experimental Home Assistant add-on (0.2.0) for personal movie data from Trakt.tv.
 AI assistants receive read-only access through authenticated MCP Streamable HTTP
 at `http://homeassistant.local:8765/mcp`.
 
@@ -15,13 +15,12 @@ port is published. The server has no chatbot or built-in LLM.
 - Personal ratings, explicit favorites, movie watchlist, search, and movie details
 - Personal Trakt recommendations and directors' or actors' movie credits
 - Explicit favorite/disliked genres, streaming country, and streaming favorites
-  from Trakt settings, without TMDb credentials or unrelated account details
-- Streaming offers by country and selected services, grouped into subscription,
-  free, ad-supported, rental, and purchase options (optional TMDb integration)
+  from Trakt settings, without unrelated account details
+- Community and external movie ratings supplied by Trakt, including IMDb and Rotten Tomatoes
 - Candidates from popular, trending, or related movies with genre, year, and rating filters
 - Cast and crew, including directors, to support explanations
 - Bounded persistent public cache and activity-validated private RAM snapshots
-- Batched streaming shortlists and compact preference data with completeness indicators
+- Compact preference data with completeness indicators
 - Complete watched-movie exclusion and optional watchlist exclusion using Trakt IDs
 - Device authorization, persistent OAuth tokens, and automatic token refresh
 - Bearer authentication, optional CIDR/Host restrictions, bounded upstream I/O, and runtime privilege drop
@@ -35,9 +34,9 @@ Development status and outstanding hardware acceptance: [project plan](../plan.m
 Technical decisions and comparison: [REVIEW.md](REVIEW.md).
 Resource measurements and Green acceptance: [PERFORMANCE.md](PERFORMANCE.md).
 
-Streaming availability data: **JustWatch via TMDb**. This product uses the TMDB
-API but is not endorsed or certified by TMDB. Provider listings do not guarantee
-that playback is currently available for a particular account.
+All API data is fetched from Trakt. External movie scores are returned only when
+Trakt supplies them; no additional rating or streaming service is contacted.
+Streaming favorites express preferences; movie availability is not provided.
 
 ## Development
 

@@ -45,7 +45,7 @@ class TraktClient:
         self.http, self.auth = http, auth
         self.metrics = metrics
         self.headers = {'trakt-api-version': '2', 'trakt-api-key': client_id,
-                        'User-Agent': 'HomeAssistant-TraktMCP/0.1.3'}
+                        'User-Agent': 'HomeAssistant-TraktMCP/0.2.0'}
         self.cache = cache
         self.snapshots = PersonalSnapshots(self) if personal_cache else None
         self.cache_locks = [asyncio.Lock() for _ in range(32)]
@@ -213,6 +213,28 @@ class TraktClient:
     async def details(self, identifier):
         return json_data(await self.get('/movies/' + movie_id(identifier), {'extended': 'full'}))
 
+    async def ratings_summary(self, identifier):
+        identifier = movie_id(identifier)
+        data = json_data(await self.get('/movies/' + identifier + '/ratings', {'extended': 'all'}))
+        if not isinstance(data, dict):
+            raise TraktError('Invalid Trakt movie ratings response.')
+        sources = {}
+        fields = ('rating', 'votes', 'link', 'distribution', 'user_rating', 'state', 'user_state')
+        for name in ('trakt', 'imdb', 'metascore', 'rotten_tomatoes', 'letterboxd', 'mal', 'tmdb'):
+            value = data.get(name)
+            if name == 'trakt' and value is None and any(k in data for k in ('rating', 'votes', 'distribution')):
+                value = {k: data[k] for k in ('rating', 'votes', 'distribution') if k in data}
+            if value is not None and not isinstance(value, dict):
+                raise TraktError('Invalid Trakt movie ratings response.')
+            sources[name] = {k: value[k] for k in fields if k in value} if value is not None else None
+        return {'movie_id': identifier, 'ratings': sources,
+                'scales': {'trakt': 10, 'imdb': 10, 'metascore': 100, 'rotten_tomatoes': 100,
+                           'letterboxd': 5, 'mal': 10, 'tmdb': 10},
+                'source': 'trakt:/movies/' + identifier + '/ratings?extended=all',
+                'note': 'Community/external scores supplied by Trakt, not your personal ratings. '
+                        'Original scales are preserved; Rotten Tomatoes rating is critics and user_rating is audience. '
+                        'Missing/null values are unknown, not zero. No external rating sites are queried.'}
+
     async def people(self, identifier, limit=50, offset=0):
         data = json_data(await self.get('/movies/' + movie_id(identifier) + '/people'))
         if not isinstance(data, dict):
@@ -270,8 +292,8 @@ class TraktClient:
                           'only_favorites': only_favorites},
             'source': 'trakt:/users/settings?extended=browsing',
             'note': 'Explicit user settings, not inferred preferences. Null means not provided; an empty list means no selections. '
-                    'Streaming source identifiers are Trakt values, not TMDb provider IDs or verified subscriptions. '
-                    'These settings do not establish movie availability and do not change HA streaming configuration.',
+                    'Streaming source identifiers are Trakt values, not verified subscriptions. '
+                    'These settings do not establish movie availability and do not provide streaming offer lookups.',
         }
 
     async def person_movies(self, identifier, limit=50, offset=0):

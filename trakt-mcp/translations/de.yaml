@@ -17,15 +17,6 @@ configuration:
   cache_ttl_seconds:
     name: Cache-Lebensdauer (Sekunden)
     description: "Öffentliche Filmdaten zwischenspeichern: Standard 3600 Sekunden, 0 schaltet den Cache aus. Persönliche Listen nutzen auf Wunsch aktivitätsgeprüfte RAM-Snapshots. Cache-Leerung über MCP möglich."
-  tmdb_read_access_token:
-    name: TMDb API Read Access Token (optional)
-    description: "Für Streaming-Verfügbarkeit und Anbieterliste. Kostenlosen API-Zugang bei TMDb einrichten und den API Read Access Token hier eintragen. Trakt-Funktionen laufen auch ohne diesen Token."
-  streaming_country:
-    name: Land für Streaming
-    description: "Zweistelliger ISO-Ländercode, z. B. DE, AT oder CH. Standard DE. Verfügbarkeit unterscheidet sich nach Land."
-  streaming_services:
-    name: Deine Streaming-Abos
-    description: "Liste exakter Anbieternamen aus trakt_get_streaming_providers, z. B. Netflix. Zusatz-Channels und werbefinanzierte Tarife sind gegebenenfalls eigene Anbieter. Keine Zugangsdaten eintragen. Leer bedeutet keine Abo-Vorauswahl."
   personal_cache_enabled:
     name: Persönliche Snapshots validieren
     description: "Hält bis zu 16 MiB persönlicher Listen im RAM und prüft bei jedem Zugriff Trakts Aktivitäten. Keine Speicherung persönlicher Listen auf der Festplatte. Standard ein."
@@ -35,9 +26,6 @@ configuration:
   allowed_networks:
     name: Erlaubte Client-Netze
     description: "Erlaubte CIDR-Netze. Standardmäßig private LAN- und Loopback-Netze. Leer deaktiviert IP-Filter. Proxy/NAT kann die echte Herkunft verdecken; Router-Firewall weiterhin verwenden."
-  streaming_provider_ids:
-    name: Streaming-Anbieter-IDs
-    description: "Bevorzugt stabile numerische IDs aus trakt_get_streaming_providers eintragen. Namen werden weiterhin unterstützt und gegen den regionalen Katalog geprüft. Zusatz-Channels bleiben separat."
   allowed_hosts:
     name: Erlaubte Host-Header (optional)
     description: "Zulässige Zielnamen einschließlich Port, z. B. homeassistant.local:8765. Leer erlaubt alle Host-Namen. Dies ist keine Beschränkung der Client-IP und kein Schutz vor Internetfreigaben."

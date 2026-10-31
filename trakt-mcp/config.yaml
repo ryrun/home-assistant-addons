@@ -2,7 +2,7 @@ name: "Trakt MCP Server"
 slug: "trakt_mcp"
 description: "Read-only Trakt movie data for AI assistants over authenticated MCP"
 url: "https://github.com/ryrun/home-assistant-addons/tree/main/trakt-mcp"
-version: "0.1.3"
+version: "0.2.0"
 stage: experimental
 arch:
   - aarch64
@@ -39,10 +39,6 @@ options:
     - "fc00::/7"
     - "fe80::/10"
   cache_ttl_seconds: 3600
-  tmdb_read_access_token: ""
-  streaming_country: DE
-  streaming_services: []
-  streaming_provider_ids: []
   allowed_hosts: []
 schema:
   trakt_client_id: str
@@ -54,12 +50,6 @@ schema:
   enable_mcp_auth_tools: bool
   allowed_networks:
     - str
-  streaming_provider_ids:
-    - int(1,)
   cache_ttl_seconds: int(0,86400)
-  tmdb_read_access_token: password
-  streaming_country: match(^[A-Za-z]{2}$)
-  streaming_services:
-    - str
   allowed_hosts:
     - str

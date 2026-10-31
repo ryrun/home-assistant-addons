@@ -49,11 +49,7 @@ when refreshing tokens.
 | `personal_cache_enabled` | Enable account-bound RAM snapshots validated against Trakt activity; default `true` |
 | `enable_mcp_auth_tools` | Expose MCP authorization tools; default `false`, use HA setup instead |
 | `allowed_networks` | Allowed client CIDRs; defaults to private IPv4, loopback, IPv6 ULA and IPv6 link-local ranges; empty disables the IP filter |
-| `streaming_provider_ids` | Preferred stable provider IDs from `trakt_get_streaming_providers`; empty by default |
 | `cache_ttl_seconds` | Public metadata cache lifetime: default 3600 seconds, 0 disables it, maximum 86400 |
-| `tmdb_read_access_token` | Optional TMDb API Read Access Token for availability and provider lists; not a Trakt token |
-| `streaming_country` | Streaming country as an ISO code; default `DE`, other examples: `AT`, `CH` |
-| `streaming_services` | Exact provider names from `trakt_get_streaming_providers`; empty by default |
 | `allowed_hosts` | Optional Host-header allowlist including ports, e.g. `homeassistant.local:8765`, `192.168.1.10:8765` |
 
 Generate an MCP token locally with
@@ -101,57 +97,24 @@ Restarting discards pending device codes. Device authorization validates the
 activation URL against the official Trakt HTTPS activation hosts and checks code
 and timing fields before displaying them.
 
-## Set up streaming availability
+## Streaming information
 
-Your explicitly selected Trakt genres and streaming favorites can be read without
-TMDb using `trakt_get_user_preferences`, described below. These settings do not
-include movie availability.
+The server connects only to Trakt. `trakt_get_user_preferences` reads your explicit
+streaming favorites and country from Trakt settings. These are preferences, not
+verified subscriptions or movie availability. The add-on does not provide
+streaming offer lookups. Trakt's Watch Now endpoints currently have limited API
+access, so their availability is not assumed for a personal developer app.
 
-Trakt tools work without additional credentials. For streaming offers, register
-[TMDb API access](https://www.themoviedb.org/settings/api) and enter its
-**API Read Access Token** in `tmdb_read_access_token`. Use the bearer token,
-not the shorter v3 API key. No personal TMDb account data or TMDb user authorization
-is needed. Store the token only in the HA configuration.
+### Updating from versions before 0.2.0
 
-1. Set `tmdb_read_access_token` and `streaming_country` in HA, save, and restart
-   the add-on.
-2. Ask your assistant to call `trakt_get_streaming_providers` to list providers.
-3. Prefer adding the returned numeric IDs to `streaming_provider_ids`. Exact
-   names in `streaming_services` also work. Save and restart. Leave both lists
-   empty to show offers without subscription matching.
-4. Ask the assistant to call `trakt_get_movie_streaming` with a Trakt movie ID.
-   Optional `country`, `services`, and `provider_ids` arguments independently override
-   their corresponding HA defaults for that call. Use empty lists to clear selections.
-
-For example, set the country to `DE` and use the Netflix ID returned by the
-provider tool, or add `Netflix` to your services list. Unknown names or IDs cause
-a configuration error rather than a misleading negative availability result.
-Add-on channels such as “Paramount+ Amazon Channel” are separate offers and are
-not automatically included in a general Prime subscription. Ad-supported plans
-may also have separate provider names. Your selection is manual; the add-on never
-signs in to your streaming accounts.
-
-Responses separate `subscription`, `free`, `ads`, `rent`, and `buy` offers, and
-include subscription matches, country, source, and an optional TMDb listing URL.
-Only `subscription` offers count toward `available_with_configured_subscription`;
-ad-supported free offers, rentals, and purchases do not count as subscription matches.
-If regional offer data is missing, the status is `no_data` and subscription
-availability is `null` (unknown). The subscription match is also `null` when neither provider IDs nor names are configured.
-
-`checked_at` is our lookup time, not the provider's last update time.
-Offers are fetched on each call and bypass the public metadata cache.
-A missing TMDb ID produces a clear error rather than an unreliable title-based match.
-
-**Data source: JustWatch via TMDb.** The assistant must name this source when
-reporting availability. This product uses the TMDB API but is not endorsed or
-certified by TMDB. Provider listings do not guarantee current playback or
-entitlement for your particular account. Use the returned TMDb URL to check;
-the API does not provide complete direct playback links.
-
-See the [provider documentation](https://developer.themoviedb.org/reference/movie-watch-providers)
-and [TMDb authentication guide](https://developer.themoviedb.org/docs/authentication-application).
-Trakt also documents Watch Now data, but API access is restricted.
-This implementation therefore uses TMDb as its explicit streaming source.
+The direct TMDb integration and its three streaming lookup tools were removed.
+The add-on no longer uses a TMDb token, streaming country option, service list,
+or provider-ID list. Existing Trakt authorization remains valid. If Home Assistant
+reports obsolete options after an upgrade, remove `tmdb_read_access_token`,
+`streaming_country`, `streaming_services`, and `streaming_provider_ids` from the
+add-on configuration. Legacy values are ignored by the server. Cached provider
+catalogs from the old integration are removed when the public cache opens.
+Restart/reconnect your MCP client to refresh its tool list.
 
 ## Service monitor in Home Assistant
 
@@ -162,11 +125,11 @@ is needed. An optional sidebar entry is named **Trakt MCP**.
 
 The monitor shows:
 
-- Uptime and MCP readiness, locally stored Trakt authorization, and whether TMDb is configured
+- Uptime and MCP readiness, locally stored Trakt authorization
 - Tool calls, active calls, failures/cancellations, success percentage, and response times
 - Average and 95th-percentile latency, plus a per-tool breakdown
 - Public and personal cache entries, data bytes, hits, misses, and hit ratios
-- Actual Trakt, TMDb, and OAuth HTTP attempts, failures, rate limits, received decoded bytes,
+- Actual Trakt API and OAuth HTTP attempts, failures, rate limits, received decoded bytes,
   and cooldowns
 - Add-on process memory, process CPU relative to one core, and rejected MCP request counts
 - The last 30 tool names, outcomes, timestamps, and durations
@@ -180,7 +143,7 @@ before a handler runs are not counted as tool calls. Expected pending OAuth
 responses are not treated as failed attempts.
 
 The page refreshes local statistics every ten seconds while visible and includes
-a manual refresh button. Viewing it does not fetch Trakt/TMDb data or trigger
+a manual refresh button. Viewing it does not fetch Trakt data or trigger
 background synchronization. A failed refresh marks the visible numbers as
 potentially stale. On Linux, memory is current RSS; where unavailable, it is
 explicitly labeled peak RSS. These values describe this process, not total HA usage.
@@ -208,7 +171,7 @@ Actual integration with Supervisor still needs acceptance on the target Green.
 - Logs report MCP readiness, stored authorization, and, at `info` level,
   successful MCP calls with tool names and durations. Errors have readable messages.
   Arguments, results, and OAuth tokens are not logged.
-- `trakt_get_status` exposes cache hits/misses, cache byte counts, streaming configuration,
+- `trakt_get_status` exposes cache hits/misses, cache byte counts, the Trakt data source,
   and local status to authenticated MCP clients.
   Stored tokens do not prove current Trakt connectivity or token validity.
 - The **Open Web UI** button opens the ingress service monitor described above.
@@ -271,25 +234,23 @@ legacy negotiation modes are covered by local tests.
 | `trakt_get_favorite_movies` | Explicitly marked Trakt favorites with pagination, independent of high ratings |
 | `trakt_get_person_movies` | Bounded person credits with characters/jobs and `next_offset` |
 | `trakt_get_personal_recommendations` | Personal Trakt ranking with optional fresh watched/watchlist exclusions |
-| `trakt_get_streaming_providers` | Country-specific provider names for subscription setup |
-| `trakt_get_movie_streaming` | Fresh offer lookup by country and selected services; JustWatch via TMDb |
 | `trakt_get_movie_ratings` | Movies, personal ratings from 1–10, and rating dates |
 | `trakt_get_watchlist` | Movies with optional year and genre filters |
 | `trakt_search_movies` | Movie search with optional year; at most 100 results |
+| `trakt_get_movie_ratings_summary` | Trakt community scores and available IMDb, Rotten Tomatoes, Metascore, Letterboxd, MyAnimeList, and TMDb scores, fetched exclusively from Trakt |
 | `trakt_get_movie_details` | Available full Trakt movie metadata |
 | `trakt_get_movie_people` | Bounded cast and crew including directors; follow `next_offset` |
 | `trakt_get_related_movies` | Related movies; this raw list may include watched movies |
 | `trakt_clear_cache` | Clear public disk cache and personal RAM snapshots without changing Trakt |
-| `trakt_get_streaming_shortlist` | Up to ten movie availability lookups with per-movie errors and duplicate coalescing |
 | `trakt_get_preference_data` | Compact high/low ratings and favorites with totals and explicit truncation |
-| `trakt_get_user_preferences` | Explicit favorite/disliked genres, streaming country, and favorite streaming source identifiers from Trakt settings; no TMDb required |
+| `trakt_get_user_preferences` | Explicit favorite/disliked genres, streaming country, and favorite streaming source identifiers from Trakt settings |
 | `trakt_get_recommendation_candidates` | Filtered `popular`, `trending`, or `related` movies with optional personal-list exclusions |
 
 ### Explicit Trakt preferences
 
 Ask your assistant to call `trakt_get_user_preferences` before making personal
 recommendations. It reads `GET /users/settings?extended=browsing` using your
-existing Trakt authorization. No new HA options or TMDb credentials are needed.
+existing Trakt authorization. No new HA options or additional credentials are needed.
 
 The output contains only `genres.favorites`, `genres.disliked`, and
 `streaming.country`, `streaming.favorite_sources`, `streaming.only_favorites`,
@@ -304,14 +265,30 @@ settings express the user's stated preferences and should be considered alongsid
 actual movie ratings and favorites, not treated as conclusions inferred from them.
 
 Streaming favorites are Trakt source identifiers as returned by the API. They are
-not automatically converted to names or TMDb provider IDs, do not verify active
-subscriptions, and do not establish whether a movie can currently be streamed.
-They do not override the HA streaming configuration. Actual offer lookups still
-require the optional TMDb integration.
+not automatically converted to provider names, do not verify active subscriptions,
+and do not establish whether a movie can currently be streamed. The server does
+not offer streaming availability lookups.
 
 For example: “Read my explicit Trakt preferences and personal movie ratings, then
 recommend five movies from my watchlist. Explain each recommendation and include
 a Trakt link. Do not claim streaming availability without offer data.”
+
+### Community and external movie ratings
+
+`trakt_get_movie_ratings_summary(movie_id)` requests
+`GET /movies/{id}/ratings?extended=all` exclusively from the Trakt API. It returns
+Trakt community scores plus external sources supplied by Trakt, without API keys
+or network requests to IMDb, Rotten Tomatoes, Metacritic, Letterboxd, MyAnimeList,
+or TMDb. A TMDb score in this response is Trakt-provided metadata, not a separate
+TMDb integration. Your personal movie ratings remain a separate tool.
+
+The output identifies the source and original scale for each service: Trakt,
+IMDb, MyAnimeList and TMDb use 0–10, Letterboxd uses 0–5, and Metascore and Rotten
+Tomatoes use 0–100. Rotten Tomatoes `rating` is the critics score;
+`user_rating` is the audience score. Votes and links are preserved when supplied.
+Missing source blocks and null values mean unknown; do not replace them with zero
+or invent ratings. A cached lookup is subject to the public cache lifetime and
+does not establish when the original rating provider last updated its score.
 
 ### Pagination and candidate limits
 
@@ -346,7 +323,7 @@ explains the final personal selection using data it actually retrieved.
 
 For watchlist recommendations, the assistant should retrieve the watchlist,
 ratings, and explicit favorites, evaluate candidates using metadata, related
-movies, and filmographies, and then check their streaming offers. Personal Trakt
+movies, and filmographies, and compare community/external scores from Trakt. Personal Trakt
 recommendations are another source and do not necessarily contain watchlist movies.
 That tool reads up to 100 candidates, preserves Trakt's order, and may return fewer
 results than requested after fresh exclusions. It never hides or modifies items.
@@ -355,12 +332,11 @@ results than requested after fresh exclusions. It never hides or modifies items.
 
 The public SQLite cache at `/data/public-cache.sqlite3` survives restarts. It
 stores public movie metadata, credits, searches, candidate sources, filmographies,
-and the TMDb provider catalog. OAuth tokens, personal lists and recommendations,
-and movie availability responses are never stored in this public cache.
+and movie community/external rating summaries supplied by Trakt. OAuth tokens,
+personal lists, settings, and recommendations are never stored in this public cache.
 
 `cache_ttl_seconds` is the upper lifetime limit, default 3600 seconds; zero disables
-public caching. Trending expires after at most 300 seconds. The provider catalog
-uses at most 86400 seconds, further capped by the configured lifetime. Other public
+public caching. Trending expires after at most 300 seconds. Other public
 metadata uses the configured lifetime. Identical concurrent public Trakt queries
 are coalesced. There is no background polling; expired data is refreshed on demand.
 
@@ -390,9 +366,7 @@ Set `personal_cache_enabled: false` to fetch personal lists directly on every ca
 lookups already in progress may finish for their caller, but cannot repopulate
 the cache after it has been cleared.
 
-For a short movie selection, use `trakt_get_streaming_shortlist` with at most ten
-IDs. It reduces MCP round trips, not necessarily upstream requests, and preserves
-per-movie errors. `trakt_get_preference_data` selects ratings >=8, ratings <=4,
+`trakt_get_preference_data` selects ratings >=8, ratings <=4,
 and explicit favorites; it reports source totals and whether groups were truncated.
 Interpretation remains the assistant's responsibility.
 
@@ -442,7 +416,7 @@ retried because refresh tokens are single-use. A damaged token file can be
 replaced by authorizing again through HA. A recognized OAuth `invalid_grant`
 requires reauthorization; client-configuration errors retain saved credentials.
 
-Each service, Trakt or TMDb, allows at most two concurrent API GETs. The shared
+The Trakt client allows at most two concurrent API GETs. The shared
 HTTP pool has at most six connections and four keepalive connections.
 The HTTP server also limits concurrent connections/tasks. Network failures,
 invalid parameters, and missing movies return tool errors without exposing raw

@@ -36,7 +36,7 @@ async def test_real_sdk_streamable_http_handshake_and_repeated_tools(tmp_path, m
                                       headers={'Authorization': 'Bearer ' + 'x' * 48}) as http:
             async with Client(streamable_http_client('http://testserver/mcp', http_client=http), mode=mode) as client:
                 tools = (await client.list_tools()).tools
-                assert len(tools) == 20
+                assert len(tools) == 18
                 assert all(t.output_schema is not None for t in tools)
                 assert all(t.annotations.read_only_hint for t in tools if not t.name.startswith('trakt_auth') and t.name != 'trakt_clear_cache')
                 for _ in range(2):
@@ -76,17 +76,15 @@ async def test_all_new_tools_over_mcp(tmp_path):
         requests.append(request)
         assert request.method == 'GET'
         path = request.url.path
-        if request.url.host == 'api.themoviedb.org':
-            assert request.headers['Authorization'] == 'Bearer test-tmdb-token'
-            if path.endswith('/watch/providers/movie'):
-                return httpx.Response(200, json={'results': [{'provider_id': 8, 'provider_name': 'Netflix'}]})
-            return httpx.Response(200, json={'results': {'DE': {'flatrate': [{'provider_id': 8, 'provider_name': 'Netflix'}]}}})
-        assert 'test-tmdb-token' not in str(request.headers)
+        assert request.url.host == 'api.trakt.tv'
         if path == '/users/settings':
             return httpx.Response(200, json={'user': {'email': 'private-account-email'},
                                            'account': {'token': 'private-account-token'},
                                            'browsing': {'genres': {'favorites': ['mystery']},
                                                         'watchnow': {'country': 'DE', 'favorites': ['netflix']}}})
+        if path == '/movies/123/ratings':
+            return httpx.Response(200, json={'trakt': {'rating': 8.1, 'votes': 100},
+                                           'imdb': {'rating': 8.3, 'votes': 200}})
         if path == '/movies/123':
             return httpx.Response(200, json={**movie(123), 'ids': {'trakt': 123, 'tmdb': 456}})
         if path.startswith('/people/'):
@@ -100,8 +98,7 @@ async def test_all_new_tools_over_mcp(tmp_path):
         pytest.fail('Unexpected request path: ' + path)
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as upstream_http:
         Auth(upstream_http, OPTIONS['trakt_client_id'], '', tmp_path / 'oauth.json')._save(tokens())
-        app = create_app({**OPTIONS, 'tmdb_read_access_token': 'test-tmdb-token', 'streaming_services': ['Netflix']},
-                         tmp_path, upstream_http)
+        app = create_app(OPTIONS, tmp_path, upstream_http)
         async with app.app.router.lifespan_context(app.app), httpx2.AsyncClient(
             transport=httpx2.ASGITransport(app=app), headers={'Authorization': 'Bearer ' + 'x' * 48}
         ) as http:
@@ -111,17 +108,13 @@ async def test_all_new_tools_over_mcp(tmp_path):
                     ('trakt_get_favorite_movies', {}),
                     ('trakt_get_person_movies', {'person_id': 'director'}),
                     ('trakt_get_personal_recommendations', {}),
-                    ('trakt_get_streaming_providers', {}),
-                    ('trakt_get_movie_streaming', {'movie_id': '123'}),
+                    ('trakt_get_movie_ratings_summary', {'movie_id': '123'}),
                 ):
                     result = await client.call_tool(tool, arguments)
                     assert not result.is_error, str(result)
-                    assert 'test-tmdb-token' not in str(result)
                     assert 'private-access' not in str(result)
                     assert 'private-account-' not in str(result)
                     if tool == 'trakt_get_user_preferences':
                         assert result.structured_content['genres']['favorites'] == ['mystery']
-                    if tool == 'trakt_get_movie_streaming':
-                        assert 'Netflix' in str(result) and 'JustWatch' in str(result)
-                bad = await client.call_tool('trakt_get_movie_streaming', {'movie_id': '123', 'country': '../DE'})
-                assert bad.is_error
+                    if tool == 'trakt_get_movie_ratings_summary':
+                        assert result.structured_content['ratings']['imdb']['rating'] == 8.3

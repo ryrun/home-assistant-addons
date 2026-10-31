@@ -30,7 +30,7 @@ class Metrics:
         self.tools = {}
         self.upstreams = {name: {'requests': 0, 'errors': 0, 'rate_limits': 0, 'bytes': 0,
                                  'statuses': Counter(), 'timings': deque(maxlen=512), 'last_at': None}
-                          for name in ('trakt', 'tmdb', 'oauth')}
+                          for name in ('trakt', 'oauth')}
         self.recent = deque(maxlen=30)
         self.cpu_at = self.started
         usage = resource.getrusage(resource.RUSAGE_SELF)

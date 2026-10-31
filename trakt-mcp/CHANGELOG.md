@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0
+
+- Remove the direct TMDb/JustWatch integration, its configuration fields, provider
+  discovery, streaming offer/shortlist tools, and related monitor statistics.
+- Focus all data access on Trakt. Explicit Trakt genre and streaming preferences
+  remain available; they do not imply verified subscriptions or movie availability.
+- Add `trakt_get_movie_ratings_summary` for community and external scores supplied
+  by Trakt, preserving source scales, votes, links, and missing values.
+- Remove legacy provider catalogs from the public cache at startup. Existing
+  Trakt authorization is retained, and obsolete streaming options are ignored.
+- Reconnect MCP clients after upgrading to refresh the changed tool list.
+
 ## 0.1.3
 
 - Add read-only `trakt_get_user_preferences` for explicit favorite/disliked genres,

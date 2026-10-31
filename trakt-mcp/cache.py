@@ -43,6 +43,8 @@ class PublicCache:
                     db.execute('ALTER TABLE responses ADD COLUMN expires REAL')
                     db.execute('UPDATE responses SET expires = stored + ?', (self.ttl,))
                 db.execute('CREATE INDEX IF NOT EXISTS cache_expiry ON responses(expires)')
+                # Retire cached provider catalogs from the removed TMDb integration.
+                db.execute("DELETE FROM responses WHERE key LIKE 'tmdb:%'")
                 return
             now = self.clock()
             if operation == 'get':

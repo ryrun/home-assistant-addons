@@ -2,7 +2,7 @@
 
 Goal: a personal, read-only Trakt MCP server as a standalone Home Assistant add-on.
 Codex/Zed handles analysis and recommendations. Existing add-ons remain unchanged.
-Status: experimental version 0.1.3.
+Status: experimental version 0.2.0.
 
 Setup uses the existing Home Assistant interface through configuration and logs,
 or alternatively MCP tools. Home Assistant displays process status and logs.
@@ -18,15 +18,15 @@ or separate publicly exposed dashboard.
 - [x] Private persistent token file, atomic writes, and serialized refresh
 - [x] Aggregated watched history, ratings, watchlist, search, and details
 - [x] Explicit genre preferences, streaming country, and favorite streaming sources
-  from allowlisted Trakt settings without TMDb credentials or unrelated account data
+  from allowlisted Trakt settings without unrelated account data
 - [x] Pagination using actual response headers and support for unpaginated endpoints
 - [x] Popular, trending, and related candidates with filters and complete fresh exclusions
 - [x] Movie credits including directors, related movies, and person filmographies
 - [x] Explicit favorites and personal Trakt recommendations with fresh exclusions
-- [x] Optional TMDb/JustWatch availability with country, selected services, and provider discovery through HA/MCP
+- [x] Community and external movie ratings via Trakt only; direct third-party API integrations removed
 - [x] Bounded persistent public SQLite cache with per-source TTLs, corruption recovery, status, and manual clearing
 - [x] Account-bound RAM snapshots with activity validation, memory/age budgets, and safe invalidation
-- [x] Streaming shortlist and compact preference tools, provider-ID validation, bounded credits
+- [x] Compact preference tools and bounded credits
 - [x] Optional CIDR filtering, opt-in MCP authorization tools, and runtime privilege drop
 - [x] Bounded upstream responses, corrected OAuth errors and queued-request cooldowns
 - [x] Synthetic 10,000-movie benchmark and defined ARM64/AMD64 CI build/smoke jobs
@@ -48,7 +48,6 @@ or separate publicly exposed dashboard.
 - [ ] Verify bearer headers, tool forwarding, and repeated calls in Zed with Codex
 - [ ] Verify actual HA Ingress routing, access controls, sidebar, and statistics on Green
 - [ ] Assess recommendation quality using real ratings, favorites, and watchlist data
-- [ ] Validate TMDb access and regional providers/subscriptions with real titles
 - [ ] Prepare release 1.0.0 only after acceptance tests pass
 
 Docker and Home Assistant Green are unavailable in the local development

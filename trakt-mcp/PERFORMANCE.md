@@ -18,9 +18,9 @@ assessment, not a completed Green hardware benchmark or a guarantee for every in
   entries larger than 512 KiB are not retained
 - Personal cache: at most 16 MiB of serialized list data in RAM, with activity
   validation on every use and a maximum snapshot age of 15 minutes
-- Bounded tool output: 100 list results, default 50 credits, at most ten shortlist movies
+- Bounded tool output: 100 list results, default 50 credits, compact preference groups
 - A 120-second tool timeout, 64 KiB inbound MCP body limit, and Uvicorn concurrency limit
-- No background polling; idle operation makes no regular Trakt/TMDb requests
+- No background polling; idle operation makes no regular Trakt requests
 - The service monitor polls only local statistics every ten seconds while visible;
   its bounded counters/latency samples stay in RAM, with no statistics database
 - Read-only cache hits avoid housekeeping writes, reducing unnecessary eMMC activity
@@ -51,7 +51,7 @@ A local macOS ARM64 run with Python 3.13.3 on 2026-10-31, including MCP SDK impo
 The entire benchmark process peaked at **85.1 MiB RSS**. This is a high-water mark
 including SDK imports and synthetic fixtures, not a measured idle server figure.
 The benchmark exercises client/cache code with in-process mock HTTP; it does not
-measure real provider latency, HTTPS, Docker, Supervisor, or Green CPU performance.
+measure real Trakt latency, HTTPS, Docker, Supervisor, or Green CPU performance.
 Numbers vary between runs and must not be presented as Green response times.
 
 The snapshot reduced full-list transfer by 95%. Initial validation adds two small
@@ -63,7 +63,8 @@ extra decoded object graphs would increase RAM use for little demonstrated benef
 ## Acceptance on the actual Green
 
 1. Install the ARM64 add-on, enable start on boot and watchdog, and authorize Trakt.
-2. Confirm MCP status, ratings, favorites, watchlist, and a real streaming shortlist.
+2. Confirm MCP status, personal ratings, favorites, watchlist, explicit preferences,
+   and movie community/external ratings supplied by Trakt.
    Open the Ingress service monitor and verify readiness, call counts and cache hits.
 3. Observe the add-on CPU and memory indicators while idle and during requests.
    Check available system RAM alongside other add-ons.
@@ -72,7 +73,7 @@ extra decoded object graphs would increase RAM use for little demonstrated benef
 5. Change a rating/watchlist entry on Trakt, then confirm that the next request
    invalidates the personal snapshot. Test token refresh and restart persistence.
 6. Verify that normal Home Assistant automations remain responsive. Test errors
-   under a provider outage without rapid retries or watchdog restart loops.
+   under a Trakt outage without rapid retries or watchdog restart loops.
 
 Real account, Green hardware, and Zed/Codex acceptance remain outstanding in the
 local environment. ARM64/AMD64 builds and resource-limited smoke tests are defined

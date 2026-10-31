@@ -41,12 +41,12 @@ function render(data) {
   const stats = data.metrics, tools = stats.tools;
   text("ready", stats.ready ? "Running" : "Starting"); el("ready").classList.toggle("ok", stats.ready);
   text("server-state", stats.ready ? "Ready for requests" : "Starting up"); text("uptime", `Uptime ${uptime(stats.uptime_seconds)}`);
-  text("auth", data.authorization); text("streaming", data.streaming_configured ? "Configured" : "Not configured");
+  text("auth", data.authorization);
   text("calls", tools.calls.toLocaleString()); text("active", `${tools.active} in progress`);
   text("success", tools.success_percent == null ? "—" : `${tools.success_percent}%`); text("errors", `${tools.errors} failed or cancelled calls`);
   text("latency", ms(tools.average_ms)); text("p95", `95th percentile ${ms(tools.p95_ms)}`);
   el("caches").replaceChildren(cachePanel("Public metadata · disk", data.public_cache), cachePanel("Personal snapshots · RAM", data.personal_cache));
-  rows("upstreams", Object.entries(stats.upstreams), ([name, value]) => [name === "oauth" ? "Trakt OAuth" : name === "trakt" ? "Trakt API" : "TMDb", value.requests, value.errors, value.rate_limits, ms(value.average_ms), bytes(value.bytes), data.cooldowns[name] ? `${data.cooldowns[name]} s` : "Clear"], "No upstream calls yet.");
+  rows("upstreams", Object.entries(stats.upstreams), ([name, value]) => [name === "oauth" ? "Trakt OAuth" : "Trakt API", value.requests, value.errors, value.rate_limits, ms(value.average_ms), bytes(value.bytes), data.cooldowns[name] ? `${data.cooldowns[name]} s` : "Clear"], "No upstream calls yet.");
   text("memory-label", stats.process.memory_kind === "current_rss" ? "Memory / current RSS" : "Memory / peak RSS");
   text("memory", bytes(stats.process.memory_bytes)); text("cpu", stats.process.cpu_percent == null ? "Sampling…" : `${stats.process.cpu_percent}%`);
   text("rejected", Object.values(stats.rejected_requests).reduce((sum, count) => sum + count, 0));

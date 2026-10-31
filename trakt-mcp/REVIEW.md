@@ -68,7 +68,8 @@ quality assessment. No third-party source code was copied.
 - Personal data now uses activity-validated RAM snapshots. A TTL-only personal
   cache was deliberately avoided; exclusions fail if freshness cannot be established.
 - Explicit favorites, personal Trakt recommendations, person filmographies, and
-  optional TMDb/JustWatch availability were added after the initial review.
+  explicit account preferences were added after the initial review. The server
+  now focuses exclusively on Trakt, including Trakt-provided external ratings.
   Individual viewing-history events remain a possible read-only extension.
   Shows and write operations remain outside the agreed initial scope.
 - A movie can be watched between the exclusion lookup and the tool response.
@@ -88,17 +89,17 @@ The follow-up findings were implemented on 2026-10-31:
   credentials when the latter occurs. Regression coverage exercises both paths.
 - Invalid cache JSON is evicted and refetched. Startup can replace a corrupt
   public cache database, retaining one backup. Reads avoid cleanup writes.
-- Both clients recheck cooldown after acquiring a semaphore. Retry waits are not
+- The Trakt client rechecks cooldown after acquiring a semaphore. Retry waits are not
   shortened, and device polling respects retry headers.
 - Account-bound personal snapshots live only in bounded RAM, validate activity on
   every reuse, reject changes during sync, and expire after 15 minutes at most.
-- Trending uses a shorter TTL. The public provider catalog can be cached; actual
-  movie availability stays fresh. Status exposes cache hits, misses and bytes.
+- Trending uses a shorter TTL. Public Trakt metadata and rating summaries can be
+  cached. Status exposes cache hits, misses and bytes.
 - MCP authorization tools require explicit opt-in. A CIDR filter checks socket
   peers without trusting forwarded headers. Runtime root privileges are dropped
   before the HTTP app starts. Proxy/NAT limitations still apply.
 - Bounded upstream responses, full-sync transfer budgets, paged credits,
-  streaming shortlists, stable provider IDs, and compact preference data reduce
+  and compact preference data reduce
   accidental resource use and unnecessary MCP round trips.
 - CI jobs define tests, ARM64/AMD64 builds, and resource-limited container smoke
   tests including runtime UID and persistence checks. Docker is unavailable
@@ -145,5 +146,5 @@ compatibility with the runtime privilege drop.
 
 No additional feature expansion is required before device acceptance. Real
 ARM64/AMD64 builds, Supervisor/AppArmor/Ingress behavior on Green, live OAuth
-refresh, TMDb availability, and Zed/Codex integration remain external acceptance
+refresh and Zed/Codex integration remain external acceptance
 items. None of those deployment checks is claimed as locally completed.

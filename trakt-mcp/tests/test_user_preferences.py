@@ -98,7 +98,7 @@ async def test_preferences_reject_authorization_change_during_request():
 
 
 @pytest.mark.asyncio
-async def test_preferences_over_mcp_without_tmdb_and_without_private_logs(tmp_path, caplog):
+async def test_preferences_over_mcp_without_private_logs(tmp_path, caplog):
     caplog.set_level('INFO', logger='trakt_mcp')
     def handler(request):
         assert request.url.host == 'api.trakt.tv'
@@ -120,7 +120,7 @@ async def test_preferences_over_mcp_without_tmdb_and_without_private_logs(tmp_pa
                 assert result.structured_content['streaming']['favorite_sources'] == ['netflix']
                 assert 'private-' not in str(result)
                 status = await client.call_tool('trakt_get_status', {})
-                assert status.structured_content['streaming']['configured'] is False
+                assert status.structured_content['streaming_availability_supported'] is False
     assert 'trakt_get_user_preferences' in caplog.text
     assert 'private-' not in caplog.text
     assert 'netflix' not in caplog.text and 'mystery' not in caplog.text
