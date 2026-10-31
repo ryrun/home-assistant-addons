@@ -1,8 +1,8 @@
 # Trakt MCP project and acceptance plan
 
-Goal: a personal, read-only Trakt MCP server as a standalone Home Assistant add-on.
+Goal: a personal, read-only movie and series Trakt MCP server as a standalone Home Assistant add-on.
 Codex/Zed handles analysis and recommendations. Existing add-ons remain unchanged.
-Status: experimental version 0.2.1.
+Status: experimental version 0.3.0.
 
 Setup uses the existing Home Assistant interface through configuration and logs,
 or alternatively MCP tools. Home Assistant displays process status and logs.
@@ -17,6 +17,10 @@ or separate publicly exposed dashboard.
 - [x] Device flow through HA configuration/logs and MCP tools
 - [x] Private persistent token file, atomic writes, and serialized refresh
 - [x] Aggregated watched history, ratings, watchlist, search, and details
+- [x] Series metadata, seasons/episodes, watched progress, up-next, scheduled episodes,
+  personal ratings/favorites/watchlist, and filtered personal recommendations
+- [x] Dated individual history, own lists and notes, hidden/dropped items, UTC calendars,
+  collection, paused playback, and explicitly VIP-dependent precomputed statistics
 - [x] Explicit genre preferences, streaming country, and favorite streaming sources
   from allowlisted Trakt settings without unrelated account data
 - [x] Pagination using actual response headers and support for unpaginated endpoints
@@ -54,4 +58,4 @@ Docker and Home Assistant Green are unavailable in the local development
 environment. No real Trakt credentials have been provided, and no changes have
 been published. The definition of done for version 1 has therefore not been met.
 
-Future work: shows, additional metadata, multiple accounts, and explicitly authorized write tools.
+Future work: additional read-only metadata and multiple accounts. Write tools remain excluded.

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.0
+
+- Add read-only series search/details, seasons and episodes, cast/crew, related
+  series, and community/external ratings for shows, seasons, and episodes.
+- Add personal series progress with bounded episode pages and explicit special,
+  hidden-season, and rewatch semantics; separate up-next and scheduled episodes.
+- Add series watchlist/favorites/watched aggregates and personal ratings across
+  movies, shows, seasons, and episodes.
+- Add detailed history with UTC range/item filters, own lists and list notes,
+  hidden/dropped items, collection, and player-reported paused playback.
+- Add personal/global UTC release calendars with 1–31 day windows and account
+  statistics with explicit unavailable results for missing VIP precomputed data.
+- Add personal series recommendations with fresh, complete exclusion lists and
+  original ranks, omitting other users' recommendation notes.
+- Keep new personal reads out of public caches, exclude list share links and
+  unrelated profile fields, and preserve existing response/concurrency budgets.
+- Handle valid public 204 responses without treating them as malformed JSON.
+- Report `server_version` in status and share the runtime version constant.
+- 41 default tools; two optional authorization tools remain disabled by default.
+  No new credentials/options or changes to Trakt media data are required.
+
 ## 0.2.1
 
 - Add the Trakt API app management address to the Client ID configuration help.

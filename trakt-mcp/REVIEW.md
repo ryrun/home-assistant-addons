@@ -70,8 +70,8 @@ quality assessment. No third-party source code was copied.
 - Explicit favorites, personal Trakt recommendations, person filmographies, and
   explicit account preferences were added after the initial review. The server
   now focuses exclusively on Trakt, including Trakt-provided external ratings.
-  Individual viewing-history events remain a possible read-only extension.
-  Shows and write operations remain outside the agreed initial scope.
+  Version 0.3.0 adds individual history events, series/progress and personal
+  library operations. All Trakt media operations remain read-only.
 - A movie can be watched between the exclusion lookup and the tool response.
   Trakt does not provide a transaction-wide snapshot here, so absolute real-time
   consistency across multiple requests cannot be guaranteed.

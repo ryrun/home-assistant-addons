@@ -1,8 +1,13 @@
 """Run on a Linux CI host after starting the container on localhost:18765."""
 import asyncio
+from pathlib import Path
+import sys
 import httpx2
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from version import VERSION
 
 
 async def main():
@@ -12,11 +17,15 @@ async def main():
             assert 'trakt_auth_start' not in tools
             assert 'trakt_get_movie_ratings_summary' in tools
             assert 'trakt_get_user_preferences' in tools
+            assert {'trakt_get_show_progress', 'trakt_get_history', 'trakt_get_collection',
+                    'trakt_get_playback', 'trakt_get_user_stats', 'trakt_get_lists'} <= tools
+            assert len(tools) == 41
             assert not any(name in tools for name in ('trakt_get_streaming_shortlist', 'trakt_get_streaming_providers', 'trakt_get_movie_streaming'))
             for _ in range(2):
                 result = await client.call_tool('trakt_get_status', {})
                 assert not result.is_error
                 assert result.structured_content['trakt_tokens_stored'] is True
+                assert result.structured_content['server_version'] == VERSION
     print('Container MCP handshake, default tool permissions, and repeated status calls passed.')
 
 

@@ -1,6 +1,6 @@
 # Trakt MCP Server
 
-Experimental Home Assistant add-on (0.2.1) for personal movie data from Trakt.tv.
+Experimental Home Assistant add-on (0.3.0) for personal movie and series data from Trakt.tv.
 AI assistants receive read-only access through authenticated MCP Streamable HTTP
 at `http://homeassistant.local:8765/mcp`.
 
@@ -12,6 +12,13 @@ port is published. The server has no chatbot or built-in LLM.
 ## Features
 
 - Watched movies with play counts and last viewing dates
+- Series search, status, seasons, episodes, cast/crew, related series, and ratings
+- Personal series progress, next unwatched episodes, up-next, and scheduled episodes
+- Series watchlist, favorites, watched aggregates, and personal show/season/episode ratings
+- Individual history events with UTC date filters and optional item selection
+- Personal lists and notes, hidden/dropped items, collection, and paused playback
+- Personal/global UTC release calendars and VIP-dependent account statistics
+- Personal series recommendations with fresh started/watchlist/hidden exclusions
 - Personal ratings, explicit favorites, movie watchlist, search, and movie details
 - Personal Trakt recommendations and directors' or actors' movie credits
 - Explicit favorite/disliked genres, streaming country, and streaming favorites
@@ -37,6 +44,13 @@ Resource measurements and Green acceptance: [PERFORMANCE.md](PERFORMANCE.md).
 All API data is fetched from Trakt. External movie scores are returned only when
 Trakt supplies them; no additional rating or streaming service is contacted.
 Streaming favorites express preferences; movie availability is not provided.
+
+All Trakt media/library operations are read-only. Collection entries do not prove
+current access, playback positions require a player that reports to Trakt, and
+unavailable VIP statistics are returned as unknown rather than zero.
+New personal library reads bypass persistent public caches. No background sync
+or additional API credentials are needed. Reconnect your MCP client after an
+upgrade; `trakt_get_status` reports `server_version` for deployment diagnostics.
 
 ## Development
 

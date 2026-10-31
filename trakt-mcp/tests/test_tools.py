@@ -36,7 +36,7 @@ async def test_real_sdk_streamable_http_handshake_and_repeated_tools(tmp_path, m
                                       headers={'Authorization': 'Bearer ' + 'x' * 48}) as http:
             async with Client(streamable_http_client('http://testserver/mcp', http_client=http), mode=mode) as client:
                 tools = (await client.list_tools()).tools
-                assert len(tools) == 18
+                assert len(tools) == 43
                 assert all(t.output_schema is not None for t in tools)
                 assert all(t.annotations.read_only_hint for t in tools if not t.name.startswith('trakt_auth') and t.name != 'trakt_clear_cache')
                 for _ in range(2):

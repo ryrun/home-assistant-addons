@@ -12,6 +12,7 @@ import httpx
 from errors import TraktError, check_response, json_data
 from http_utils import bounded_request, retry_after, API_CONCURRENCY
 from personal_cache import PersonalSnapshots
+from version import VERSION
 
 API_URL = 'https://api.trakt.tv'
 MAX_PAGES = 200
@@ -45,7 +46,7 @@ class TraktClient:
         self.http, self.auth = http, auth
         self.metrics = metrics
         self.headers = {'trakt-api-version': '2', 'trakt-api-key': client_id,
-                        'User-Agent': 'HomeAssistant-TraktMCP/0.2.1'}
+                        'User-Agent': f'HomeAssistant-TraktMCP/{VERSION}'}
         self.cache = cache
         self.snapshots = PersonalSnapshots(self) if personal_cache else None
         self.cache_locks = [asyncio.Lock() for _ in range(32)]
@@ -67,6 +68,10 @@ class TraktClient:
                 return cached
             generation = self.cache.generation
             response = await self._fetch(path, params, personal=False)
+            if response.status_code == 204:
+                # A valid empty response (e.g. no next scheduled episode) is not JSON
+                # and must not be stored as the cache's normal 200 JSON response.
+                return response
             json_data(response)  # Never cache malformed JSON or upstream errors.
             try:
                 await self.cache.put(key, response, ttl=300 if path.endswith('/trending') else None, generation=generation)
@@ -119,7 +124,7 @@ class TraktClient:
 
     @staticmethod
     def _check_personal_pagination(response, path):
-        if any(segment in path for segment in ('/watchlist/', '/favorites/')) and 'X-Pagination-Page-Count' not in response.headers:
+        if any(segment in path for segment in ('/watchlist/', '/favorites/', '/hidden/')) and 'X-Pagination-Page-Count' not in response.headers:
             raise TraktError('Pagination metadata missing from a personal list; completeness cannot be verified.')
 
     @staticmethod
@@ -216,6 +221,10 @@ class TraktClient:
     async def ratings_summary(self, identifier):
         identifier = movie_id(identifier)
         data = json_data(await self.get('/movies/' + identifier + '/ratings', {'extended': 'all'}))
+        return {**self.format_ratings(data, '/movies/' + identifier), 'movie_id': identifier}
+
+    @staticmethod
+    def format_ratings(data, path):
         if not isinstance(data, dict):
             raise TraktError('Invalid Trakt movie ratings response.')
         sources = {}
@@ -227,10 +236,10 @@ class TraktClient:
             if value is not None and not isinstance(value, dict):
                 raise TraktError('Invalid Trakt movie ratings response.')
             sources[name] = {k: value[k] for k in fields if k in value} if value is not None else None
-        return {'movie_id': identifier, 'ratings': sources,
+        return {'media_path': path, 'ratings': sources,
                 'scales': {'trakt': 10, 'imdb': 10, 'metascore': 100, 'rotten_tomatoes': 100,
                            'letterboxd': 5, 'mal': 10, 'tmdb': 10},
-                'source': 'trakt:/movies/' + identifier + '/ratings?extended=all',
+                'source': 'trakt:' + path + '/ratings?extended=all',
                 'note': 'Community/external scores supplied by Trakt, not your personal ratings. '
                         'Original scales are preserved; Rotten Tomatoes rating is critics and user_rating is audience. '
                         'Missing/null values are unknown, not zero. No external rating sites are queried.'}

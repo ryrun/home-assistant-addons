@@ -19,6 +19,9 @@ assessment, not a completed Green hardware benchmark or a guarantee for every in
 - Personal cache: at most 16 MiB of serialized list data in RAM, with activity
   validation on every use and a maximum snapshot age of 15 minutes
 - Bounded tool output: 100 list results, default 50 credits, compact preference groups
+- Series progress is paged by episode, with at most 100 season summaries and an
+  explicit truncation flag; calendars cover at most 31 days per request
+- New personal library reads are fresh and do not populate the public disk cache
 - A 120-second tool timeout, 64 KiB inbound MCP body limit, and Uvicorn concurrency limit
 - No background polling; idle operation makes no regular Trakt requests
 - The service monitor polls only local statistics every ten seconds while visible;
@@ -65,6 +68,9 @@ extra decoded object graphs would increase RAM use for little demonstrated benef
 1. Install the ARM64 add-on, enable start on boot and watchdog, and authorize Trakt.
 2. Confirm MCP status, personal ratings, favorites, watchlist, explicit preferences,
    and movie community/external ratings supplied by Trakt.
+   Also verify series progress (specials, hidden seasons, rewatches), up-next,
+   personal lists/history, UTC calendars, collection and paused playback.
+   Missing VIP precomputed statistics should report unavailable, not zero.
    Open the Ingress service monitor and verify readiness, call counts and cache hits.
 3. Observe the add-on CPU and memory indicators while idle and during requests.
    Check available system RAM alongside other add-ons.
