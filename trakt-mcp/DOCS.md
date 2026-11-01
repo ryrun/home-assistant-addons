@@ -570,14 +570,29 @@ supplementary groups and switches to UID/GID 10001. The serving process therefor
 runs without root. No privileged mode or Home Assistant API access is requested.
 Default MCP clients cannot start authorization unless `enable_mcp_auth_tools` is enabled.
 
-## Automated checks and release acceptance
+## Local checks and release acceptance
 
-The repository workflow `.github/workflows/trakt-mcp.yml` runs Python tests and a
-synthetic benchmark, builds ARM64 and AMD64 images, and smoke-tests health, bearer
-authentication, tool discovery, repeated calls, runtime UID, restart, private token/cache permissions and persistence, and
-ingress listener isolation. Container smoke tests use a 256 MiB / one-CPU limit. Workflow
-actions are pinned to commits. These checks run after the changes reach GitHub;
-they have not been executed locally where Docker is unavailable.
+Run checks locally before publishing changes:
+
+```sh
+python -m pip install --require-hashes -r trakt-mcp/requirements-dev.txt
+python -m pytest -q trakt-mcp/tests
+python -m pip check
+node --check trakt-mcp/web/status.js
+python trakt-mcp/scripts/benchmark.py --movies 10000 --iterations 20
+```
+
+When Docker is available, build the target image locally, for example:
+
+```sh
+docker buildx build --platform linux/arm64 --load --tag trakt-mcp:test trakt-mcp
+```
+
+Use `linux/amd64` for an AMD64 target. The HTTP smoke-test helper
+`scripts/container_smoke.py` remains available for a running local test server.
+Builds and operation on Home Assistant Green require separate verification;
+Python tests alone do not validate the target container or Supervisor integration.
+No GitHub Actions workflow is configured for this add-on.
 
 ## Verified technical references
 

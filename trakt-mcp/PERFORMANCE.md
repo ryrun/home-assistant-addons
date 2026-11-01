@@ -32,8 +32,8 @@ assessment, not a completed Green hardware benchmark or a guarantee for every in
 
 These are data/concurrency limits, not a hard process memory cap. JSON objects,
 SDK imports, TLS connections, and concurrent requests also consume memory.
-The CI container smoke test uses a hard 256 MiB / one-CPU limit, but its success
-must be checked in GitHub and does not establish a worst-case memory bound.
+For local container smoke tests, a 256 MiB / one-CPU limit is a useful test
+condition; passing it does not establish a worst-case memory bound.
 
 ## Reproducible synthetic benchmark
 
@@ -84,5 +84,5 @@ extra decoded object graphs would increase RAM use for little demonstrated benef
    under a Trakt outage without rapid retries or watchdog restart loops.
 
 Real account, Green hardware, and Zed/Codex acceptance remain outstanding in the
-local environment. ARM64/AMD64 builds and resource-limited smoke tests are defined
-in CI but have not been run here because Docker is unavailable.
+local environment. ARM64/AMD64 builds and resource-limited container smoke tests
+need separate local verification when Docker is available.

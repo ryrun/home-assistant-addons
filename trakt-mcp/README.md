@@ -33,7 +33,7 @@ port is published. The server has no chatbot or built-in LLM.
 - Bearer authentication, optional CIDR/Host restrictions, bounded upstream I/O, and runtime privilege drop
 - HA authorization by default; MCP authorization tools require explicit opt-in
 - Ingress-protected service statistics with local assets and bounded RAM-only history
-- Health check, Supervisor watchdog, and ARM64/AMD64 CI builds
+- Health check, Supervisor watchdog, and local test coverage
 - Declared support for aarch64 (Home Assistant Green) and amd64
 
 Installation, authorization, and client configuration: [DOCS.md](DOCS.md).

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Remove the Trakt GitHub Actions workflow; retain local tests, benchmarks and
+  HTTP smoke-test helpers, and document local verification commands.
+
 ## 0.3.4
 
 - Read watched shows through the bounded live sync reader, following actual

@@ -112,9 +112,9 @@ The follow-up findings were implemented on 2026-10-31:
 - Bounded upstream responses, full-sync transfer budgets, paged credits,
   and compact preference data reduce
   accidental resource use and unnecessary MCP round trips.
-- CI jobs define tests, ARM64/AMD64 builds, and resource-limited container smoke
-  tests including runtime UID and persistence checks. Docker is unavailable
-  locally, so those jobs still need to run in GitHub.
+- Tests, benchmarks and HTTP smoke-test helpers run locally. ARM64/AMD64
+  container builds, runtime UID and persistence checks require separate local
+  verification when Docker is available. The GitHub workflow has been removed.
 
 The earlier dependency audit checked 31 pinned Python runtime packages and found
 no known vulnerabilities at scan time. It did not scan container OS packages or

@@ -33,7 +33,7 @@ or separate publicly exposed dashboard.
 - [x] Compact preference tools and bounded credits
 - [x] Optional CIDR filtering, opt-in MCP authorization tools, and runtime privilege drop
 - [x] Bounded upstream responses, corrected OAuth errors and queued-request cooldowns
-- [x] Synthetic 10,000-movie benchmark and defined ARM64/AMD64 CI build/smoke jobs
+- [x] Synthetic 10,000-movie benchmark and local test/smoke helpers
 - [x] Bounded GET retries, rate-limit cooldown, and API concurrency limits
 - [x] Status tool, logs without arguments/results, and health check
 - [x] Ingress-only statistics monitor with bounded metrics, no credentials/film data, and local assets

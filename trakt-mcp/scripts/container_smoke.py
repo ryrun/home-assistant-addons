@@ -1,4 +1,4 @@
-"""Run on a Linux CI host after starting the container on localhost:18765."""
+"""Run locally after starting the test server or container on localhost:18765."""
 import asyncio
 from pathlib import Path
 import sys
