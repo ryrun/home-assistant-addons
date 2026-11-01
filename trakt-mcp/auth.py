@@ -40,7 +40,7 @@ class Auth:
             pass
         except (ValueError, KeyError, TypeError):
             self.tokens = None
-            logging.getLogger('trakt_mcp').warning('Token-Datei ungültig. Trakt-Anmeldung über die Add-on-Konfiguration erneut starten.')
+            logging.getLogger('trakt_mcp').warning('Invalid token file. Restart Trakt authorization through the add-on configuration.')
 
     def _client_hash(self):
         return hashlib.sha256(self.client_id.encode()).hexdigest()
@@ -59,7 +59,7 @@ class Auth:
         try:
             tokens = self._validate(data)
         except (ValueError, TypeError):
-            raise TraktError('Trakt lieferte unvollständige Anmeldedaten.') from None
+            raise TraktError('Trakt returned incomplete authorization credentials.') from None
         # Keep rotated tokens in memory even if disk persistence fails. Retry saving
         # before the next authenticated request, instead of reusing an invalid refresh token.
         self.tokens = tokens
@@ -89,7 +89,7 @@ class Auth:
             return await bounded_request(self.http, 'POST', AUTH_URL + endpoint, json=payload, max_bytes=65536, metrics=self.metrics, service='oauth',
                                          expected_statuses=(400,) if endpoint == '/device/token' else ())
         except httpx.RequestError:
-            raise TraktError('Trakt-Anmeldedienst nicht erreichbar. Bitte erneut versuchen.') from None
+            raise TraktError('Trakt authorization service is unreachable. Please retry.') from None
 
     async def start(self):
         async with self.lock:
@@ -120,14 +120,14 @@ class Auth:
                 return {k: data[k] for k in ('user_code', 'verification_url', 'expires_in', 'interval')}
             except (KeyError, TypeError, ValueError):
                 self.pending = None
-                raise TraktError('Trakt lieferte unvollständige Gerätecodes.') from None
+                raise TraktError('Trakt returned incomplete device codes.') from None
 
     async def poll(self):
         async with self.lock:
             pending = self.pending
             if not pending or time.monotonic() >= pending['expires']:
                 self.pending = None
-                raise TraktError('Keine laufende Anmeldung. Bitte trakt_auth_start aufrufen.')
+                raise TraktError('No authorization is in progress. Start authorization through the add-on configuration or the optional trakt_auth_start tool.')
             wait = pending['next_poll'] - time.monotonic()
             if wait > 0:
                 return {'status': 'pending', 'retry_after_seconds': max(1, int(wait) + 1)}
@@ -143,7 +143,7 @@ class Auth:
                 return {'status': 'pending', 'retry_after_seconds': pending['interval']}
             if response.status_code in (404, 409, 410, 418):
                 self.pending = None
-                raise TraktError('Geräteanmeldung abgelehnt, abgelaufen oder bereits verwendet. Bitte neu starten.')
+                raise TraktError('Device authorization was denied, expired, or already used. Please restart authorization.')
             check_response(response)
             self._save(json_data(response))
             self.pending = None

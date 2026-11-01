@@ -13,18 +13,18 @@ async def authorize_from_home_assistant(auth):
         codes = await auth.start()
         code = codes['user_code']
         if not isinstance(code, str) or not re.fullmatch(r'[A-Za-z0-9-]{1,32}', code):
-            raise TraktError('Ungültiger Aktivierungscode von Trakt.')
+            raise TraktError('Invalid activation code from Trakt.')
         # Only the short-lived, user-facing activation code may be logged.
         # Private device codes and OAuth tokens are never logged.
-        LOGGER.warning('Trakt-Anmeldung: https://auth.trakt.tv/activate öffnen und Code %s eingeben. '
-                       'Gültig für %s Sekunden.', code, int(codes['expires_in']))
+        LOGGER.warning('Trakt authorization: open https://auth.trakt.tv/activate and enter code %s. '
+                       'Valid for %s seconds.', code, int(codes['expires_in']))
         while True:
             result = await auth.poll()
             if result['status'] == 'authorized':
-                LOGGER.warning('Trakt erfolgreich verbunden. authorize_trakt in der Add-on-Konfiguration wieder ausschalten.')
+                LOGGER.warning('Trakt connected successfully. Disable authorize_trakt in the add-on configuration.')
                 return
             await asyncio.sleep(result['retry_after_seconds'])
     except TraktError as error:
-        LOGGER.error('Trakt-Einrichtung: %s', error)
+        LOGGER.error('Trakt setup: %s', error)
     except Exception:
-        LOGGER.error('Trakt-Einrichtung fehlgeschlagen. Konfiguration und persistenten Speicher prüfen.')
+        LOGGER.error('Trakt setup failed. Check configuration and persistent storage.')

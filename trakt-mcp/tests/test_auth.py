@@ -101,5 +101,5 @@ def test_corrupt_token_file_allows_reauthorization(tmp_path, caplog):
     path.write_text('{broken-secret')
     auth = Auth(None, 'id', '', path)
     assert auth.tokens is None
-    assert 'erneut starten' in caplog.text
+    assert 'Restart Trakt authorization' in caplog.text
     assert 'broken-secret' not in caplog.text

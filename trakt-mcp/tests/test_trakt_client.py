@@ -76,16 +76,16 @@ async def test_timeout_sanitized_and_invalid_path_blocked():
         raise httpx.ReadTimeout('supersecret', request=request)
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         client = TraktClient(http, FakeAuth(), 'id')
-        with pytest.raises(TraktError, match='Zeitüberschreitung'):
+        with pytest.raises(TraktError, match='timed out'):
             await client.details('123')
-        with pytest.raises(TraktError, match='Film-ID'):
+        with pytest.raises(TraktError, match='Movie ID'):
             await client.details('../oauth')
 
 
 @pytest.mark.asyncio
 async def test_incomplete_exclusion_fails_closed():
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=[{'movie': {'ids': {}}}]))) as http:
-        with pytest.raises(TraktError, match='Ausschluss'):
+        with pytest.raises(TraktError, match='exclusion'):
             await TraktClient(http, FakeAuth(), 'id').candidates()
 
 
@@ -144,7 +144,7 @@ async def test_retry_transient_get_but_never_retry_rate_limit():
 async def test_pagination_mismatch_fails_instead_of_incomplete_exclusion():
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=[{'movie': movie(1)}], headers={
         'X-Pagination-Page': '1', 'X-Pagination-Page-Count': '2'}))) as http:
-        with pytest.raises(TraktError, match='Pagination'):
+        with pytest.raises(TraktError, match='pagination'):
             await TraktClient(http, FakeAuth(), 'id').candidates()
 
 
@@ -163,7 +163,7 @@ async def test_changed_personal_list_is_not_treated_as_complete():
             'X-Pagination-Page': str(page), 'X-Pagination-Page-Count': '2',
             'X-Pagination-Item-Count': str(page + 1)})
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        with pytest.raises(TraktError, match='geändert'):
+        with pytest.raises(TraktError, match='changed'):
             await TraktClient(http, FakeAuth(), 'id').candidates()
 
 

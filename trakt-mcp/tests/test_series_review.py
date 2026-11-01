@@ -120,7 +120,7 @@ async def test_tool_timeout_includes_queue_wait(monkeypatch):
         nonlocal called
         called = True
     metrics = Metrics()
-    with pytest.raises(ToolError, match='Zeitlimit'):
+    with pytest.raises(ToolError, match='timed out'):
         await safe_tool(function, slots=asyncio.Semaphore(0), metrics=metrics)()
     assert not called
     assert metrics.snapshot()['tools']['active'] == 0

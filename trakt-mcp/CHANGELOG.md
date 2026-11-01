@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.6
+
+- Translate remaining runtime logs, authorization messages, validation errors and
+  recommendation notes into English; update assertions accordingly.
+- Remove the German Home Assistant configuration translation so the add-on uses
+  English configuration text regardless of the Home Assistant language.
+
 ## 0.3.5
 
 - Include parsed numeric page, total and response-size diagnostics in pagination

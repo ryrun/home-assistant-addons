@@ -1,6 +1,6 @@
 # Trakt MCP Server
 
-Experimental Home Assistant add-on (0.3.5) for personal movie and series data from Trakt.tv.
+Experimental Home Assistant add-on (0.3.6) for personal movie and series data from Trakt.tv.
 AI assistants receive read-only access through authenticated MCP Streamable HTTP
 at `http://homeassistant.local:8765/mcp`.
 

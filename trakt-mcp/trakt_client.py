@@ -20,13 +20,13 @@ MAX_PAGES = 200
 
 def movie_id(value):
     if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9-]{0,199}', value):
-        raise TraktError('Film-ID muss eine Trakt-ID, IMDb-ID oder ein Trakt-Slug sein.')
+        raise TraktError('Movie ID must be a Trakt ID, IMDb ID, or Trakt slug.')
     return value
 
 
 def genres_value(genres):
     if genres and (len(genres) > 20 or any(not re.fullmatch(r'[a-z][a-z-]{0,49}', g) for g in genres)):
-        raise TraktError('Genres als Trakt-Slugs angeben, z. B. science-fiction.')
+        raise TraktError('Specify genres as Trakt slugs, e.g. science-fiction.')
     return ','.join(genres or [])
 
 
@@ -63,7 +63,7 @@ class TraktClient:
                 cached = await self.cache.get(key)
             except (sqlite3.Error, OSError, ValueError):
                 cached = None
-                logging.getLogger('trakt_mcp').warning('Öffentlicher Cache nicht lesbar; frage Trakt direkt ab.')
+                logging.getLogger('trakt_mcp').warning('Public cache is unreadable; querying Trakt directly.')
             if cached is not None:
                 return cached
             generation = self.cache.generation
@@ -76,7 +76,7 @@ class TraktClient:
             try:
                 await self.cache.put(key, response, ttl=300 if path.endswith('/trending') else None, generation=generation)
             except (sqlite3.Error, OSError):
-                logging.getLogger('trakt_mcp').warning('Öffentlicher Cache nicht beschreibbar.')
+                logging.getLogger('trakt_mcp').warning('Public cache is not writable.')
             return response
 
     async def _fetch(self, path, params=None, personal=False):
@@ -87,7 +87,7 @@ class TraktClient:
             for attempt in range(2):
                 remaining = self.rate_limit_until - time.monotonic()
                 if remaining > 0:
-                    raise TraktError(f'Trakt-Rate-Limit aktiv. In {int(remaining) + 1} Sekunden erneut versuchen.')
+                    raise TraktError(f'Trakt rate limit active. Retry in {int(remaining) + 1} seconds.')
                 try:
                     async with self.request_slots:
                         remaining = self.rate_limit_until - time.monotonic()
@@ -99,11 +99,11 @@ class TraktClient:
                     if attempt == 0:
                         await asyncio.sleep(0.25)
                         continue
-                    raise TraktError('Trakt nicht erreichbar oder Zeitüberschreitung. Bitte erneut versuchen.') from None
+                    raise TraktError('Trakt is unreachable or the request timed out. Please retry.') from None
                 if response.status_code == 429:
                     seconds = retry_after(response.headers)
                     self.rate_limit_until = time.monotonic() + seconds
-                    raise TraktError(f'Trakt-Rate-Limit erreicht. In {seconds} Sekunden erneut versuchen.')
+                    raise TraktError(f'Trakt rate limit reached. Retry in {seconds} seconds.')
                 if response.status_code in (502, 503, 504) and attempt == 0:
                     await asyncio.sleep(0.25)
                     continue
@@ -131,7 +131,7 @@ class TraktClient:
     def _decode_page(response, page, limit, full=False):
         items = json_data(response)
         if not isinstance(items, list):
-            raise TraktError('Unerwartetes Trakt-Datenformat.')
+            raise TraktError('Unexpected Trakt data format.')
         if any(k.startswith('x-pagination-') for k in response.headers) and 'X-Pagination-Page-Count' not in response.headers:
             raise TraktError('Incomplete Trakt pagination headers; completeness cannot be verified.')
         try:
@@ -141,11 +141,11 @@ class TraktClient:
             size = int(response.headers.get('X-Pagination-Limit', limit))
             total = int(response.headers.get('X-Pagination-Item-Count', len(items)))
         except ValueError:
-            raise TraktError('Ungültige Trakt-Pagination.') from None
+            raise TraktError('Invalid Trakt pagination.') from None
         if current != page or pages < 0 or total < 0 or size < 0 or (items and (size == 0 or pages == 0)):
-            raise TraktError('Inkonsistente Trakt-Pagination; vollständige Ergebnisse nicht sichergestellt.')
+            raise TraktError('Inconsistent Trakt pagination; completeness cannot be verified.')
         if not items and page < pages:
-            raise TraktError('Leere Trakt-Seite vor Listenende; vollständige Ergebnisse nicht sichergestellt.')
+            raise TraktError('Empty Trakt page before the end of the list; completeness cannot be verified.')
         if all(k in response.headers for k in ('X-Pagination-Page-Count', 'X-Pagination-Limit', 'X-Pagination-Item-Count')):
             if size == 0:
                 valid = total == 0 and not items and pages in (0, 1)
@@ -187,14 +187,14 @@ class TraktClient:
             result = self._decode_page(response, page, 100, full=True)
             if 'X-Pagination-Item-Count' in response.headers:
                 if expected_total is not None and result['total_items'] != expected_total:
-                    raise TraktError('Persönliche Liste während des Abrufs geändert. Bitte erneut versuchen.')
+                    raise TraktError('Personal list changed during retrieval. Please retry.')
                 expected_total = result['total_items']
             items.extend(result['items'])
             if result['next_page'] is None:
                 if expected_total is not None and len(items) != expected_total:
-                    raise TraktError('Persönliche Liste unvollständig. Bitte erneut versuchen.')
+                    raise TraktError('Personal list is incomplete. Please retry.')
                 return items
-        raise TraktError('Persönliche Liste überschreitet das Sicherheitslimit; Ausschluss wäre unvollständig.')
+        raise TraktError('Personal list exceeds the safety limit; exclusions would be incomplete.')
 
     async def personal_page(self, path, page, limit, year=None, genres=None):
         if not self.snapshots:
@@ -370,7 +370,7 @@ class TraktClient:
                                    'ignore_watchlisted': str(exclude_watchlist).lower()}, personal=True)
         movies = json_data(response)
         if not isinstance(movies, list):
-            raise TraktError('Unerwartetes Format persönlicher Trakt-Empfehlungen.')
+            raise TraktError('Unexpected personal Trakt recommendation format.')
         excluded = set()
         for enabled, path in ((exclude_watched, '/sync/watched/movies'),
                               (exclude_watchlist, '/users/me/watchlist/movies/added')):
@@ -378,13 +378,13 @@ class TraktClient:
                 for item in await self.all_items(path):
                     identifier = item.get('movie', {}).get('ids', {}).get('trakt')
                     if identifier is None:
-                        raise TraktError('Persönliche Film-ID fehlt; zuverlässiger Ausschluss nicht möglich.')
+                        raise TraktError('Personal movie ID is missing; reliable exclusion is not possible.')
                     excluded.add(identifier)
         items, seen = [], set()
         for movie in movies:
             identifier = movie.get('ids', {}).get('trakt') if isinstance(movie, dict) else None
             if identifier is None:
-                raise TraktError('Film-ID in persönlicher Trakt-Empfehlung fehlt.')
+                raise TraktError('Movie ID is missing from a personal Trakt recommendation.')
             if identifier in excluded or identifier in seen:
                 continue
             seen.add(identifier)
@@ -393,18 +393,18 @@ class TraktClient:
         return {'items': items[:limit], 'source': 'trakt:/recommendations/movies',
                 'candidates_received': len(movies), 'eligible_candidates': len(items),
                 'exclude_watched': exclude_watched, 'exclude_watchlist': exclude_watchlist,
-                'note': 'Persönliche Trakt-Rangfolge, kein Garant für Gefallen oder Streaming-Verfügbarkeit. '
-                        'Es werden höchstens 100 Trakt-Kandidaten geprüft; nach Ausschlüssen sind weniger Ergebnisse möglich.'}
+                'note': 'Personal Trakt ranking; enjoyment or streaming availability is not guaranteed. '
+                        'At most 100 Trakt candidates are checked; exclusions may leave fewer results.'}
 
     async def candidates(self, genres=None, year_from=None, year_to=None, min_rating=None,
                          limit=10, exclude_watched=True, exclude_watchlist=False,
                          source='popular', seed_movie_id=None):
         if year_from is not None and year_to is not None and year_from > year_to:
-            raise TraktError('year_from darf nicht größer als year_to sein.')
+            raise TraktError('year_from must not exceed year_to.')
         if source not in ('popular', 'trending', 'related'):
             raise TraktError('Unbekannte Kandidatenquelle.')
         if source == 'related' and not seed_movie_id:
-            raise TraktError('Für ähnliche Kandidaten seed_movie_id angeben.')
+            raise TraktError('Specify seed_movie_id for related candidates.')
         path = '/movies/' + movie_id(seed_movie_id) + '/related' if source == 'related' else '/movies/' + source
         params = {}
         if genres:
@@ -421,7 +421,7 @@ class TraktClient:
                 for item in await self.all_items(exclusion_path):
                     identifier = item.get('movie', {}).get('ids', {}).get('trakt')
                     if identifier is None:
-                        raise TraktError('Persönliche Film-ID fehlt; zuverlässiger Ausschluss nicht möglich.')
+                        raise TraktError('Personal movie ID is missing; reliable exclusion is not possible.')
                     excluded.add(identifier)
         matches, seen = [], set()
         next_page = None
@@ -454,4 +454,4 @@ class TraktClient:
         return {'items': matches, 'source': 'trakt:' + path, 'pages_scanned': page,
                 'scan_limit_reached': page == 10 and next_page is not None and len(matches) < limit,
                 'exclude_watched': exclude_watched, 'exclude_watchlist': exclude_watchlist,
-                'note': 'Kandidatenquelle ist keine persönliche Rangfolge. Genres werden mit ODER verknüpft.'}
+                'note': 'The candidate source is not a personal ranking. Genres are combined with OR.'}

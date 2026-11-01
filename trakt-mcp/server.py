@@ -54,12 +54,12 @@ def safe_tool(function, *, metrics=None, slots=None):
                 async with (slots if slots is not None else nullcontext()):
                     result = await function(*args, **kwargs)
             outcome = 'ok'
-            LOGGER.info('MCP %s erfolgreich (%.2fs)', function.__name__, time.monotonic() - started)
+            LOGGER.info('MCP %s succeeded (%.2fs)', function.__name__, time.monotonic() - started)
             return result
         except TimeoutError:
             outcome = 'timeout'
-            LOGGER.warning('MCP %s: Zeitlimit überschritten', function.__name__)
-            raise ToolError('Zeitlimit für Trakt-Abfrage überschritten. Bitte erneut versuchen.') from None
+            LOGGER.warning('MCP %s: timeout exceeded', function.__name__)
+            raise ToolError('Trakt request timed out. Please retry.') from None
         except TraktError as error:
             outcome = 'error'
             LOGGER.warning('MCP %s: %s', function.__name__, error)
@@ -67,7 +67,7 @@ def safe_tool(function, *, metrics=None, slots=None):
         except Exception:
             outcome = 'error'
             # SDK may return exception text; never expose arbitrary HTTP/storage errors.
-            raise ToolError('Interner Fehler. Konfiguration und persistenten Speicher prüfen.') from None
+            raise ToolError('Internal error. Check configuration and persistent storage.') from None
         finally:
             if metrics:
                 metrics.finish_tool(function.__name__, started, outcome)
@@ -147,7 +147,7 @@ def create_app(options, data_dir=Path('/data'), http=None):
     try:
         cache = PublicCache(data_dir / 'public-cache.sqlite3', ttl) if ttl else None
     except (sqlite3.Error, OSError):
-        LOGGER.warning('Öffentlicher Cache nicht verfügbar; Server startet ohne Cache.')
+        LOGGER.warning('Public cache is unavailable; starting the server without a cache.')
         cache = None
     client = TraktClient(http, auth, client_id, cache, personal_cache=options.get('personal_cache_enabled', True), metrics=metrics)
     library = LibraryReader(client)
@@ -155,8 +155,8 @@ def create_app(options, data_dir=Path('/data'), http=None):
     @asynccontextmanager
     async def lifespan(_):
         metrics.ready = True
-        LOGGER.info('MCP bereit: /mcp auf Port 8765, Bearer-Authentifizierung aktiv.')
-        LOGGER.info('Trakt-Anmeldestatus: %s', 'Tokens gespeichert' if auth.tokens else 'nicht verbunden')
+        LOGGER.info('MCP ready: /mcp on port 8765, bearer authentication enabled.')
+        LOGGER.info('Trakt authorization status: %s', 'tokens stored' if auth.tokens else 'not connected')
         setup = asyncio.create_task(authorize_from_home_assistant(auth)) if options.get('authorize_trakt', False) else None
         try:
             yield
