@@ -2,7 +2,7 @@
 
 Goal: a personal, read-only movie and series Trakt MCP server as a standalone Home Assistant add-on.
 Codex/Zed handles analysis and recommendations. Existing add-ons remain unchanged.
-Status: experimental version 0.3.4.
+Status: experimental version 0.3.5.
 
 Setup uses the existing Home Assistant interface through configuration and logs,
 or alternatively MCP tools. Home Assistant displays process status and logs.

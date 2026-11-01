@@ -154,7 +154,10 @@ class TraktClient:
                 expected_items = min(size, max(0, total - (current - 1) * size))
                 valid = pages in ((0, 1) if total == 0 else (expected_pages,)) and len(items) == expected_items
             if not valid:
-                raise TraktError('Inconsistent Trakt pagination totals; completeness cannot be verified.')
+                raise TraktError(
+                    'Inconsistent Trakt pagination totals; completeness cannot be verified. '
+                    f'page={current}, page_count={pages}, upstream_limit={size}, '
+                    f'total_items={total}, received_items={len(items)}, requested_limit={limit}.')
         if 'X-Pagination-Page-Count' not in response.headers:
             total = len(items)
             pages = 1 if full else (total + limit - 1) // limit

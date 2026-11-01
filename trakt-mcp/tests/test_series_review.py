@@ -125,3 +125,17 @@ async def test_tool_timeout_includes_queue_wait(monkeypatch):
     assert not called
     assert metrics.snapshot()['tools']['active'] == 0
     assert metrics.snapshot()['tools']['errors'] == 1
+
+
+def test_pagination_mismatch_reports_only_numeric_diagnostics():
+    response = httpx.Response(200, json=[{'title': 'private-title'}], headers={
+        'X-Pagination-Page': '1', 'X-Pagination-Page-Count': '2',
+        'X-Pagination-Limit': '50', 'X-Pagination-Item-Count': '60',
+    })
+    with pytest.raises(TraktError) as error:
+        TraktClient._decode_page(response, 1, 50)
+    message = str(error.value)
+    for detail in ('page=1', 'page_count=2', 'upstream_limit=50',
+                   'total_items=60', 'received_items=1', 'requested_limit=50'):
+        assert detail in message
+    assert 'private-title' not in message

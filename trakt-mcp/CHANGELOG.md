@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.3.5
+
+- Include parsed numeric page, total and response-size diagnostics in pagination
+  mismatch errors. Keep completeness checks unchanged; no payloads or credentials
+  are included. This supports diagnosing real up-next response discrepancies.
 
 - Remove the Trakt GitHub Actions workflow; retain local tests, benchmarks and
   HTTP smoke-test helpers, and document local verification commands.
