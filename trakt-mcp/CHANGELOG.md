@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.7
+
+- Apply OAuth HTTP 429 cooldowns to device-code requests and token refreshes,
+  retaining saved credentials and preventing repeated upstream requests.
+- Preserve a longer active Trakt cooldown when another in-flight request returns
+  a shorter Retry-After value.
+- Include OAuth rate-limit cooldowns in status metrics even without active device
+  authorization. Add regression tests for retry suppression and concurrent 429s.
+
 ## 0.3.6
 
 - Translate remaining runtime logs, authorization messages, validation errors and

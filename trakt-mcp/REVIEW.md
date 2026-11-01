@@ -1,8 +1,24 @@
 # Technical review and comparison
 
-Reviewed on 2026-10-31. This assessment covers source code, specifications, and
+Reviewed on 2026-11-01. This assessment covers source code, specifications, and
 local tests. It does not replace acceptance testing with a Trakt account,
 Zed/Codex, and Home Assistant Green.
+
+## Rate-limit review, version 0.3.7
+
+OAuth requests now share a process-local HTTP 429 cooldown, including token
+refreshes and device-code creation. Repeated calls during that interval do not
+reach Trakt, and saved tokens are retained. Status includes this cooldown even
+without an active device flow. Concurrent API responses cannot overwrite a longer
+cooldown with a shorter deadline. Regression tests exercise both cases.
+
+Local validation: 174 tests, dependency consistency, JavaScript syntax and a
+synthetic 10,000-movie benchmark passed. The benchmark measured 83.6 MiB peak RSS
+on macOS ARM64, not on Green. Public cache, build-context source inclusion,
+authorization boundaries and English runtime text were inspected. The real-account
+up-next pagination discrepancy still needs the numeric diagnostics added in 0.3.5;
+this release does not claim to fix it. Docker/ARM64 and Supervisor acceptance
+remain separate checks on the target system.
 
 ## Series extension review, version 0.3.1
 

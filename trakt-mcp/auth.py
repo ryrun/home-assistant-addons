@@ -27,6 +27,7 @@ class Auth:
         self.metrics = metrics
         self.lock = asyncio.Lock()
         self.pending = None
+        self.rate_limit_until = 0
         self.tokens = None
         self._needs_save = False
         try:
@@ -85,9 +86,16 @@ class Auth:
                 os.unlink(name)
 
     async def _post(self, endpoint, payload):
+        remaining = self.rate_limit_until - time.monotonic()
+        if remaining > 0:
+            raise TraktError(f'Trakt OAuth rate limit active. Retry in {math.ceil(remaining)} seconds.')
         try:
-            return await bounded_request(self.http, 'POST', AUTH_URL + endpoint, json=payload, max_bytes=65536, metrics=self.metrics, service='oauth',
-                                         expected_statuses=(400,) if endpoint == '/device/token' else ())
+            response = await bounded_request(self.http, 'POST', AUTH_URL + endpoint, json=payload, max_bytes=65536, metrics=self.metrics, service='oauth',
+                                             expected_statuses=(400,) if endpoint == '/device/token' else ())
+            if response.status_code == 429:
+                delay = retry_after(response.headers, 10 if endpoint == '/device/token' else 60)
+                self.rate_limit_until = max(self.rate_limit_until, time.monotonic() + delay)
+            return response
         except httpx.RequestError:
             raise TraktError('Trakt authorization service is unreachable. Please retry.') from None
 

@@ -570,7 +570,8 @@ def create_app(options, data_dir=Path('/data'), http=None):
                 'public_cache': public,
                 'personal_cache': client.snapshots.status() if client.snapshots else {'enabled': False},
                 'cooldowns': {'trakt': max(0, math.ceil(client.rate_limit_until - time.monotonic())),
-                              'oauth': max(0, math.ceil(auth.pending.get('next_poll', 0) - time.monotonic())) if auth.pending else 0}}
+                              'oauth': max(0, math.ceil(max(auth.rate_limit_until,
+                                  auth.pending.get('next_poll', 0) if auth.pending else 0) - time.monotonic()))}}
 
     protected = BearerGate(app, token, parse_networks(options.get('allowed_networks', DEFAULT_NETWORKS)), metrics)
     protected.dashboard = create_dashboard(statistics)

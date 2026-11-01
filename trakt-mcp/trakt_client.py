@@ -102,7 +102,7 @@ class TraktClient:
                     raise TraktError('Trakt is unreachable or the request timed out. Please retry.') from None
                 if response.status_code == 429:
                     seconds = retry_after(response.headers)
-                    self.rate_limit_until = time.monotonic() + seconds
+                    self.rate_limit_until = max(self.rate_limit_until, time.monotonic() + seconds)
                     raise TraktError(f'Trakt rate limit reached. Retry in {seconds} seconds.')
                 if response.status_code in (502, 503, 504) and attempt == 0:
                     await asyncio.sleep(0.25)

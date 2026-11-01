@@ -372,7 +372,7 @@ statistics shown in the service monitor.
 
 After installing an update, reconnect the MCP client and start a new assistant thread.
 If an old tool list persists in Zed/Codex, fully quit and reopen Zed before starting
-the new thread. Confirm `server_version: 0.3.6` via `trakt_get_status` and check
+the new thread. Confirm `server_version: 0.3.7` via `trakt_get_status` and check
 that `trakt_get_show_progress` and `trakt_get_history` are available. Stored Trakt
 authorization stays valid; no new device authorization is normally required.
 
@@ -547,7 +547,9 @@ For MCP HTTP `401`, check your MCP token. For Trakt authorization errors, repeat
 device authorization. Rate-limit handling respects `Retry-After` in seconds,
 defaulting to 60 seconds when absent or invalid. Explicit waits are not shortened;
 HTTP-date values are also supported. Queued requests recheck the cooldown after
-acquiring an HTTP slot. Device polling respects explicit retry headers as well. Further upstream requests are
+acquiring an HTTP slot. Device polling respects explicit retry headers as well. OAuth device-code requests
+and token refreshes share an OAuth cooldown, shown in status even without a pending
+device flow. Concurrent responses cannot shorten an existing cooldown. Further upstream requests are
 rejected during that window; try another tool call later. Network failures and
 HTTP 502/503/504 on GETs are retried at most once. OAuth POSTs are not automatically
 retried because refresh tokens are single-use. A damaged token file can be

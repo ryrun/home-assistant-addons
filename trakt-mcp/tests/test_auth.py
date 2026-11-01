@@ -103,3 +103,28 @@ def test_corrupt_token_file_allows_reauthorization(tmp_path, caplog):
     assert auth.tokens is None
     assert 'Restart Trakt authorization' in caplog.text
     assert 'broken-secret' not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('operation', ['refresh', 'start'])
+async def test_oauth_rate_limit_blocks_repeated_requests_and_preserves_tokens(tmp_path, operation):
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(429, headers={'Retry-After': '120'})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        auth = Auth(http, 'id', '', tmp_path / 'oauth.json')
+        auth._save(tokens(expired=True))
+        original = auth.path.read_bytes()
+        invoke = auth.access_token if operation == 'refresh' else auth.start
+        with pytest.raises(TraktError):
+            await invoke()
+        with pytest.raises(TraktError, match='OAuth rate limit active'):
+            await invoke()
+        assert len(calls) == 1
+        assert auth.path.read_bytes() == original
+        assert auth.tokens is not None
+        auth.rate_limit_until = 0
+        with pytest.raises(TraktError):
+            await invoke()
+        assert len(calls) == 2

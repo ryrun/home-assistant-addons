@@ -228,3 +228,25 @@ async def test_personal_recommendations_preserve_rank_exclude_and_remove_other_u
         assert 'private-other-user' not in str(result)
         assert result['candidates_received'] == 5
         assert (await cache.status())['entries'] == 0
+
+
+@pytest.mark.asyncio
+async def test_inflight_shorter_rate_limit_never_shortens_existing_cooldown():
+    import asyncio
+    import time
+    started = asyncio.Event()
+    release = asyncio.Event()
+    async def handler(request):
+        started.set()
+        await release.wait()
+        return httpx.Response(429, headers={'Retry-After': '5'})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = TraktClient(http, FakeAuth(), 'id')
+        task = asyncio.create_task(client.details('123'))
+        await started.wait()
+        longer_deadline = time.monotonic() + 120
+        client.rate_limit_until = longer_deadline
+        release.set()
+        with pytest.raises(TraktError):
+            await task
+        assert client.rate_limit_until >= longer_deadline
