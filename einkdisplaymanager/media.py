@@ -148,7 +148,7 @@ def validate_variant(data, profile_id):
             if any(r != g or r != b or r not in GRAY8 or a != 255
                    for r, g, b, a in image.convert('RGBA').get_flattened_data()):
                 raise ValueError('Inkplate 6 PNG pixels must use exactly the supported eight grayscale levels without transparency.')
-    except (OSError, SyntaxError) as exc:
+    except (OSError, SyntaxError, Image.DecompressionBombError) as exc:
         raise ValueError('The Inkplate PNG is damaged or unreadable.') from exc
 
 

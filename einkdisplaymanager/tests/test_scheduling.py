@@ -1,8 +1,9 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
 import scheduling
+from aiohttp import web
 from mqtt_bridge import fetch_health
 from playback import completed, select_for_request
 from test_http import path, picture, upload
@@ -53,6 +54,18 @@ def test_relative_quiet_hours_midnight_and_boundaries():
     assert scheduling.next_due(device, stamp('2026-11-11T11:55')) == stamp('2026-11-11T14:00')
 
 
+def test_sparse_second_based_grid_does_not_exhaust_search_and_break_device_reads():
+    device = scheduled(86401, quiet_enabled=True, quiet_start='03:01', quiet_end='03:00')
+    anchor = stamp('2026-11-11T03:00')
+    # Each daily slot shifts by one second. Once the one-minute allowed window
+    # is exhausted, the next phase can be far away; the API must remain usable.
+    after_window = anchor + 60 * 86401
+    expected_local = datetime(2026, 11, 11, 3) + timedelta(seconds=86400 * 86401)
+    expected = expected_local.replace(tzinfo=ZoneInfo('Europe/Berlin')).timestamp()
+    assert scheduling.next_due(device, after_window) == expected
+    assert scheduling.sleep_seconds(device, after_window) == 2592000
+
+
 def test_dst_keeps_daily_local_time_skips_missing_slots_and_does_not_repeat_fold():
     device = scheduled(86400)
     spring = stamp('2026-03-28T03:00')
@@ -73,7 +86,8 @@ def test_dst_keeps_daily_local_time_skips_missing_slots_and_does_not_repeat_fold
 
 @pytest.mark.parametrize('options', [
     {'timezone': '../invalid'}, {'timezone': 'Not/A_Zone'}, {'anchor_time': '25:00'},
-    {'anchor_enabled': 'yes'}, {'anchor_date': 'bad'}, {'quiet_enabled': True, 'quiet_start': '06:00', 'quiet_end': '06:00'},
+    {'anchor_enabled': 'yes'}, {'anchor_date': 'bad'}, {'anchor_date': '2026-W46-3'},
+    {'quiet_enabled': True, 'quiet_start': '06:00', 'quiet_end': '06:00'},
     {'quiet_enabled': True, 'quiet_start': '22:00', 'quiet_end': '06:00'},
 ])
 def test_invalid_or_fully_blocked_schedules_are_rejected(options):
@@ -132,3 +146,60 @@ async def test_dynamic_json_no_stale_304_and_next_connection_independent_of_watc
     assert (await response.json())['timeout'] == 21600
     response = await frames.get(path(device['urls']['settings']), headers={'If-None-Match': response.headers['ETag']})
     assert response.status == 304
+
+
+async def test_transfer_across_anchor_uses_issued_sleep_for_forecast_and_watchdog(system, monkeypatch):
+    manager, admin, frames = system
+    device = await (await admin.post('/api/devices', json={'name': 'Slow frame'})).json()
+    a = await upload(admin)
+    now = [stamp('2026-11-11T03:00')]
+    monkeypatch.setattr('server.time.time', lambda: now[0])
+    endpoint = '/api/devices/' + device['id']
+    await admin.put(endpoint, json={'interval': 21600, 'schedule': scheduled()['schedule'],
+                                   'entries': [{'asset_id': a, 'mode': 'original'}]})
+    await (await frames.get(path(device['urls']['image']))).read()
+    now[0] = stamp('2026-11-11T08:59:50')
+    response = await frames.get(path(device['urls']['settings']))
+    assert (await response.json())['timeout'] == 60
+    original = web.StreamResponse.write
+    async def slow_transfer(response, data):
+        await original(response, data)
+        now[0] = stamp('2026-11-11T09:00:10')
+    monkeypatch.setattr(web.StreamResponse, 'write', slow_transfer)
+    now[0] = stamp('2026-11-11T08:59:55')
+    await (await frames.get(path(device['urls']['image']))).read()
+    monkeypatch.setattr(web.StreamResponse, 'write', original)
+    saved = manager.store.get('device', device['id'])
+    expected = stamp('2026-11-11T09:01:10')
+    assert saved['state']['next_request_at'] == saved['state']['expected_image_at'] == expected
+    assert saved['state']['deadline'] == stamp('2026-11-11T09:00')
+    now[0] = expected + 121
+    assert manager.mqtt.health(saved)['battery_estimate'] == 0
+    # Saving desired settings cannot make an overdue device healthy again.
+    await admin.put(endpoint, json={'interval': 43200})
+    assert (await (await admin.get(endpoint)).json())['health']['battery_estimate'] == 0
+    await frames.get(path(device['urls']['settings']))
+    assert (await (await admin.get(endpoint)).json())['health']['battery_estimate'] == 0
+
+
+async def test_shorter_json_sleep_can_shorten_but_never_postpone_outstanding_image_deadline(system, monkeypatch):
+    manager, admin, frames = system
+    d = await (await admin.post('/api/devices', json={'name': 'Changed interval'})).json()
+    a = await upload(admin)
+    endpoint = '/api/devices/' + d['id']
+    now = [stamp('2026-11-11T03:00')]
+    monkeypatch.setattr('server.time.time', lambda: now[0])
+    await admin.put(endpoint, json={'interval': 21600, 'entries': [{'asset_id': a, 'mode': 'original'}]})
+    await frames.get(path(d['urls']['settings']))
+    await (await frames.get(path(d['urls']['image']))).read()
+    now[0] = stamp('2026-11-11T04:00')
+    await admin.put(endpoint, json={'interval': 60})
+    await frames.get(path(d['urls']['settings']))
+    assert manager.store.get('device', d['id'])['state']['expected_image_at'] == now[0] + 60
+    now[0] += 181
+    assert (await (await admin.get(endpoint)).json())['health']['battery_estimate'] == 0
+    await admin.put(endpoint, json={'interval': 21600})
+    await frames.get(path(d['urls']['settings']))
+    assert (await (await admin.get(endpoint)).json())['health']['battery_estimate'] == 0
+    await (await frames.get(path(d['urls']['image']))).read()
+    assert (await (await admin.get(endpoint)).json())['health']['battery_estimate'] == 100

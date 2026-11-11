@@ -17,6 +17,7 @@ def test_pack_to_cell_calibrated_estimate_is_bounded_and_unknown_without_reading
 @pytest.mark.parametrize('change', [
     {'series_cells': True}, {'series_cells': 0}, {'series_cells': 33}, {'enabled': 'yes'},
     {'empty_voltage': float('nan')}, {'full_voltage': float('inf')}, {'full_voltage': 1.1},
+    {'empty_voltage': 10**400}, {'full_voltage': 10**400},
     {'chemistry': 'unsupported'}, {'empty_voltage': None}, {'arbitrary': True},
 ])
 def test_invalid_battery_profiles(change):

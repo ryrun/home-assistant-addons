@@ -25,7 +25,7 @@ def validate(value):
         number = result[key]
         if number is None and not result['enabled']:
             continue
-        if type(number) not in (int, float) or not math.isfinite(number) or not 0.1 <= number <= 6:
+        if type(number) not in (int, float) or not 0.1 <= number <= 6 or not math.isfinite(number):
             raise ValueError('Enter the empty and full voltage per cell, between 0.1 and 6 V.')
     if result['empty_voltage'] is not None and result['full_voltage'] is not None and result['empty_voltage'] >= result['full_voltage']:
         raise ValueError('Full voltage must be greater than empty voltage.')

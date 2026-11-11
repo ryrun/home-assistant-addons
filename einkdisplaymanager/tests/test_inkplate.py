@@ -1,5 +1,7 @@
 import io
 import json
+import struct
+import zlib
 
 import pytest
 from correction import rotate_delivery
@@ -33,6 +35,18 @@ def test_inkplate_pixel_contract_and_lossless_correction():
     with pytest.raises(ValueError):
         validate_variant(data, 'openpaper_l')
     assert original_compatible({'mime': 'image/png', 'original_supported': False, 'width': 320, 'height': 240, 'bytes': 100}, 'inkplate_6')
+
+
+async def test_huge_png_header_is_a_validation_error_without_saving_files(system):
+    manager, admin, _frames = system
+    asset = await upload(admin)
+    def chunk(kind, payload):
+        return struct.pack('>I', len(payload)) + kind + payload + struct.pack('>I', zlib.crc32(kind + payload))
+    data = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 100000, 100000, 8, 2, 0, 0, 0)) + chunk(b'IEND', b'')
+    before = set(manager.store.files.iterdir())
+    response = await admin.post(f'/api/assets/{asset}/variants', data=data, headers={'X-Recipe': '{"profile":"inkplate_6"}'})
+    assert response.status == 400 and 'error' in await response.json()
+    assert not manager.store.all('variant') and set(manager.store.files.iterdir()) == before
 
 
 @pytest.mark.parametrize('mounting', ['portrait', 'landscape'])

@@ -2,7 +2,7 @@ name: E-Ink Display Manager
 slug: einkdisplaymanager
 description: Local OpenPaper and Inkplate 6 photo library, optimization, and independent device slideshows
 url: https://github.com/ryrun/home-assistant-addons/tree/main/einkdisplaymanager
-version: "0.5.0"
+version: "0.5.1"
 stage: experimental
 arch:
   - aarch64

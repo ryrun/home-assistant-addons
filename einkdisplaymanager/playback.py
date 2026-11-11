@@ -13,6 +13,7 @@ def initial_state():
     return {'queue': [], 'selected': None, 'pending': False, 'deadline': 0,
             'cycle': 1, 'last_served_entry': None, 'last_served_hash': None,
             'last_served_at': None, 'last_image_request': None, 'last_settings_request': None,
+            'last_settings_timeout': None,
             'last_error': None}
 
 
@@ -74,5 +75,10 @@ def completed(device, output_hash, now):
                  last_served_at=now, last_error=None)
     if state['pending']:
         state.update(pending=False, deadline=next_due(device, now))
-    state['expected_image_at'] = next_due(device, now)
-    state['next_request_at'] = now + sleep_seconds(device, now)
+    # The frame sleeps for the duration already read from JSON. A transfer can
+    # cross an anchor boundary; recomputing its countdown here would predict the
+    # following slot instead of the short wake that the frame will actually use.
+    delay = state.get('last_settings_timeout')
+    if delay is None:
+        delay = sleep_seconds(device, now)
+    state['expected_image_at'] = state['next_request_at'] = now + delay

@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.5.0**; locally tested, with Green,
+Status: experimental implementation **0.5.1**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -833,3 +833,29 @@ and responsive layouts. No physical timing, charge-curve, Green installation, or
 container-build acceptance is implied. The dynamic-image plan in section 12 stays
 future work and must inherit these device schedules without coupling its own
 generation intervals to device polls.
+
+
+## 14. Final code and documentation review (0.5.1)
+
+- Fixed a reproducible anchor-boundary forecast error: JSON issued shortly before
+  a slot may tell a frame to sleep 60 seconds, while the HTTP image transfer ends
+  just after the slot. Keep that issued sleep for the next-connection prediction
+  and image watchdog instead of recomputing a six-hour future slot. The playlist
+  deadline remains separate; settings-only contacts cannot restore image health.
+  Persist the last supplied timeout and retain known expectations until an image
+  completes. Desired settings do not prove the frame has applied them.
+- Sparse second-based anchor grids with narrow quiet windows use a bounded
+  phase lookup instead of exhausting an iterative search and blocking device/API
+  reads. The 64-entry clock-phase cache is bounded to about 5.3 MiB worst-case.
+- Oversized PNG headers now produce validation errors without storing a variant;
+  extremely large numeric battery endpoints no longer overflow float validation.
+  Calendar-form anchor dates stay compatible with the UI date input.
+- Documentation and global setup help now distinguish OpenPaper flasher/TLS
+  behavior from ESPHome, explicitly describe validated PNG output and false-by-
+  default charging, and clarify timing predictions versus physical refreshes.
+- Local evidence: 127 Python tests, 14 JavaScript tests, real Chromium workflows,
+  and interrupted-transfer verification. Independent schedule comparisons cover
+  343 valid combinations around European and half-hour DST transitions.
+- Full ESPHome firmware compilation and physical frame/Green/container acceptance
+  remain outstanding. The temporary ESPHome package download timed out during
+  review; no firmware build success is claimed. Dynamic images remain planned.

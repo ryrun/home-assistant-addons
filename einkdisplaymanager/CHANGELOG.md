@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.1
+
+- Fix next-connection and image-watchdog forecasts when a transfer crosses an anchor boundary: retain the sleep duration actually supplied in settings JSON instead of jumping to a later schedule slot.
+- Preserve the known image deadline while a desired interval change has not yet reached the frame; a settings-only fetch still cannot reset image health.
+- Return a validation error for oversized Inkplate PNG headers and extremely large battery voltage values instead of an internal server error.
+- Fix sparse second-based anchor grids with narrow quiet windows so the next-slot search cannot make valid device/API reads fail.
+- Enforce calendar-form anchor dates so values accepted by the API remain editable in HTML date inputs.
+- Scope flasher and HTTPS-verification instructions to OpenPaper, provide a separate Inkplate setup link, and correct JSON/PNG/charging documentation.
+- Add regression coverage and document final review evidence and outstanding hardware acceptance.
+
 ## 0.5.0
 
 - Add optional per-device wall-clock anchors, IANA time zones, reference dates, and daily quiet hours, including overnight windows and daylight-saving changes.

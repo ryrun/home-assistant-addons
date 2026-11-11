@@ -3,6 +3,7 @@
 import math
 import re
 from datetime import date, datetime, time, timedelta
+from functools import lru_cache
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 DEFAULTS = {'anchor_enabled': False, 'anchor_time': '03:00', 'anchor_date': '1970-01-01',
@@ -41,13 +42,13 @@ def validate(value, interval):
     except (ValueError, ZoneInfoNotFoundError):
         raise ValueError('Choose a valid IANA time zone, such as Europe/Berlin.') from None
     try:
-        if not isinstance(result['anchor_date'], str) or len(result['anchor_date']) != 10:
+        if not isinstance(result['anchor_date'], str) or not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', result['anchor_date']):
             raise ValueError
         parsed = date.fromisoformat(result['anchor_date'])
         if not 1970 <= parsed.year <= 2100:
             raise ValueError
     except ValueError:
-        raise ValueError('Use an anchor date between 1970 and 2100.') from None
+        raise ValueError('Use an anchor date in YYYY-MM-DD format between 1970 and 2100.') from None
     if result['quiet_enabled'] and result['quiet_start'] == result['quiet_end']:
         raise ValueError('Quiet hours must leave part of the day available for refreshes.')
     if result['anchor_enabled'] and result['quiet_enabled']:
@@ -95,6 +96,19 @@ def _end_timestamp(local, zone, not_before):
     raise ValueError('Quiet hours end could not be resolved in this time zone.')
 
 
+@lru_cache(maxsize=64)
+def _allowed_slots(interval, anchor_seconds, quiet_start, quiet_end):
+    """A bounded byte map of one repeating local-clock phase cycle (<=86400)."""
+    start, end = clock(quiet_start), clock(quiet_end)
+    start, end = start.hour * 3600 + start.minute * 60, end.hour * 3600 + end.minute * 60
+    slots = bytearray(DAY // math.gcd(interval, DAY))
+    for index in range(len(slots)):
+        position = (anchor_seconds + index * interval) % DAY
+        quiet = start <= position < end if start < end else position >= start or position < end
+        slots[index] = not quiet
+    return bytes(slots)
+
+
 def next_due(device, now):
     """Strictly future target. Anchors use local time; missing DST slots are skipped."""
     settings = config(device)
@@ -111,7 +125,19 @@ def next_due(device, now):
     anchor = datetime.combine(date.fromisoformat(settings['anchor_date']), clock(settings['anchor_time']))
     local_now = datetime.fromtimestamp(now, zone).replace(tzinfo=None)
     index = math.floor((local_now - anchor).total_seconds() / interval) + 1
+    slots = b'\x01'
+    if settings['quiet_enabled']:
+        slots = _allowed_slots(interval, anchor.hour * 3600 + anchor.minute * 60,
+                               settings['quiet_start'], settings['quiet_end'])
     for _ in range(2000):
+        cycle, position = divmod(index, len(slots))
+        allowed = slots.find(b'\x01', position)
+        if allowed < 0:
+            cycle += 1
+            allowed = slots.find(b'\x01')
+        if allowed < 0:
+            raise ValueError('All anchored refresh slots fall inside quiet hours.')
+        index = cycle * len(slots) + allowed
         candidate = anchor + timedelta(seconds=index * interval)
         target = _timestamp(candidate, zone)
         normalized = datetime.fromtimestamp(target, zone).replace(tzinfo=None)
@@ -122,10 +148,6 @@ def next_due(device, now):
             continue
         if target <= now:
             index += 1  # Repeated autumn hour: choose the first occurrence once.
-            continue
-        if is_quiet(device, target):
-            end = _quiet_end(settings, candidate)
-            index = max(index + 1, math.ceil((end - anchor).total_seconds() / interval))
             continue
         return target
     raise ValueError('No permitted refresh slot could be found. Adjust the schedule.')

@@ -93,7 +93,9 @@ def fetch_health(device, watch, now, grace):
     served = state.get('last_served_at')
     anchor = max(watch['started_at'], served or 0)
     expected = anchor + device['interval']
-    if scheduling.active(device):
+    if state.get('last_settings_timeout') is not None and served is not None and served >= watch['started_at']:
+        expected = state.get('expected_image_at') or served + state['last_settings_timeout']
+    elif scheduling.active(device):
         expected = state.get('expected_image_at') if served and served >= watch['started_at'] else None
         expected = expected or scheduling.next_due(device, anchor)
     overdue_at = expected + grace

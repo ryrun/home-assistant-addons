@@ -47,7 +47,7 @@ from profiles import (
 )
 from storage import Store, new_id
 
-VERSION = '0.5.0'
+VERSION = '0.5.1'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -511,7 +511,8 @@ class Manager:
                 device['battery'] = battery.validate(battery.config(device) | data['battery'])
             if previous_interval != device['interval'] or (previous_schedule != scheduling.config(device) and (scheduling.active(device) or previous_schedule['anchor_enabled'] or previous_schedule['quiet_enabled'])):
                 device['state']['deadline'] = scheduling.next_due(device, time.time())
-                device['state']['expected_image_at'] = device['state']['deadline']
+                if device['state'].get('last_settings_timeout') is None:
+                    device['state']['expected_image_at'] = device['state']['deadline']
             if 'settings' in data:
                 settings = data['settings']
                 if not isinstance(settings, dict) or set(settings) - {'motionWakeup', 'autoRotation', 'chargerMode'}:
@@ -682,7 +683,14 @@ class Manager:
                     self.store.save('settings_response', validator)
                 self.record_telemetry(request, device)
                 device['state']['last_settings_request'] = now
+                device['state']['last_settings_timeout'] = settings['timeout']
                 device['state']['next_request_at'] = now + settings['timeout']
+                expected_image = device['state'].get('expected_image_at')
+                if expected_image is not None:
+                    # A newly issued shorter sleep may bring the next image
+                    # forward. JSON alone must never postpone a missed image
+                    # deadline or make an overdue frame appear healthy again.
+                    device['state']['expected_image_at'] = min(expected_image, now + settings['timeout'])
                 self.store.save('device', device)
                 self.diagnostics.event(identifier, 'settings_unchanged' if unchanged else 'settings_served',
                                        'Settings checked; unchanged.' if unchanged else 'Settings JSON delivered (application on the frame is unconfirmed).',

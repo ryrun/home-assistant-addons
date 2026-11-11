@@ -3,7 +3,7 @@
 ## Installation and first connection
 
 1. Install **E-Ink Display Manager** from this Home Assistant add-on repository.
-   The add-on currently builds locally for `aarch64` or `amd64`; it does not depend
+   The add-on is configured to build locally for `aarch64` or `amd64`; it does not depend
    on a separately published container image.
 2. Keep device port `8098/tcp` enabled and start the add-on. Port `8099` is internal
    management traffic for HA Ingress and must not be mapped to the host.
@@ -73,14 +73,19 @@ installed firmware on real hardware before relying on minute-level accuracy.
 Automatic playlist advancement is suppressed inside quiet hours. First setup,
 pending transfer retries, and explicit manual selections can still be delivered.
 Missed slots do not consume playlist entries: after a long absence the frame gets
-one next image. The image watchdog uses the next permitted image target plus its
-normal grace period, so a planned night pause does not create an empty-battery
-signal. A settings-only request still cannot restore that activity indicator.
+one next image. The image watchdog uses the last successful delivery and its
+issued sleep duration, or the permitted schedule target when no JSON duration is
+known, plus the normal grace period. A planned night pause therefore does not
+create an empty-battery signal. A newly supplied shorter sleep can bring the outstanding image deadline forward.
+Settings-only requests can never postpone it or restore an overdue activity indicator.
 
 **Device cards** show last image/settings contact and **Next expected connection**.
-After a JSON GET this reflects the sleep duration actually supplied; after a
-successful image GET it reflects the next predicted wake. Before first contact it
-is unknown. It is an expectation, not a connection reservation or physical panel
+After a JSON GET this reflects the sleep duration supplied. After a successful
+image GET, the forecast uses that issued duration starting from transfer completion,
+allowing for the frame’s subsequent processing. A transfer crossing an anchor
+boundary must not replace a previously issued short sleep with a later grid slot.
+A desired interval change cannot imply the frame has already applied it. The
+next connection is unknown before first contact. It is an expectation, not a connection reservation or physical panel
 acknowledgement; disabled devices have no expected connection. The device detail
 also shows its next schedule slot and whether quiet hours are currently active.
 MQTT publishes a separate next-connection timestamp.
@@ -393,7 +398,7 @@ are excluded from published state and configuration. Backups contain MQTT creden
 | Image fetch status | `waiting`, `on_schedule`, `overdue`, `paused`, `disabled`, or `no_images` |
 | Last contact | Latest authenticated frame image/settings GET, not browser previews |
 | Last image delivery | Most recent successful HTTP image response, including 304 |
-| Next expected image fetch | Next permitted image target before grace, accounting for an optional schedule |
+| Next expected image fetch | Expected image request based on the last delivery and supplied sleep; a schedule target is used if no JSON duration is known |
 | Next expected connection | Predicted next device contact from its supplied sleep / latest completed image fetch |
 | Selected image | Name of the currently selected library image; not physical-display acknowledgement |
 | Enabled images | Number of enabled entries in the frame's list |
@@ -412,11 +417,11 @@ There is no numeric state class creating long-term battery statistics.
 - After a completed image HTTP response, the estimate is **100%**. A successful
   **304** counts; a settings-only request, HEAD, browser preview, failed token, or
   interrupted image transfer does not reset the image watchdog.
-- If no successful image fetch occurs by **next permitted image target + grace**, it becomes **0%**
+- If no successful image fetch occurs by **expected image fetch + grace**, it becomes **0%**
   and **Image update overdue** turns on. The default grace is **120 seconds**,
   adjustable globally from 30 to 3600 seconds. MQTT updates within approximately
   five seconds of a deadline or HTTP state change while connected.
-- A new frame starts **unknown**. Missing its first interval-plus-grace deadline
+- A new frame starts **unknown**. Missing its first expected-fetch-plus-grace deadline
   changes it to 0%; its first successful image response changes it to 100%.
 - Paused/disabled frames and lists without enabled entries have an unknown
   estimate and no overdue problem. Resuming monitoring starts a fresh deadline.
@@ -529,10 +534,12 @@ umask and drops root privileges at startup. Protect backups because they include
 tokens. Rotation invalidates old URLs and requires updating the frame's settings
 URL. No URL/credential-bearing request access logs are emitted.
 
-HTTP does not encrypt images or tokens. This firmware's HTTPS client does not
-verify certificates, so HTTPS alone is not authenticated protection. WiFi
+HTTP does not encrypt images or tokens. OpenPaper offline firmware's HTTPS client
+does not verify certificates, so HTTPS alone is not authenticated protection on
+those frames. Keep HTTPS certificate verification enabled in ESPHome. WiFi
 credentials are configured on the frame, not stored by this add-on. Charger mode
-requires an explicit NiMH confirmation and is omitted until configured.
+requires an explicit NiMH confirmation and defaults to false. This OpenPaper
+option does not control Inkplate charging.
 
 ## Original files and saved variants
 
@@ -705,7 +712,7 @@ late result cannot overwrite a different editor. Decoded source bitmaps are
 released after composition. This does not establish the cause of any previously
 reported browser failure. The server normalizes editor input orientation, embedded ICC profiles
 to sRGB, and transparency, and
-validates every finished BMP before saving. Automatic and manual settings are
+validates every finished OpenPaper BMP or Inkplate grayscale PNG before saving. Automatic and manual settings are
 recorded in the variant's recipe. Manual brightness/contrast/saturation adjustments
 override only their corresponding automatic channel when nonzero. Zero retains
 the automatic value; disable automatic optimization for neutral manual-only output. Vivid and black/white presets,
@@ -944,3 +951,20 @@ pinned timezone package. Browser checks cover real hover, keyboard, touch contro
 complete-image dimensions, schedule/battery save/error/draft behavior, next-contact
 cards, and desktop/mobile spacing. Physical firmware timing and calibrated cell
 charge accuracy remain hardware acceptance work.
+
+### Final review (0.5.1)
+
+Current local evidence is 127 Python tests and 14 JavaScript tests, with real
+Chromium and interrupted-transfer checks. Boundary coverage includes a slow image
+transfer crossing an anchor slot while the frame retains an already issued short
+sleep, watchdog behavior after a settings-only contact, oversized PNG headers,
+large numeric voltage endpoints, and calendar-form anchor dates. The image-change
+deadline remains distinct from the sleep actually supplied to a frame. Sparse
+second-based grids skip excluded phases directly, so a valid schedule cannot
+exhaust the old search budget and prevent device/status reads. Clock-phase lookup
+is cached in at most 64 byte maps (about 5.3 MiB worst-case).
+
+Local Markdown links and add-on YAML were checked. Full ESPHome firmware compilation
+is still pending: the temporary validation environment could not download the
+ESPHome package before its network timeout. The example has source/syntax review;
+it is not described as a successfully built or physically tested firmware.
