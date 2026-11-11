@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>E-Ink Display Manager</title>
+  <link rel="stylesheet" href="static/style.css">
+  <script type="module" src="static/app.js"></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="#library"><span class="frame-mark" aria-hidden="true"></span><span>E-Ink<br><strong>Display Manager</strong></span></a>
+    <nav aria-label="Main navigation">
+      <a href="#library" data-tab="library"><span aria-hidden="true">▦</span> Media Library <small id="media-count">0</small></a>
+      <a href="#devices" data-tab="devices"><span aria-hidden="true">▣</span> Devices <small id="device-count">0</small></a>
+      <a href="#settings" data-tab="settings"><span aria-hidden="true">⚙</span> Settings</a>
+    </nav>
+    <div class="sidebar-foot"><span class="status-dot"></span> Local photo delivery<br><small>OpenPaper L · Spectra 6</small><div class="spectrum" aria-label="Six display colors"><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+  </aside>
+  <main>
+    <div id="notice" role="status" aria-live="polite" hidden></div>
+    <div id="content"><p class="empty">Loading your library…</p></div>
+  </main>
+  <dialog id="editor" aria-labelledby="dialog-title"><div id="dialog-content"></div></dialog>
+  <input type="file" id="upload-input" accept="image/jpeg,image/png,image/bmp" multiple hidden>
+</body>
+</html>

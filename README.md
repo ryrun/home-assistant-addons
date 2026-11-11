@@ -5,6 +5,7 @@ Home Assistant add-on repository maintained by ryrun.
 ## Add-ons
 
 - `ctrlapp`: CtrlApp UI served as a Home Assistant add-on.
+- [`einkdisplaymanager`](einkdisplaymanager/README.md): Local OpenPaper L media library, image optimization, and device slideshows (experimental).
 - [`trakt-mcp`](trakt-mcp/README.md): Read-only Trakt MCP server with setup, logs, and an Ingress service monitor in Home Assistant (experimental).
 - `unbound`: Unbound DNS resolver add-on imported from `fenio/ha-addons`.
 

@@ -1,0 +1,40 @@
+name: E-Ink Display Manager
+slug: einkdisplaymanager
+description: Local OpenPaper L photo library, optimization, and independent device slideshows
+url: https://github.com/ryrun/home-assistant-addons/tree/main/einkdisplaymanager
+version: "0.1.0"
+stage: experimental
+arch:
+  - aarch64
+  - amd64
+startup: application
+boot: auto
+init: false
+backup: cold
+ingress: true
+ingress_port: 8099
+ingress_stream: true
+panel_icon: mdi:image-frame
+panel_title: E-Ink Display Manager
+panel_admin: true
+homeassistant_api: false
+hassio_api: false
+ports:
+  8098/tcp: 8098
+ports_description:
+  8098/tcp: Token-protected LAN device image and settings endpoints
+options:
+  lan_base_url: ""
+  storage_limit_mb: 1024
+  allowed_networks:
+    - 127.0.0.0/8
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - "::1/128"
+    - "fc00::/7"
+schema:
+  lan_base_url: str
+  storage_limit_mb: int(64,32768)
+  allowed_networks:
+    - str

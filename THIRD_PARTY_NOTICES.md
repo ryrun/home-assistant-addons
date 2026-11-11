@@ -7,6 +7,16 @@ The repository-level `LICENSE` file applies to this repository's own wrapper,
 configuration, and maintenance code. Third-party components keep their original
 licenses as documented here and in their own license files.
 
+## E-Ink Display Manager image optimizer
+
+- Included module: `einkdisplaymanager/web/vendor/epdoptimize-1.2.0.mjs`.
+- Component/source: [epdoptimize 1.2.0](https://github.com/paperlesspaper/epdoptimize), distributed under Apache-2.0.
+- Full license: `einkdisplaymanager/web/vendor/epdoptimize-LICENSE`.
+- The unmodified module bundles MIT-licensed [RgbQuant.js](https://github.com/alexharris/RgbQuant.js), copyright (c) 2017 Leon Sorokin.
+- Full bundled license: `einkdisplaymanager/web/vendor/RgbQuant-LICENSE`.
+- Distribution provenance, integrity hash, and compatibility baseline: `einkdisplaymanager/UPSTREAM.md`.
+- Firmware/flasher code and calibration profiles are not included or relicensed.
+
 ## CtrlApp UI
 
 - Included path in this repository: `ctrlapp/www/`
