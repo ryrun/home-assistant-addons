@@ -1,5 +1,5 @@
-import {ditherImage, suggestCanvasProcessingOptions, getProcessingPresetOptions, spectra6OriginalPalette, spectra6Palette, aitjcizeSpectra6Palette} from './vendor/epdoptimize-1.2.0.mjs';
-import {ditherOptions} from './processing.js';
+import {ditherImage, suggestCanvasProcessingOptions, spectra6OriginalPalette, spectra6Palette, aitjcizeSpectra6Palette} from './vendor/epdoptimize-1.2.0.mjs';
+import {processingOptions} from './optimizer-options.js';
 
 // Processing runs in a dedicated worker, always from the full normalized source.
 const W = 1200, H = 1600;
@@ -51,20 +51,15 @@ self.onmessage = async ({data}) => {
     const basePalette=recipe.palette==='spectra6'?spectra6Palette:recipe.palette==='aitjcize'?aitjcizeSpectra6Palette:spectra6OriginalPalette;
     let palette=basePalette.map(p=>({...p}));
     if(recipe.palette==='grayscale') palette=palette.filter(p=>p.name==='black'||p.name==='white');
-    const intent=recipe.palette==='vivid'?'vivid':'natural';
-    let options={};
+    const intent=recipe.intent||(recipe.palette==='vivid'?'vivid':'natural');
+    let suggestion=null;
     if(recipe.automatic) {
       const sample=new OffscreenCanvas(viewW/4,viewH/4);
       sample.getContext('2d').drawImage(canvas,0,0,sample.width,sample.height);
-      const suggestion=suggestCanvasProcessingOptions(sample,palette,{intent});
-      options={...(suggestion.ditherOptions.processingPreset?getProcessingPresetOptions(suggestion.ditherOptions.processingPreset):{}),...suggestion.ditherOptions};
-      delete options.processingPreset;
+      suggestion=suggestCanvasProcessingOptions(sample,palette,{intent});
     }
-    // Manual controls deliberately override the corresponding automatic adjustments.
-    const manual=recipe.brightness!==0||recipe.contrast!==0||recipe.saturation!==0;
-    if(manual) options.toneMapping={mode:'contrast',exposure:recipe.brightness/100,contrast:recipe.contrast/100,saturation:recipe.saturation/100};
-    Object.assign(options,{palette,colorMatching:recipe.matching==='lab'?'lab':'rgb',processingEngine:'js',
-      ...ditherOptions(recipe.dither),serpentine:true});
+    const {options,analysis}=processingOptions(recipe,suggestion);
+    options.palette=palette;
     stage='applying color matching and dithering';
     self.postMessage({progress:'Applying color matching and dithering…'});
     await ditherImage(canvas,canvas,options);
@@ -91,7 +86,7 @@ self.onmessage = async ({data}) => {
     self.postMessage({progress:'Encoding display output…'});
     const output=bmp(pixels,native);
     const preview=await canvas.convertToBlob({type:'image/png'});
-    self.postMessage({bmp:output.buffer,preview,recipe:{...recipe,orientation:landscape?'landscape':'portrait',nativeRotation:landscape?270:0,nativeWidth:W,nativeHeight:H,viewWidth:viewW,viewHeight:viewH,resolvedOptions:options,optimizer:'epdoptimize@1.2.0',profile:'openpaper_l',encoder:3}},[output.buffer]);
+    self.postMessage({bmp:output.buffer,preview,recipe:{...recipe,intent,automaticAnalysis:analysis,orientation:landscape?'landscape':'portrait',nativeRotation:landscape?270:0,nativeWidth:W,nativeHeight:H,viewWidth:viewW,viewHeight:viewH,resolvedOptions:options,optimizer:'epdoptimize@1.2.0',profile:'openpaper_l',encoder:4}},[output.buffer]);
   } catch(error) { self.postMessage({error:`Image optimization failed while ${stage}. ${error.message||'Close other image editors and try again.'}`}); }
   finally { image?.close(); }
 };

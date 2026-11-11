@@ -105,6 +105,32 @@ not a claim about every installed firmware build. Older builds may instead reque
 HTTP 200 and skip its body after comparing Last-Modified locally. Keep both image
 validators available for compatibility.
 
+### Reading battery information
+
+The offline firmware exposes system information over its BLE characteristic
+`60000001-7b0e-11ed-a1eb-0242ac120002`: `voltage` in millivolts, `usb`, and
+`charging`, plus firmware/display metadata in current builds. The system-info
+value is updated every ten seconds while connected. Wake the frame with one
+press of its large reset button and connect nearby through the official
+[Web UI & flasher](https://paperlesspaper.github.io/paperlesspaper-firmware-offline/).
+Its system-information view displays voltage and charging information. A sleeping
+frame does not provide continuous BLE readings.
+
+The current offline-firmware image and settings HTTP requests do not send battery
+telemetry, and it does not expose a battery HTTP endpoint for this add-on to poll.
+The add-on therefore cannot infer battery charge from successful fetches or last
+contact. For automatic reporting during normal wake-ups, firmware would need to
+include voltage/USB/charging data, for example in authenticated image-request
+headers; no extra WiFi connection would then be necessary. That is a proposed
+firmware extension, not an implemented capability. Voltage is not a reliable
+universal battery percentage: OpenPaper L supports four AA cells with different
+chemistries, including NiMH. Any future telemetry should show the measured voltage,
+source, and timestamp before attempting chemistry-dependent estimates.
+
+Verified against the current [offline firmware](https://github.com/paperlesspaper/paperlesspaper-firmware-offline/blob/main/src/main.cpp)
+and its [BLE documentation](https://github.com/paperlesspaper/paperlesspaper-firmware-offline#readme)
+on 2026-11-11. These findings do not describe the separate manufacturer-cloud firmware.
+
 ## Add-on configuration
 
 | Option | Default | Purpose |
@@ -257,6 +283,50 @@ other display sizes require separate tested profiles and encoders.
 selected viewing area while cropping edges; horizontal/vertical crop positions
 move the visible area within those edges. Neither mode stretches the source.
 
+### OpenPaper L image-quality starting point
+
+For a controlled comparison, use the same original, crop, physical mounting, and
+lighting for each output. Start with **Spectra 6 · calibrated library palette**,
+**Automatic optimization** on, **Natural** intent, **Floyd–Steinberg**, and all three
+manual sliders at zero. Compare **Perceptual LAB** with RGB on the physical frame.
+If the result is too muted, compare **Vivid** automatic intent with the same
+calibrated palette; it no longer requires the ideal-RGB vivid palette. Try Stucki
+as a second photographic diffusion option for gradients and skin tones. These are
+starting points, not an objectively optimal profile for every photo or panel.
+
+Make sure the device entry selects the prepared variant. An entry set to
+**Original** bypasses this optimizer and lets the frame process the source.
+After changing a recipe, **Update full-resolution preview → Save changes**, then
+wake the frame and let the complete refresh finish. Existing saved BMPs are not
+reprocessed by an add-on update. For a diagnostic comparison you can also prepare
+the same source in the upstream Web UI and assign that compatible BMP as an
+original: its native 4-bit output is delivered directly without another dither pass.
+
+E-paper is reflective and has a smaller reproducible color range than a screen.
+The exported native RGB codes and browser preview can look much brighter or more
+saturated than the inks. Good, consistent ambient light matters when judging the
+result. Built-in calibrated palettes are generic library measurements and are not
+calibrated to this particular OpenPaper L. The upstream measurement notes explicitly
+say their newer 13.3-inch camera measurements have not yet been applied to the
+built-in palettes. See the [optimizer documentation](https://github.com/paperlesspaper/epdoptimize#readme)
+and [OpenPaper L specification](https://paperlesspaper.de/en/openpaper-l).
+
+The add-on retains pinned optimizer 1.2.0, also pinned in the offline Web UI's
+package lock at the time of this investigation. Upstream main identifies itself as
+1.4.1 and documents newer gamut-aware diffusion and other changes. Upgrading that
+code, including changed blue-noise assets/behavior, needs a separate regression and
+physical comparison; the integration fixes here do not claim those newer algorithms.
+
+Version 0.1.7 fixes two integration defects: the menu-list helper
+`getProcessingPresetOptions()` was incorrectly treated as a preset lookup, and
+any nonzero manual slider replaced the entire automatic tone mapping. Preset
+resolution now uses the actual preset configuration; changing contrast preserves
+inferred saturation and curve shaping. Matching and dithering continue to follow
+the explicit selections. The post-processing status shows which automatic
+classification, preset, intent, and manual channels were applied. Synthetic
+full-resolution comparisons verify different BMP pixels for Auto on/off; this is
+functional evidence, not a measured improvement on the physical frame.
+
 ### Color matching and dithering help
 
 Descriptions below **Color matching** and **Dithering** follow the selected option.
@@ -300,7 +370,8 @@ reported browser failure. The server normalizes editor input orientation, embedd
 to sRGB, and transparency, and
 validates every finished BMP before saving. Automatic and manual settings are
 recorded in the variant's recipe. Manual brightness/contrast/saturation adjustments
-override automatic tone adjustment when nonzero. Vivid and black/white presets,
+override only their corresponding automatic channel when nonzero. Zero retains
+the automatic value; disable automatic optimization for neutral manual-only output. Vivid and black/white presets,
 Floyd–Steinberg/Atkinson and the methods below, contain/cover with crop position,
 and rotation are available. Updating the preview processes full output resolution; its saved
 bytes are the authoritative result, not an enlarged reduced-resolution preview.
@@ -431,6 +502,7 @@ From `einkdisplaymanager/`:
 python3 -m venv /tmp/eink-venv
 /tmp/eink-venv/bin/pip install --require-hashes -r requirements-dev.txt
 /tmp/eink-venv/bin/python -m pytest -q
+node --test scripts/test_optimizer_options.mjs
 /tmp/eink-venv/bin/python server.py --dev --data /tmp/eink-data
 ```
 
@@ -456,8 +528,8 @@ exercise upload, the real full-resolution optimizer, saving a variant, device
 settings, original/BMP switching at one URL, and mobile layout. The rotated
 black/white crop with manual contrast and Atkinson processing is also checked
 against actual saved BMP pixel codes. Landscape native pixels are rotated back
-and compared exactly with the preview. Current local result: 43 Python tests and
-the Chromium workflow pass. Hash-verified Linux ARM64 and AMD64 runtime wheels
+and compared exactly with the preview. Current local result: 43 Python tests, six JavaScript optimizer-option checks,
+and the Chromium workflow pass. Hash-verified Linux ARM64 and AMD64 runtime wheels
 are available for the pinned Python 3.13/Debian base; this is not a container build.
 
 Browser coverage also restores and overwrites an edited variant, checks inline

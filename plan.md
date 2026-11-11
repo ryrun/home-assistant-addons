@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.1.6**; locally tested, with Green,
+Status: experimental implementation **0.1.7**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -529,3 +529,17 @@ and errors, and cancellation on editor close. Automated checks cover invalid wor
 starts, image decode failures, retained assignments, storage/validation failure,
 concurrent transfers, and modal notification visibility. Current upstream firmware
 supports image and JSON 304 handling; installed builds still require version checks.
+
+Version 0.1.7 corrects automatic optimization preset lookup and preserves automatic
+curves/channels when an individual manual adjustment is made. New recipes start
+with the calibrated Spectra 6 palette; Natural/Vivid intent is independent of that
+palette. Applied automatic settings are shown and stored, with real full-resolution
+Auto on/off pixel comparisons and six JavaScript regression tests. Saved variants
+require deliberate recomputation/save to adopt changes. Physical color quality is
+still evaluated on the actual panel under controlled lighting, not inferred from
+native RGB previews or different bitmap hashes. Current upstream 1.4.1 identifies
+additional gamut-aware diffusion changes; vendored 1.2.0 stays pinned in this fix.
+Battery research: offline firmware reports millivolts, USB, and charging over BLE
+system info, but not on normal HTTP image/settings fetches. Future automatic battery
+reporting requires firmware telemetry (e.g. request headers); store voltage and
+measurement time and avoid unsupported chemistry-independent percentages.

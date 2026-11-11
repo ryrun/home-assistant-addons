@@ -35,7 +35,7 @@ from playback import advance, completed, initial_state, reconcile, select_for_re
 from profiles import PROFILES, device_orientation, device_rotation, orientation
 from storage import Store, new_id
 
-VERSION = '0.1.6'
+VERSION = '0.1.7'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'

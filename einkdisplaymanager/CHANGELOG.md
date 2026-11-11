@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.7
+
+- Fix automatic preset resolution: load actual preset settings instead of spreading UI menu entries into processing options.
+- Preserve the automatic S-curve, saturation, and other channels when a single manual slider is adjusted; keep manual contrast effective alongside the curve.
+- Use the calibrated Spectra 6 palette for new recipes and offer Natural/Vivid automatic intent independently of the palette.
+- Show the applied automatic image classification, preset, intent, and manual overrides after processing.
+- Add six JavaScript regression checks and full-resolution browser comparisons proving that Auto changes delivered BMP pixels.
+- Document offline-firmware battery access over BLE, the absence of battery telemetry on its image/settings HTTP requests, and a physical image-quality comparison workflow.
+
 ## 0.1.6
 
 - Make Edit → Save changes replace the selected variant while preserving its ID and every device assignment; reject stale edits.

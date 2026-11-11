@@ -7,6 +7,7 @@ Screenshots are written outside the repository; no real frame or credentials use
 import asyncio
 import base64
 import io
+import json
 import os
 import socket
 import sys
@@ -104,6 +105,8 @@ async def main():
                         else:
                             await route.continue_()
                     await page.route('**/static/optimizer.js', transient_optimizer_failure)
+                    assert await page.locator('#palette').input_value() == 'spectra6'
+                    await page.locator('#intent').select_option('vivid')
                     preview_box = await page.locator('.preview-stage').bounding_box()
                     await page.get_by_role('button', name='Update full-resolution preview').click()
                     await page.get_by_role('button', name='Save as new variant').wait_for(state='visible')
@@ -112,6 +115,8 @@ async def main():
                     await page.unroute('**/static/optimizer.js', transient_optimizer_failure)
                     invalid = await page.evaluate('''async ()=>{const {optimizeImage}=await import('./static/optimizer-client.js');try{await optimizeImage({source:new Blob(['invalid image'],{type:'image/png'}),recipe:{},signal:new AbortController().signal});return 'unexpected success';}catch(error){return error.message;}}''')
                     assert 'decoding the source image' in invalid
+                    assert 'Automatic applied' in await page.locator('#automatic-summary').inner_text()
+                    assert 'vivid' in await page.locator('#automatic-summary').inner_text()
                     updated_box = await page.locator('.preview-stage').bounding_box()
                     assert preview_box['height'] == updated_box['height'] and preview_box['width'] == updated_box['width']
                     await page.set_viewport_size({'width': 1440, 'height': 750})
@@ -184,6 +189,21 @@ async def main():
                     assert revision['recipe']['palette'] == 'spectra6' and revision['recipe']['dither'] == 'stucki'
                     assert revision['revision'] == 1 and revision['name'] == monochrome['name']
                     assert len(snapshot['variants']) == 2
+                    # Check the actual full-resolution BMPs, not just the checkbox.
+                    comparison = await page.evaluate('''async (asset)=>{
+                      const {optimizeImage}=await import('./static/optimizer-client.js');
+                      const source=await (await fetch(`api/media/asset/${asset}/source`)).blob();
+                      const baseline={profile:'openpaper_l',orientation:'portrait',fit:'contain',rotation:0,palette:'spectra6',intent:'vivid',matching:'rgb',brightness:0,contrast:0,saturation:0,dither:'floyd'};
+                      const convert=async(automatic,contrast=0)=>{const data=await optimizeImage({source,recipe:{...baseline,automatic,contrast},signal:new AbortController().signal});return {hash:Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',data.bmp))).join(','),analysis:data.recipe.automaticAnalysis,options:data.recipe.resolvedOptions};};
+                      return {off:await convert(false),on:await convert(true),manual:await convert(true,15)};
+                    }''', snapshot['assets'][0]['id'])
+                    assert comparison['off']['hash'] != comparison['on']['hash'], 'Automatic optimization did not affect delivered pixels'
+                    assert comparison['on']['analysis']['enabled'] and not comparison['off']['analysis']['enabled']
+                    assert comparison['on']['analysis']['intent'] == 'vivid'
+                    assert comparison['on']['options']['toneMapping']['saturation'] == comparison['manual']['options']['toneMapping']['saturation']
+                    assert comparison['manual']['options']['toneMapping']['contrast'] == .15
+                    assert not any(key.isdigit() for key in comparison['on']['options'])
+                    (artifacts / 'automatic-comparison.json').write_text(json.dumps(comparison,indent=2))
                     # Exercise each new worker algorithm without publishing extra variants.
                     output_hashes = []
                     for algorithm in ('floyd', 'jarvis', 'burkes', 'sierra3', 'ordered', 'blueNoise', 'none'):
@@ -295,7 +315,7 @@ async def main():
                     assert await page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                     assert not errors, errors
                     await browser.close()
-            print('Browser smoke passed: upload, full-resolution dithering methods, calibrated palette, variant overwrite, worker startup recovery/cancellation, matching descriptions, visible modal notifications, device orientation/help, fixed-URL original/BMP delivery, CORS, and responsive layouts.')
+            print('Browser smoke passed: upload, full-resolution dithering methods, calibrated palette, variant overwrite, worker startup recovery/cancellation, automatic on/off pixels and manual tone preservation, matching descriptions, visible modal notifications, device orientation/help, fixed-URL original/BMP delivery, CORS, and responsive layouts.')
             print(f'Screenshots: {artifacts}')
         finally:
             process.terminate()

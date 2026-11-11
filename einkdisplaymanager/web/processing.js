@@ -12,8 +12,8 @@ export const DITHERS = {
 };
 
 export const PALETTES = {
-  natural:{name:'Spectra 6 · original RGB', use:'The previous default. Matches against ideal RGB primaries; useful as a reference, but reflective ink differs from a bright screen.'},
-  spectra6:{name:'Spectra 6 · calibrated library palette', use:'Matches the library’s measured-looking ink colors before exporting native codes. Try with Floyd–Steinberg or Stucki for photos. Not calibrated to your individual panel.'},
+  natural:{name:'Spectra 6 · original RGB', use:'Matches against ideal RGB primaries; useful as a reference, but reflective ink differs from a bright screen.'},
+  spectra6:{name:'Spectra 6 · calibrated library palette', use:'Matches the library’s calibrated ink colors before exporting native codes. Try with Floyd–Steinberg or Stucki for photos. Not calibrated to your individual panel.'},
   aitjcize:{name:'Spectra 6 · alternative calibrated palette', use:'An alternative library palette inspired by epaper-image-convert. Compare color balance with the calibrated Spectra 6 palette on your frame.'},
   vivid:{name:'Spectra 6 · vivid automatic adjustment', use:'Uses the original RGB palette with a vivid automatic intent. Can help muted images; bright colors may be exaggerated.'},
   grayscale:{name:'Black and white', use:'Restricts output to the black and white display codes. Useful for monochrome artwork, text, and intentional black/white photos.'},
