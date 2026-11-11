@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.5.2**; locally tested, with Green,
+Status: experimental implementation **0.5.3**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -881,3 +881,21 @@ generation intervals to device polls.
   and UI checks for gray/BW pixel sets, exact inversion, saved edit flags, native
   portrait pixels, unchanged assignments, and stable comparison on pointer moves.
   Physical grayscale/monochrome rendering and full ESPHome build remain pending.
+
+
+## 16. Grouped selections and live playback queue (0.5.3)
+
+- Use native optgroup categories for models versus registered target devices,
+  device families, color palettes, dithering algorithms, originals versus saved
+  variants, and primary versus rechargeable battery chemistries. Keep flat lists
+  for simple choices, omit empty groups, and preserve defaults and option values.
+- Update Current playback queue from automatic status polling when its contents
+  change; preserve settings drafts, the expanded panel, and the base-list editor.
+- Keep existing playback policy: finish the active queue, then adopt additions and
+  the updated manual order (or shuffle). Removed/disabled entries leave immediately.
+- Cover expansion from two to nine entries, reordering at either position,
+  shuffle, restored persisted state, retries, and full-cycle completion. Browser
+  coverage verifies grouped defaults and queue changes without manual refresh.
+- Verification: 132 Python tests, 14 JavaScript tests, and the full Chromium
+  smoke test passed, including the live two-to-nine queue transition and grouped
+  selection defaults. Physical-device behavior remains a separate acceptance step.

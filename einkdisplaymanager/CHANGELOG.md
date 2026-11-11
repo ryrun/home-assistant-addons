@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.3
+
+- Group related select options with native optgroup labels: display models and registered devices, device families, palettes, dithering methods, original images and saved variants, and battery chemistries. Omit empty groups and preserve option values and defaults.
+- Refresh Current playback queue during automatic device status polling, including cycle-boundary changes, while preserving settings drafts and the expanded queue panel.
+- Explain that additions and base-order changes take effect at the next cycle; removals and disabled entries take effect immediately.
+- Add regression coverage for expanding a running two-image queue to nine entries, reordering, shuffle, persisted state, and live browser updates.
+
 ## 0.5.2
 
 - Remove pointer-hover switching from the original/variant comparison; Split, Original, and Variant buttons and keyboard controls select the view explicitly.

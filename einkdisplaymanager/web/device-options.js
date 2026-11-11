@@ -1,3 +1,4 @@
+import {optionGroups} from './selects.js';
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const chemistries={custom:'Custom / unspecified',alkaline:'Alkaline',nimh:'NiMH',li_ion:'Li-ion / LiPo',lifepo4:'LiFePO₄'};
 
@@ -27,7 +28,7 @@ export function deviceOptionsHTML(device){
   <p class="help">Quiet hours can cross midnight. Anchored slots are skipped; relative refreshes move to the end of the window. Manual selections and first setup can still be delivered. Settings apply on the next wake-up.</p></fieldset>
   <fieldset class="device-option-group"><legend>Battery profile <span>Optional</span></legend>
   <label class="check"><input name="charge_enabled" type="checkbox" ${b.enabled?'checked':''}>Estimate charge from reported voltage</label>
-  <div data-battery-fields class="stack"><label class="field">Cell chemistry<select name="charge_chemistry">${Object.entries(chemistries).map(([key,label])=>`<option value="${key}" ${key===b.chemistry?'selected':''}>${label}</option>`).join('')}</select></label>
+  <div data-battery-fields class="stack"><label class="field">Cell chemistry<select name="charge_chemistry"><option value="custom" ${b.chemistry==='custom'?'selected':''}>${chemistries.custom}</option>${optionGroups([['Primary cells',['alkaline']],['Rechargeable cells',['nimh','li_ion','lifepo4']]].map(([label,keys])=>[label,keys.map(key=>`<option value="${key}" ${key===b.chemistry?'selected':''}>${chemistries[key]}</option>`).join('')]))}</select></label>
   <label class="field">Cells in series<input name="charge_cells" type="number" min="1" max="32" step="1" value="${b.series_cells}"><small>OpenPaper L/7: four cells. Inkplate 6: one Li-ion cell. Parallel cells do not increase pack voltage.</small></label>
   <div class="form-pair"><label class="field">Empty voltage per cell (V)<input name="charge_empty" type="number" min="0.1" max="6" step="0.001" value="${b.empty_voltage??''}" placeholder="Your calibrated value"></label><label class="field">Full voltage per cell (V)<input name="charge_full" type="number" min="0.1" max="6" step="0.001" value="${b.full_voltage??''}" placeholder="Your calibrated value"></label></div></div>
   <p class="help">Uses total pack voltage divided by cells in series and a linear empty-to-full estimate. Enter values calibrated for your cells and load. Chemistry is descriptive; flat discharge curves reduce accuracy. No voltage report means unknown. Charging and the separate activity indicator stay independent.</p></fieldset>`;

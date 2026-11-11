@@ -1,5 +1,5 @@
 [
-  {"battery_cells":4,"id":"openpaper_l","name":"OpenPaper L","diagonal":13.3,"width":1200,"height":1600,"native_orientation":"portrait","colors":6,"palette":"spectra6"},
-  {"battery_cells":4,"id":"openpaper_7","name":"OpenPaper 7","diagonal":7.3,"width":800,"height":480,"native_orientation":"landscape","colors":6,"palette":"spectra6"},
-  {"battery_cells":1,"id":"inkplate_6","name":"Inkplate 6","diagonal":6,"width":800,"height":600,"native_orientation":"landscape","colors":8,"palette":"gray8","format":"png","manufacturer":"Soldered"}
+  {"battery_cells":4,"id":"openpaper_l","name":"OpenPaper L","family":"OpenPaper","diagonal":13.3,"width":1200,"height":1600,"native_orientation":"portrait","colors":6,"palette":"spectra6"},
+  {"battery_cells":4,"id":"openpaper_7","name":"OpenPaper 7","family":"OpenPaper","diagonal":7.3,"width":800,"height":480,"native_orientation":"landscape","colors":6,"palette":"spectra6"},
+  {"battery_cells":1,"id":"inkplate_6","name":"Inkplate 6","family":"Inkplate","diagonal":6,"width":800,"height":600,"native_orientation":"landscape","colors":8,"palette":"gray8","format":"png","manufacturer":"Soldered"}
 ]

@@ -1,6 +1,7 @@
 import copy
 import random
 
+import pytest
 from playback import advance, completed, initial_state, reconcile, select_for_request
 
 
@@ -80,3 +81,44 @@ def test_initial_setup_includes_images_added_before_first_delivery():
     assert device['state']['queue'] == ['0', 'second']
     completed(device, '0', 0)
     assert select_for_request(device, 60) == 'second'
+
+
+@pytest.mark.parametrize('shuffle', [False, True])
+@pytest.mark.parametrize('edit_at_last', [False, True])
+def test_two_image_cycle_finishes_after_expanding_and_reordering_base_list(shuffle, edit_at_last):
+    device = frame(2)
+    device['shuffle'] = shuffle
+    assert select_for_request(device, 0) == '0'
+    completed(device, '0', 0)
+    if edit_at_last:
+        assert select_for_request(device, 60) == '1'
+        completed(device, '1', 60)
+
+    device['entries'].extend(frame(9)['entries'][2:])
+    device['entries'].reverse()
+    reconcile(device)
+    assert device['state']['queue'] == ['0', '1']
+    # Persisted queues must retain their boundary across an add-on restart too.
+    device = copy.deepcopy(device)
+    if not edit_at_last:
+        assert select_for_request(device, 60) == '1'
+        completed(device, '1', 60)
+
+    first = select_for_request(device, 120)
+    assert device['state']['cycle'] == 2
+    assert sorted(device['state']['queue']) == list(map(str, range(9)))
+    assert first != '1'
+    if not shuffle:
+        assert device['state']['queue'] == list(map(str, reversed(range(9))))
+    # Retrying the first image of the new cycle must not start another cycle.
+    assert select_for_request(device, 121) == first
+    assert device['state']['cycle'] == 2
+    seen = []
+    for index in range(9):
+        selected = select_for_request(device, 180 + index * 60)
+        seen.append(selected)
+        completed(device, selected, 180 + index * 60)
+    assert len(set(seen)) == 9
+    assert device['state']['cycle'] == 2
+    select_for_request(device, 720)
+    assert device['state']['cycle'] == 3

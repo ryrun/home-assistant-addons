@@ -626,7 +626,11 @@ cached only in RAM, limited to eight entries and 32 MiB, and rebuilt after resta
 ### Targets and crop recipes
 
 Choose **Target display** before setting the crop: either a supported model or
-a registered device, which supplies its profile and mounting orientation. A saved
+a registered device, which supplies its profile and mounting orientation. Native
+**Display models** and **My devices** option groups distinguish the two sources;
+landscape mounting does not create another model. Device types are grouped by
+family. Colors, dithering, image versions, and battery chemistries also use
+labeled option groups where categories apply. Empty categories are omitted. A saved
 variant records the model, native and viewing dimensions, orientation, normalized
 crop position, and processing settings. The same original can have multiple
 variants for different aspect ratios and models. Matching devices can share one
@@ -799,6 +803,11 @@ for palettes and methods; this add-on retains the vendored 1.2.0 implementation.
   entries are removed from the remaining queue immediately. If the current entry
   is removed/disabled, select the first remaining queue entry; an empty queue
   returns the placeholder. Replacing a representation creates a new entry ID.
+- **Current playback queue** follows the live status poll, including a new cycle.
+  Its list may be shorter than the edited base list until that cycle finishes.
+  For example, expanding two entries to nine finishes the two-entry cycle first,
+  then starts a nine-entry cycle using the updated base order (or shuffle).
+  Polling preserves unsaved settings and the open queue details panel.
 - “Selected” and “last served” are distinct. TCP/HTTP completion cannot prove a
   physical refresh. A crash after sending bytes but before saving completion may
   retry the same image; exactly-once physical display is not claimed.

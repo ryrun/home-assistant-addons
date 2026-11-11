@@ -80,6 +80,14 @@ async def main():
                     assert await gallery.evaluate('(node)=>node.isConnected'), 'Polling rebuilt the library'
                     await page.clock.resume()
                     await page.get_by_role('button', name='Open Blue mountain.jpg', exact=True).click()
+                    assert await page.locator('#target-profile > optgroup').evaluate_all('(groups)=>groups.map(g=>g.label)') == ['Display models']
+                    assert await page.locator('#target-profile > option').count() == 0
+                    assert await page.locator('#target-profile').input_value() == 'profile:openpaper_l'
+                    assert await page.locator('#palette > optgroup').evaluate_all('(groups)=>groups.map(g=>g.label)') == ['Spectra 6','Monochrome']
+                    assert await page.locator('#dither > optgroup').evaluate_all('(groups)=>groups.map(g=>g.label)') == ['Error diffusion','Pattern dithering','No dithering']
+                    assert await page.locator('#dither > optgroup[label="Error diffusion"] option').count() == 6
+                    assert await page.locator('#dither > optgroup[label="Pattern dithering"] option').count() == 2
+                    assert await page.locator('#dither > optgroup[label="No dithering"] option').get_attribute('value') == 'none'
                     # A worker load failure must be visible above the native modal,
                     # restore controls, and permit a fresh attempt.
                     starts = 0
@@ -259,10 +267,14 @@ async def main():
                     await page.get_by_text('LAN base URL saved.', exact=False).wait_for()
                     await page.get_by_role('link', name='Devices', exact=False).click()
                     await page.locator('#add-device').click()
+                    assert await page.get_by_label('Device type').locator('optgroup').evaluate_all('(groups)=>groups.map(g=>g.label)') == ['OpenPaper','Inkplate']
+                    assert await page.get_by_label('Device type').input_value() == 'openpaper_l'
                     await page.get_by_label('Device name').fill('Living room')
                     await page.locator('#new-device').get_by_role('button', name='Add device').click()
                     await page.get_by_role('heading', name='Living room', exact=True).wait_for()
                     await page.get_by_role('button', name='Add images', exact=False).click()
+                    assert await page.get_by_label('Image version for Blue mountain.jpg').locator('optgroup').evaluate_all('(groups)=>groups.map(g=>g.label)') == ['Original image','Saved variants']
+                    assert await page.get_by_label('Image version for Blue mountain.jpg').input_value() == 'original'
                     await page.get_by_label('Image version for Blue mountain.jpg').select_option('original')
                     options = await page.get_by_label('Image version for Blue mountain.jpg').locator('option').evaluate_all('(items)=>items.map(o=>o.value)')
                     variant_id = next(v for v in options if v != 'original')
@@ -364,6 +376,8 @@ async def main():
                     await page.get_by_role('button',name='Add images',exact=False).click()
                     assert await page.get_by_label('Image version for Mountain evening').locator('option').count() == 1
                     await page.locator('[data-prepare-asset]').first.click()
+                    assert await page.locator('#target-profile > optgroup').evaluate_all('(groups)=>groups.map(g=>g.label)') == ['Display models','My devices']
+                    assert await page.locator('#target-profile option:checked').evaluate('(option)=>option.parentElement.label') == 'My devices'
                     assert (await page.locator('#target-profile').input_value()).startswith('device:')
                     assert '800 × 480' in await page.locator('#output-dimensions').inner_text()
                     await page.locator('#dither').select_option('stucki')
@@ -460,9 +474,12 @@ async def main():
                     # A motif assigned to another model is still available here.
                     mountain_asset=next(a['id'] for a in small_state['assets'] if a['filename']=='Blue mountain.jpg')
                     await page.locator(f'[data-prepare-asset="{mountain_asset}"]').click()
+                    assert await page.locator('#target-profile > optgroup').evaluate_all('(groups)=>groups.map(g=>g.label)') == ['Display models','My devices']
+                    assert await page.locator('#target-profile option:checked').evaluate('(option)=>option.parentElement.label') == 'My devices'
                     assert (await page.locator('#target-profile').input_value()).startswith('device:')
                     assert await page.locator('#palette').input_value()=='gray8'
                     assert await page.locator('#palette option').count()==2
+                    assert await page.locator('#palette optgroup').evaluate_all('(groups)=>groups.map(g=>g.label)') == ['Monochrome']
                     assert await page.locator('#saturation').is_hidden()
                     assert 'Eight grayscale levels' in await page.locator('#output-dimensions').inner_text()
                     await page.get_by_role('button',name='Update full-resolution preview').click()
@@ -578,6 +595,7 @@ async def main():
                     await page.get_by_label('Quiet hours end').fill('08:00')
                     await page.get_by_label('Schedule time zone').fill('Europe/Berlin')
                     await page.get_by_label('Estimate charge from reported voltage').check()
+                    assert await page.get_by_label('Cell chemistry').locator('optgroup').evaluate_all('(groups)=>groups.map(g=>g.label)') == ['Primary cells','Rechargeable cells']
                     await page.get_by_label('Cell chemistry').select_option('li_ion')
                     await page.get_by_label('Cells in series').fill('1')
                     await page.get_by_label('Empty voltage per cell (V)',exact=True).fill('3.0')
@@ -629,9 +647,49 @@ async def main():
                     await touch.screenshot(path=str(artifacts/'device-schedule-touch-mobile.png'),full_page=True)
                     assert await touch.evaluate('document.documentElement.scrollWidth<=innerWidth')
                     await touch.close()
+                    # Expanding/reordering the base list must finish the old cycle.
+                    # Automatic polling must update its queue without discarding drafts
+                    # or closing the expanded details panel.
+                    async with session.get(origin+'/api/state') as response:
+                        queue_state=await response.json()
+                    headers={'X-Eink-CSRF':queue_state['csrf']}
+                    async with session.post(origin+'/api/devices',json={'name':'Queue transition'},headers=headers) as response:
+                        assert response.status==201
+                        queue_device=await response.json()
+                    queue_api=origin+'/api/devices/'+queue_device['id']
+                    motif=next(a['id'] for a in queue_state['assets'] if a['filename']=='Blue mountain.jpg')
+                    entry={'asset_id':motif,'mode':'original','enabled':True}
+                    async with session.put(queue_api,json={'entries':[entry,entry],'interval':60,'modified':queue_device['modified']},headers=headers) as response:
+                        assert response.status==200
+                        queue_device=await response.json()
+                    async with session.get(queue_device['urls']['image']) as response:
+                        assert response.status==200
+                        await response.read()
+                    # Keep entry IDs when changing the manual order.
+                    async with session.put(queue_api,json={'entries':list(reversed(queue_device['entries']))+[entry]*7,'modified':queue_device['modified']},headers=headers) as response:
+                        assert response.status==200
+                        queue_device=await response.json()
+                    assert len(queue_device['state']['queue'])==2
+                    await page.goto(origin+'/#devices/'+queue_device['id'])
+                    await page.get_by_role('heading',name='Queue transition',exact=True).wait_for()
+                    await page.get_by_text('Current playback queue',exact=True).click()
+                    await expect(page.locator('#device-playback-queue > li')).to_have_count(2)
+                    await page.get_by_label('Name',exact=True).fill('Unsaved queue draft')
+                    queue_form=await page.locator('#device-form').element_handle()
+                    for _ in range(2):
+                        async with session.post(queue_api+'/next',headers=headers) as response:
+                            assert response.status==200
+                        async with session.get(queue_device['urls']['image']) as response:
+                            assert response.status==200
+                            await response.read()
+                    await expect(page.locator('#device-playback-queue > li')).to_have_count(9,timeout=10000)
+                    await expect(page.locator('#device-list-position')).to_have_text('9 entries · Cycle 2')
+                    assert await queue_form.evaluate('(form)=>form.isConnected')
+                    assert await page.get_by_label('Name',exact=True).input_value()=='Unsaved queue draft'
+                    assert await page.locator('#device-playback-queue').is_visible()
                     assert not errors, errors
                     await browser.close()
-            print('Browser smoke passed: upload, full-resolution dithering methods, calibrated palette, variant overwrite, worker startup recovery/cancellation, automatic on/off pixels and manual tone preservation, matching descriptions, visible modal notifications, MQTT settings/secret handling and watchdog display, all three models, Inkplate grayscale/monochrome PNG and exact tone inversion, portrait pixels/editing/voltage, schedule/battery forms, explicit comparison buttons/keyboard/touch controls without hover switching, complete-image geometry, next connection, assigned-image filtering, native 800×480 BMP delivery/rotation, device orientation/help, fixed-URL original/BMP delivery, CORS, and responsive layouts.')
+            print('Browser smoke passed: native select groups/defaults, live two-to-nine queue transition without draft loss, upload, full-resolution dithering methods, calibrated palette, variant overwrite, worker startup recovery/cancellation, automatic on/off pixels and manual tone preservation, matching descriptions, visible modal notifications, MQTT settings/secret handling and watchdog display, all three models, Inkplate grayscale/monochrome PNG and exact tone inversion, portrait pixels/editing/voltage, schedule/battery forms, explicit comparison buttons/keyboard/touch controls without hover switching, complete-image geometry, next connection, assigned-image filtering, native 800×480 BMP delivery/rotation, device orientation/help, fixed-URL original/BMP delivery, CORS, and responsive layouts.')
             print(f'Screenshots: {artifacts}')
         finally:
             process.terminate()
