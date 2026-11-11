@@ -19,6 +19,7 @@ from playwright.async_api import async_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from correction import rotate_delivery
 from media import validate_bmp
 
 
@@ -179,6 +180,10 @@ async def main():
                     await page.get_by_label('Name', exact=True).fill('Studio frame')
                     await page.get_by_label('Update interval (seconds)').fill('120')
                     await page.get_by_label('Mounting orientation').select_option('landscape')
+                    await page.get_by_label('Automatic sensor rotation').check()
+                    await page.get_by_label('Mounted upside down',exact=False).check()
+                    assert await page.get_by_label('Automatic sensor rotation').is_disabled()
+                    assert not await page.get_by_label('Automatic sensor rotation').is_checked()
                     await page.get_by_role('button', name='Save settings', exact=True).click()
                     await page.get_by_role('heading', name='Studio frame', exact=True).wait_for()
                     await page.locator('#device-save-status').filter(has_text='Settings saved. The frame will apply them on its next wake-up.').wait_for()
@@ -193,10 +198,14 @@ async def main():
                     assert await page.get_by_role('button',name='Saving…',exact=True).is_disabled()
                     await page.locator('#device-save-status').filter(has_text='Refresh device before saving.').wait_for()
                     assert await page.get_by_label('Name',exact=True).input_value() == 'Studio frame'
+                    assert await page.get_by_label('Automatic sensor rotation').is_disabled()
                     await page.unroute('**/api/devices/*',reject_stale_save)
                     await page.get_by_role('button',name='Save settings',exact=True).click()
                     await page.locator('#device-save-status').filter(has_text='Settings saved.').wait_for()
                     assert await page.get_by_label('Mounting orientation').input_value() == 'landscape'
+                    assert await page.get_by_label('Mounted upside down',exact=False).is_checked()
+                    assert await page.get_by_label('Automatic sensor rotation').is_disabled()
+                    assert 'device=' in await page.locator('#device-frame-preview img').get_attribute('src')
                     await page.get_by_text('Refresh the frame and apply settings', exact=True).click()
                     await page.get_by_text('press the large reset button twice', exact=False).wait_for()
                     await page.get_by_text('Refresh the frame and apply settings', exact=True).click()
@@ -213,7 +222,7 @@ async def main():
                     await flasher.close()
                     async with session.get(url) as response:
                         assert response.content_type == 'image/jpeg'
-                        assert await response.read() == sample_image()
+                        assert await response.read() == rotate_delivery(sample_image(), 'image/jpeg')
                     await page.get_by_role('button', name='Next image', exact=True).click()
                     await page.get_by_text('Selection updated.', exact=False).wait_for()
                     assert await page.locator('#image-url').input_value() == url

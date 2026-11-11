@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.1.4**; locally tested, with Green,
+Status: experimental implementation **0.1.5**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -505,3 +505,14 @@ image cache validators, live HTTP progress, and the latest 100 durable events pe
 device. A real stalled-transfer browser test verifies progress without discarding
 unsaved settings. TCP completion still cannot confirm decoding or panel refresh.
 No stable release or physical-device validation is implied.
+
+Version 0.1.5 adds per-device 180° delivery correction for upside-down mounting,
+independent of portrait/landscape composition. Configure it once and apply it to
+subsequent deliveries without editing shared variants. Native 4-bit BMP pixels
+are rotated exactly without re-dithering; compatible JPEG originals require
+another baseline encoding pass. Previews show the compensated mounted view.
+Sensor rotation is disabled while correction is enabled, validators follow actual
+delivery bytes, and the first corrected request retains the current image.
+Transformed-image caching is RAM-only and bounded to eight entries / 32 MiB.
+Automated coverage includes exact pixels, original formats, shared-media
+immutability, device independence, conditional fetches, and browser form behavior.

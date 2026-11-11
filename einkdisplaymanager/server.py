@@ -11,13 +11,14 @@ import os
 import secrets
 import signal
 import time
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from contextlib import AsyncExitStack
 from email.utils import formatdate, parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from aiohttp import web
+from correction import rotate_delivery
 from diagnostics import Diagnostics
 from media import (
     MAX_UPLOAD,
@@ -31,10 +32,10 @@ from media import (
 )
 from network import discover_network, network_defaults
 from playback import advance, completed, initial_state, reconcile, select_for_request
-from profiles import PROFILES, device_orientation, orientation
+from profiles import PROFILES, device_orientation, device_rotation, orientation
 from storage import Store, new_id
 
-VERSION = '0.1.4'
+VERSION = '0.1.5'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -108,6 +109,8 @@ class Manager:
         self.media_lock = asyncio.Lock()
         self.workers = asyncio.Semaphore(2)
         self.transfers = asyncio.Semaphore(4)
+        self.delivery_cache = OrderedDict()
+        self.delivery_cache_bytes = 0
         self.blank = placeholder()
         self.csrf = secrets.token_urlsafe(32)
         try:
@@ -132,6 +135,7 @@ class Manager:
         result = copy.deepcopy(device)
         result.pop('token')
         result['orientation'] = device_orientation(device)
+        result['upside_down'] = bool(device_rotation(device))
         result['transfer'] = self.diagnostics.transfer(device['id'])
         if detail:
             result['events'] = self.diagnostics.record(device['id'])['events']
@@ -143,6 +147,8 @@ class Manager:
         url = self.urls(device)['image']
         result = {'timeout': device['interval'], 'motionWakeup': False, 'autoRotation': False,
                   'chargerMode': False, **device['settings'], 'httpAuthUser': '', 'httpAuthPassword': ''}
+        if device_rotation(device):
+            result['autoRotation'] = False
         if url:
             result['downloadUrl'] = url
         return result
@@ -288,6 +294,13 @@ class Manager:
         if kind not in ('asset', 'variant') or output not in ('thumbnail', 'file', 'source'):
             raise web.HTTPNotFound()
         item = self.store.get(kind, identifier)
+        if output == 'thumbnail' and request.query.get('device'):
+            device = self.store.get('device', request.query['device'])
+            data, _mime, _hash = await self.delivery(item, device_rotation(device))
+            async with self.workers:
+                data = await asyncio.to_thread(device_thumbnail, data, device_orientation(device) == 'landscape',
+                                               kind == 'variant', bool(device_rotation(device)))
+            return web.Response(body=data, content_type='image/jpeg')
         if output == 'thumbnail' and request.query.get('orientation'):
             mounting = orientation(request.query['orientation'])
             if kind == 'variant' and mounting == item.get('recipe', {}).get('orientation', 'portrait'):
@@ -354,7 +367,7 @@ class Manager:
 
     def new_device(self, name):
         return {'id': new_id(), 'name': title(name), 'profile': 'openpaper_l',
-                'orientation': 'portrait',
+                'orientation': 'portrait', 'upside_down': False,
                 'token': secrets.token_urlsafe(24), 'interval': 3600, 'shuffle': False,
                 'paused': False, 'enabled': True, 'settings': {'motionWakeup': False, 'autoRotation': False},
                 'entries': [], 'state': initial_state(), 'modified': time.time()}
@@ -369,6 +382,7 @@ class Manager:
             for key in ('interval', 'shuffle', 'settings', 'entries'):
                 device[key] = copy.deepcopy(source[key])
             device['orientation'] = device_orientation(source)
+            device['upside_down'] = bool(device_rotation(source))
             for entry in device['entries']:
                 entry['id'] = new_id()
             reconcile(device)
@@ -394,6 +408,9 @@ class Manager:
                 raise ValueError('Only OpenPaper L is supported.')
             if 'orientation' in data:
                 device['orientation'] = orientation(data['orientation'])
+            old_rotation = device_rotation(device)
+            if 'upside_down' in data:
+                device['upside_down'] = boolean(data['upside_down'])
             for key in ('shuffle', 'paused', 'enabled'):
                 if key in data:
                     device[key] = boolean(data[key])
@@ -408,6 +425,13 @@ class Manager:
                 if settings.get('chargerMode') and not device['settings'].get('chargerMode') and data.get('confirm_nimh') is not True:
                     raise ValueError('Confirm that this device contains NiMH batteries before enabling charging.')
                 device['settings'].update(settings)
+            if device_rotation(device):
+                if data.get('settings', {}).get('autoRotation') is True:
+                    raise ValueError('Turn off automatic sensor rotation when using upside-down mounting correction.')
+                device['settings']['autoRotation'] = False
+            if old_rotation != device_rotation(device):
+                # Deliver the corrected current selection before advancing again.
+                device['state']['pending'] = True
             if 'entries' in data:
                 if not isinstance(data['entries'], list) or len(data['entries']) > 1000:
                     raise ValueError('A device list may contain at most 1000 entries.')
@@ -539,6 +563,31 @@ class Manager:
             return None
         return self.store.get('variant', entry['variant_id']) if entry['mode'] == 'variant' else self.store.get('asset', entry['asset_id'])
 
+    async def delivery(self, item, rotation=0):
+        if item is None:
+            return self.blank, 'image/bmp', digest(self.blank)
+        path = self.store.path(item['file'])
+        key = (item['hash'], rotation, 1)
+        if rotation and key in self.delivery_cache:
+            self.delivery_cache.move_to_end(key)
+            return self.delivery_cache[key]
+        data = await asyncio.to_thread(path.read_bytes)
+        if not rotation:
+            return data, item['mime'], item['hash']
+        async with self.workers:
+            data = await asyncio.to_thread(rotate_delivery, data, item['mime'])
+            output_hash = await asyncio.to_thread(digest, data)
+        result = (data, item['mime'], output_hash)
+        if key in self.delivery_cache:
+            self.delivery_cache.move_to_end(key)
+            return self.delivery_cache[key]
+        self.delivery_cache[key] = result
+        self.delivery_cache_bytes += len(data)
+        while len(self.delivery_cache) > 8 or self.delivery_cache_bytes > 32 * 1024 * 1024:
+            _old_key, old = self.delivery_cache.popitem(last=False)
+            self.delivery_cache_bytes -= len(old[0])
+        return result
+
     async def frame_image(self, request):
         identifier = request.match_info['device']
         async with self.transfers, self.locks[identifier]:
@@ -559,7 +608,7 @@ class Manager:
                                            device['state']['selected'],
                                            item.get('asset_id', item['id']) if item else None,
                                            item['mime'] if item else 'image/bmp')
-                data = await asyncio.to_thread(self.store.path(item['file']).read_bytes) if item else self.blank
+                data, mime, output_hash = await self.delivery(item, device_rotation(device))
             except (KeyError, OSError):
                 if frame_fetch:
                     if not self.diagnostics.running(identifier):
@@ -569,12 +618,18 @@ class Manager:
                     self.diagnostics.finish(identifier, 'failed', 'Selected image file is unavailable.',
                                             http_status=503, error_code='file_unavailable')
                 raise web.HTTPServiceUnavailable(reason='Selected image is unavailable.') from None
+            except ValueError as exc:
+                if frame_fetch:
+                    device['state']['last_error'] = 'Image correction failed; select a prepared variant or disable upside-down mounting.'
+                    self.store.save('device', device)
+                    self.diagnostics.finish(identifier, 'failed', device['state']['last_error'],
+                                            http_status=503, error_code='correction_failed')
+                raise web.HTTPServiceUnavailable(reason='Image correction failed; select a prepared variant.') from exc
             except asyncio.CancelledError:
                 if frame_fetch:
                     self.diagnostics.finish(identifier, 'interrupted', 'Request stopped while preparing the image.',
                                             error_code='cancelled')
                 raise
-            output_hash = item['hash'] if item else digest(data)
             etag = '"' + output_hash + '"'
             # Offline firmware can mistake an empty Last-Modified and empty cached
             # validator for a match even when an ETag is present. Supply both.
@@ -601,7 +656,7 @@ class Manager:
                     self.diagnostics.finish(identifier, 'unchanged', 'Image unchanged (HTTP 304); no image body sent.', http_status=304)
                 return web.Response(status=304, headers=headers)
             response = web.StreamResponse(headers=headers)
-            response.content_type = item['mime'] if item else 'image/bmp'
+            response.content_type = mime
             response.content_length = len(data)
             if frame_fetch:
                 self.diagnostics.update(identifier, total_bytes=len(data))

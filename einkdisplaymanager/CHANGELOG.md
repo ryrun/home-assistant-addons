@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.5
+
+- Add per-device upside-down mounting correction for fixed-URL delivery, with previews showing the compensated mounted view in portrait or landscape.
+- Rotate prepared 4-bit BMP pixel indices without re-dithering; preserve shared originals, variants, recipes, and image-list assignments.
+- Support corrected compatible JPEG/BMP originals; JPEG correction requires an additional baseline encoding pass.
+- Disable conflicting automatic sensor rotation, revalidate changed delivery bytes, and retain the current image for the first corrected fetch.
+- Bound transformed-image caching in RAM and preserve disabled form controls after a failed save.
+
 ## 0.1.4
 
 - Send stable ETag and Last-Modified image validators, preventing the offline firmware's empty-validator shortcut from skipping a new download and closing the connection.

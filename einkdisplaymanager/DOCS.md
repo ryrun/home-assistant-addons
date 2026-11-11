@@ -202,6 +202,29 @@ approximate the firmware's fitting and color behavior. Changing a device's mount
 does not recrop or overwrite its assigned variants. It is distinct from the
 firmware's sensor-driven `autoRotation` and is not an unsupported JSON field.
 
+### Upside-down mounting correction
+
+If an image appears upside down, enable **Mounted upside down · correct by 180°**
+in **Device settings**, then **Save settings** and wake the frame. This is a
+one-time choice per device; subsequent image deliveries are corrected automatically.
+The add-on cannot detect physical mounting. Use **Mounting orientation** separately
+for portrait/landscape composition and a matching variant.
+
+The device card, frame preview, and queue thumbnails show the compensated view
+for that physical mounting. The transmitted bitmap itself is rotated 180°.
+Prepared native 4-bit BMPs retain their palette and exact pixel codes without
+another dithering pass. Compatible original BMPs are rotated as RGB BMPs; original
+JPEGs require an additional baseline encoding pass and remain firmware-compatible.
+Stored originals, shared variants, recipes, and other devices stay unchanged.
+
+Correction disables automatic sensor rotation in the settings JSON to avoid
+conflicting rotations. If sensor rotation was previously enabled, allow the new
+settings to apply and wake the frame once more if needed. Wait for an active
+transfer and panel refresh to finish before resetting the frame. The fixed image
+URL stays the same; validators change with the delivered bytes so the frame can
+fetch the corrected current image before the list advances. Transformed files are
+cached only in RAM, limited to eight entries and 32 MiB, and rebuilt after restart.
+
 ### Targets and crop recipes
 
 Choose **Target display** before setting the crop: either the supported model or
@@ -389,13 +412,16 @@ exercise upload, the real full-resolution optimizer, saving a variant, device
 settings, original/BMP switching at one URL, and mobile layout. The rotated
 black/white crop with manual contrast and Atkinson processing is also checked
 against actual saved BMP pixel codes. Landscape native pixels are rotated back
-and compared exactly with the preview. Current local result: 32 Python tests and
+and compared exactly with the preview. Current local result: 40 Python tests and
 the Chromium workflow pass. Hash-verified Linux ARM64 and AMD64 runtime wheels
 are available for the pinned Python 3.13/Debian base; this is not a container build.
 
 Browser coverage also restores an edited recipe, saves a linked revision,
 operates the question-mark help, exercises all offered dithering methods at full
 resolution, and checks the actual dimensions of a device's mounting-aware preview.
+Rotation checks cover exact native BMP pixels, compatible original formats,
+unchanged shared media, device-specific previews, cache validators, current-image
+retention, sensor conflicts, and persistence of the mounting setting in the UI.
 
 `scripts/transfer_smoke.py` additionally uses a real, deliberately stalled local
 HTTP image response to verify live progress, selection protection, an interrupted

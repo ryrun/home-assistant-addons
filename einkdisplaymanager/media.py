@@ -180,7 +180,7 @@ def landscape_thumbnail(data):
         return out.getvalue()
 
 
-def device_thumbnail(data, landscape=False, prepared=False):
+def device_thumbnail(data, landscape=False, prepared=False, upside_down=False):
     """Preview native pixels in mounting orientation; original delivery is approximate."""
     with Image.open(io.BytesIO(data)) as source:
         image = source.convert('RGB')
@@ -191,6 +191,8 @@ def device_thumbnail(data, landscape=False, prepared=False):
             native = Image.new('RGB', (WIDTH, HEIGHT), 'white')
             native.paste(image, ((WIDTH-image.width)//2, (HEIGHT-image.height)//2))
             image = native
+        if upside_down:
+            image = image.transpose(Image.Transpose.ROTATE_180)
         if landscape:
             image = image.transpose(Image.Transpose.ROTATE_270)
         image.thumbnail((640, 640), Image.Resampling.LANCZOS)

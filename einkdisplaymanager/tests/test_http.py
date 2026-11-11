@@ -490,3 +490,100 @@ async def test_transfer_timeout_has_distinct_diagnostic_category(system,monkeypa
     assert status['transfer']['error_code'] == 'timeout'
     assert status['state']['pending'] is True
     assert 'Synthetic timeout' not in str(status)
+
+
+async def test_upside_down_delivery_keeps_shared_variant_queue_and_fixed_url(system):
+    from correction import rotate_delivery
+    from media import digest
+    from test_correction import asymmetric_bmp
+
+    manager, admin, frames = system
+    a = await upload(admin)
+    data = asymmetric_bmp()
+    v = await (await admin.post(f'/api/assets/{a}/variants', data=data)).json()
+    stored_variant = manager.store.get('variant', v['id'])
+    d = await device(admin, [a])
+    update = await admin.put('/api/devices/' + d['id'], json={'entries': [
+        {'asset_id': a, 'variant_id': v['id'], 'mode': 'variant'},
+        {'asset_id': a, 'mode': 'original'}]})
+    d = await update.json()
+    peer = await (await admin.post('/api/devices', json={'name': 'Peer', 'copy_from': d['id']})).json()
+    url = path(d['urls']['image'])
+    first = await frames.get(url)
+    assert await first.read() == data
+    before_preview = await (await admin.get(f"/api/media/variant/{v['id']}/thumbnail?device={d['id']}")).read()
+    persisted = manager.store.get('device', d['id'])
+    persisted['state']['deadline'] = time.time() - 1
+    manager.store.save('device', persisted)
+    updated = await (await admin.put('/api/devices/' + d['id'], json={'upside_down': True})).json()
+    assert updated['upside_down'] and updated['state']['pending']
+    assert updated['urls'] == d['urls']
+    assert updated['entries'] == d['entries']
+    for mounting in ('portrait', 'landscape'):
+        await admin.put('/api/devices/' + d['id'], json={'orientation': mounting})
+        preview = await admin.get(f"/api/media/variant/{v['id']}/thumbnail?device={d['id']}")
+        image = Image.open(io.BytesIO(await preview.read()))
+        assert image.size == ((480,640) if mounting == 'portrait' else (640,480))
+        if mounting == 'portrait':
+            assert image.tobytes() == Image.open(io.BytesIO(before_preview)).tobytes()
+    second = await frames.get(url, headers={'If-None-Match': first.headers['ETag']})
+    assert second.status == 200
+    corrected = await second.read()
+    assert corrected == rotate_delivery(data, 'image/bmp')
+    assert second.headers['ETag'] == '"' + digest(corrected) + '"'
+    assert second.headers['Last-Modified'] != first.headers['Last-Modified']
+    assert manager.store.get('device', d['id'])['state']['selected'] == d['entries'][0]['id']
+    assert (await frames.get(url, headers={'If-None-Match': second.headers['ETag']})).status == 304
+    assert await (await frames.get(path(peer['urls']['image']))).read() == data
+    assert await (await admin.get(f"/api/media/variant/{v['id']}/file")).read() == data
+    assert manager.store.get('variant', v['id']) == stored_variant
+    assert manager.delivery_cache_bytes == len(corrected)
+    await admin.put('/api/devices/' + d['id'], json={'upside_down': False})
+    assert await (await frames.get(url, headers={'If-None-Match': second.headers['ETag']})).read() == data
+
+
+async def test_upside_down_settings_sensor_conflict_copy_and_legacy_default(system):
+    manager, admin, frames = system
+    d = await device(admin, [])
+    endpoint = '/api/devices/' + d['id']
+    assert d['upside_down'] is False
+    await admin.put(endpoint, json={'settings': {'autoRotation': True}})
+    response = await admin.put(endpoint, json={'upside_down': True, 'settings': {'autoRotation': True}})
+    assert response.status == 400
+    assert not manager.store.get('device', d['id'])['upside_down']
+    assert (await admin.put(endpoint, json={'upside_down': 'yes'})).status == 400
+    updated = await (await admin.put(endpoint, json={'upside_down': True})).json()
+    assert updated['settings']['autoRotation'] is False
+    assert (await (await frames.get(path(d['urls']['settings']))).json())['autoRotation'] is False
+    copied = await (await admin.post('/api/devices', json={'name':'Inverted copy', 'copy_from':d['id']})).json()
+    assert copied['upside_down'] is True
+    legacy = manager.store.get('device', d['id'])
+    del legacy['upside_down']
+    manager.store.save('device', legacy)
+    assert (await (await admin.get(endpoint)).json())['upside_down'] is False
+
+
+async def test_original_upside_down_delivery_and_correction_failure_diagnostics(system, monkeypatch):
+    import server
+    from correction import rotate_delivery
+
+    manager, admin, frames = system
+    original = picture()
+    a = await upload(admin, original)
+    d = await device(admin, [a])
+    await admin.put('/api/devices/' + d['id'], json={'upside_down': True})
+    response = await frames.get(path(d['urls']['image']))
+    assert response.content_type == 'image/jpeg'
+    assert await response.read() == rotate_delivery(original, 'image/jpeg')
+    assert await (await admin.get(f'/api/media/asset/{a}/file')).read() == original
+    manager.delivery_cache.clear()
+    manager.delivery_cache_bytes = 0
+    def invalid(*_args):
+        raise ValueError('private processing detail')
+    monkeypatch.setattr(server, 'rotate_delivery', invalid)
+    failed = await frames.get(path(d['urls']['image']))
+    assert failed.status == 503
+    assert 'private processing detail' not in await failed.text()
+    activity = await (await admin.get('/api/devices/' + d['id'] + '/status')).json()
+    assert activity['transfer']['error_code'] == 'correction_failed'
+    assert 'private processing detail' not in str(activity)
