@@ -35,7 +35,7 @@ from playback import advance, completed, initial_state, reconcile, select_for_re
 from profiles import PROFILES, device_orientation, device_rotation, orientation
 from storage import Store, new_id
 
-VERSION = '0.1.5'
+VERSION = '0.1.6'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -249,7 +249,7 @@ class Manager:
         for device in self.store.all('device'):
             self.urls(device, origin)
         async with AsyncExitStack() as stack:
-            for device in self.store.all('device'):
+            for device in sorted(self.store.all('device'), key=lambda item: item['id']):
                 await stack.enter_async_context(self.locks[device['id']])
             self.settings['base_url'] = origin
             self.store.save('settings', self.settings)
@@ -321,6 +321,12 @@ class Manager:
         async with self.media_lock:
             asset_id = request.match_info['asset']
             self.store.get('asset', asset_id)
+            previous = self.store.get('variant', request.match_info['variant']) if 'variant' in request.match_info else None
+            if previous:
+                if previous['asset_id'] != asset_id:
+                    raise ValueError('Variant does not belong to this original.')
+                if request.headers.get('X-Variant-Version') != str(previous.get('revision', 0)):
+                    raise web.HTTPConflict(reason='This variant changed in another window. Reopen it before saving.')
             data = await request.read()
             async with self.workers:
                 await asyncio.to_thread(validate_bmp, data)
@@ -340,13 +346,39 @@ class Manager:
                 async with self.workers:
                     thumb = await asyncio.to_thread(landscape_thumbnail, data)
             name = title(unquote(request.headers.get('X-Variant-Name', 'Optimized for OpenPaper L')))
-            if len(self.store.all('variant')) >= 4000:
+            if previous is None and len(self.store.all('variant')) >= 4000:
                 raise ValueError('The library limit of 4000 saved variants has been reached.')
             file = await asyncio.to_thread(self.store.put_file, data, '.bmp')
             thumbnail = await asyncio.to_thread(self.store.put_file, thumb, '.jpg')
             doc = dict(metadata, id=new_id(), asset_id=asset_id, name=name, recipe=recipe,
                        parent_variant_id=parent_id, profile=recipe.get('profile', 'openpaper_l'),
                        optimizer='epdoptimize@1.2.0', created_at=time.time(), file=file, thumbnail=thumbnail)
+            if previous:
+                doc.update(id=previous['id'], created_at=previous['created_at'],
+                           parent_variant_id=previous.get('parent_variant_id'),
+                           revision=previous.get('revision', 0) + 1, updated_at=time.time())
+                affected = sorted(d['id'] for d in self.store.all('device')
+                                  if any(e.get('variant_id') == doc['id'] for e in d['entries']))
+                async with AsyncExitStack() as stack:
+                    # Let in-flight deliveries finish before changing their selection's bytes.
+                    for identifier in affected:
+                        await stack.enter_async_context(self.locks[identifier])
+                    records = [('variant', doc)]
+                    for identifier in affected:
+                        device = self.store.get('device', identifier)
+                        if device['profile'] != doc['profile']:
+                            raise ValueError('The updated variant must remain compatible with its assigned devices.')
+                        selected = next((e for e in device['entries'] if e['id'] == device['state']['selected']), None)
+                        if selected and selected.get('variant_id') == doc['id'] and previous['hash'] != doc['hash']:
+                            device['state']['pending'] = True
+                            records.append(('device', device))
+                    self.store.save_many(records)
+                    for identifier in affected:
+                        self.diagnostics.event(identifier, 'variant_updated',
+                                               'An assigned variant was updated; image list assignments were retained.',
+                                               variant_id=doc['id'])
+                self.store.cleanup()
+                return web.json_response({'id': doc['id'], 'revision': doc['revision']})
             self.store.save('variant', doc)
             return web.json_response({'id': doc['id']}, status=201)
 
@@ -374,22 +406,23 @@ class Manager:
 
     async def add_device(self, request):
         data = await self.json(request)
-        if len(self.store.all('device')) >= 32:
-            raise ValueError('The limit of 32 devices has been reached.')
-        device = self.new_device(data.get('name'))
-        if data.get('copy_from'):
-            source = self.store.get('device', data['copy_from'])
-            for key in ('interval', 'shuffle', 'settings', 'entries'):
-                device[key] = copy.deepcopy(source[key])
-            device['orientation'] = device_orientation(source)
-            device['upside_down'] = bool(device_rotation(source))
-            for entry in device['entries']:
-                entry['id'] = new_id()
-            reconcile(device)
-        self.urls(device)
-        self.store.save('device', device)
-        self.diagnostics.event(device['id'], 'device_created', 'Device registered in the add-on.')
-        return web.json_response(self.public_device(device, detail=True), status=201)
+        async with self.media_lock:
+            if len(self.store.all('device')) >= 32:
+                raise ValueError('The limit of 32 devices has been reached.')
+            device = self.new_device(data.get('name'))
+            if data.get('copy_from'):
+                source = self.store.get('device', data['copy_from'])
+                for key in ('interval', 'shuffle', 'settings', 'entries'):
+                    device[key] = copy.deepcopy(source[key])
+                device['orientation'] = device_orientation(source)
+                device['upside_down'] = bool(device_rotation(source))
+                for entry in device['entries']:
+                    entry['id'] = new_id()
+                reconcile(device)
+            self.urls(device)
+            self.store.save('device', device)
+            self.diagnostics.event(device['id'], 'device_created', 'Device registered in the add-on.')
+            return web.json_response(self.public_device(device, detail=True), status=201)
 
     async def get_device(self, request):
         device = self.store.get('device', request.match_info['device'])
@@ -510,7 +543,7 @@ class Manager:
 
     async def remove_device(self, request):
         identifier = request.match_info['device']
-        async with self.locks[identifier]:
+        async with self.media_lock, self.locks[identifier]:
             self.store.delete('device', identifier)
             self.diagnostics.remove(identifier)
             for kind in ('settings_response', 'image_response'):
@@ -707,6 +740,7 @@ class Manager:
         admin.router.add_post('/api/assets', self.upload)
         admin.router.add_patch('/api/assets/{asset}', self.rename_asset)
         admin.router.add_post('/api/assets/{asset}/variants', self.create_variant)
+        admin.router.add_put('/api/assets/{asset}/variants/{variant}', self.create_variant)
         admin.router.add_get('/api/media/{kind}/{item}/{output}', self.media_file)
         admin.router.add_delete('/api/media/{kind}/{item}', self.delete_media)
         admin.router.add_post('/api/devices', self.add_device)

@@ -15,10 +15,7 @@
 .save-status[data-result=error]{border-left-color:var(--error);color:var(--error)}
 .image-name-form{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;margin-bottom:24px;padding-bottom:18px;border-bottom:1px solid var(--line)}
 .image-name-form .save-status{grid-column:1/-1}
-.field-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}
-.help-button{border-radius:50%;width:25px;height:25px;min-width:25px;padding:0;font-weight:700}
-.method-help{padding:15px;background:var(--bg);border:1px solid var(--line);border-radius:7px;font-size:12px}
-.method-help p:last-child{margin-bottom:0}.frame-help{margin:18px 0;font-size:12px}.frame-help summary{cursor:pointer}
+.frame-help{margin:18px 0;font-size:12px}.frame-help summary{cursor:pointer}
 .frame-help li{margin:10px 0}.variant-row{flex-wrap:wrap}.variant-row>div{min-width:150px}
 .device-cover[data-orientation=portrait]{min-height:235px}.device-cover[data-orientation=landscape]{min-height:180px}
 html{scrollbar-gutter:stable}.modal-open{overflow:hidden}
@@ -35,3 +32,7 @@ dialog::backdrop{background:#13223899;backdrop-filter:none}
 @media(max-width:720px){.sidebar{position:static;width:auto;padding:16px 20px;border-right:0;border-bottom:1px solid var(--line)}.brand{font-size:11px}.brand strong{font-size:13px}.frame-mark{width:24px;height:30px;border-width:3px}nav{display:flex;margin-top:18px;gap:6px}nav a{padding:8px 10px;font-size:12px}nav a>span{font-size:18px}.sidebar-foot{display:none}main{margin:0;padding:24px 18px}h1{font-size:31px}.page-head{align-items:flex-start;gap:12px}.page-head button{font-size:12px;white-space:nowrap}.library-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.toolbar{flex-wrap:wrap}.toolbar input{max-width:none;flex:1}.toolbar select{max-width:140px}.toolbar .selection{width:100%}.media-card .image-button{padding:9px}.media-card h3{font-size:12px}.form-grid,.editor-layout{grid-template-columns:1fr}.panel{padding:18px}.preview-stage{min-height:250px}.preview-stage canvas{max-height:40vh}.dialog-body{padding:18px}.dialog-head{padding:18px}.device-grid{grid-template-columns:1fr}.facts{grid-template-columns:1fr 1fr}.queue{gap:8px}.queue li{gap:8px}.queue-controls{max-width:85px}.picker-grid{grid-template-columns:1fr 1fr}.device-card{padding:18px}}
 @media(prefers-reduced-motion:no-preference){button,a,.image-button{transition:background .15s,border-color .15s}}
 @media(prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#18212e;--paper:#202c3b;--ink:#e0e8f4;--muted:#9eacc0;--line:#3a485b;--blue:#95b7e4;--pale:#2e415c;--error:#f0939a}.media-card .image-button,.preview-stage{background:#2b394c}button.primary{background:#4973a9;color:#fff;border-color:#4973a9}.frame-mark{box-shadow:inset 0 0 0 3px var(--paper)}#notice{background:#31547f;color:#fff}#notice.error{background:#8e3541}}
+
+/* A notice lives inside the active modal so it remains above the backdrop. */
+#notice{position:fixed;inset:16px 16px auto auto;width:min(560px,calc(100vw - 32px));max-height:30vh;overflow:auto;margin:0;z-index:10;overflow-wrap:anywhere}
+dialog>#notice{position:relative;inset:auto;flex:none;width:auto;max-height:25vh;margin:12px 16px 0}

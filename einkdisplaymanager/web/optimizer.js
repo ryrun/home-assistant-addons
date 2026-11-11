@@ -27,13 +27,18 @@ function bmp(pixels, indices) {
 
 self.onmessage = async ({data}) => {
   let image;
+  let stage = 'decoding the source image';
   try {
+    if(typeof createImageBitmap!=='function'||typeof OffscreenCanvas!=='function')throw new Error('This browser does not support image processing in a worker. Update your browser and try again.');
     const {source, recipe}=data;
     if(recipe.profile && recipe.profile!=='openpaper_l')throw new Error('This output profile is not supported yet.');
     const landscape=recipe.orientation==='landscape';
     const viewW=landscape?H:W, viewH=landscape?W:H;
+    self.postMessage({progress:'Decoding source image…'});
     image=await createImageBitmap(source);
     const canvas=new OffscreenCanvas(viewW,viewH), ctx=canvas.getContext('2d',{willReadFrequently:true});
+    if(!ctx)throw new Error('The browser could not allocate the image canvas. Close other image editors and try again.');
+    stage='preparing the composition';
     ctx.fillStyle='#fff'; ctx.fillRect(0,0,viewW,viewH);
     const rotated=recipe.rotation===90||recipe.rotation===270;
     const vw=rotated?image.height:image.width, vh=rotated?image.width:image.height;
@@ -42,6 +47,7 @@ self.onmessage = async ({data}) => {
     const fy=recipe.fit==='cover'?(viewH-vh*scale)*((recipe.focusY??50)/100-.5):0;
     ctx.save(); ctx.translate(viewW/2+fx,viewH/2+fy); ctx.rotate(recipe.rotation*Math.PI/180);
     ctx.drawImage(image,-image.width*scale/2,-image.height*scale/2,image.width*scale,image.height*scale); ctx.restore();
+    image.close();image=null;
     const basePalette=recipe.palette==='spectra6'?spectra6Palette:recipe.palette==='aitjcize'?aitjcizeSpectra6Palette:spectra6OriginalPalette;
     let palette=basePalette.map(p=>({...p}));
     if(recipe.palette==='grayscale') palette=palette.filter(p=>p.name==='black'||p.name==='white');
@@ -59,6 +65,8 @@ self.onmessage = async ({data}) => {
     if(manual) options.toneMapping={mode:'contrast',exposure:recipe.brightness/100,contrast:recipe.contrast/100,saturation:recipe.saturation/100};
     Object.assign(options,{palette,colorMatching:recipe.matching==='lab'?'lab':'rgb',processingEngine:'js',
       ...ditherOptions(recipe.dither),serpentine:true});
+    stage='applying color matching and dithering';
+    self.postMessage({progress:'Applying color matching and dithering…'});
     await ditherImage(canvas,canvas,options);
     const pixels=ctx.getImageData(0,0,viewW,viewH), indices=new Uint8Array(W*H);
     const colors=palette.map(p=>({code:codes[p.name],rgb:p.color.match(/[a-f0-9]{2}/gi).map(x=>parseInt(x,16))}));
@@ -79,9 +87,12 @@ self.onmessage = async ({data}) => {
       native=new Uint8Array(W*H);
       for(let y=0;y<viewH;y++)for(let x=0;x<viewW;x++)native[(H-1-x)*W+y]=indices[y*viewW+x];
     }
+    stage='encoding the output';
+    self.postMessage({progress:'Encoding display output…'});
     const output=bmp(pixels,native);
     const preview=await canvas.convertToBlob({type:'image/png'});
     self.postMessage({bmp:output.buffer,preview,recipe:{...recipe,orientation:landscape?'landscape':'portrait',nativeRotation:landscape?270:0,nativeWidth:W,nativeHeight:H,viewWidth:viewW,viewHeight:viewH,resolvedOptions:options,optimizer:'epdoptimize@1.2.0',profile:'openpaper_l',encoder:3}},[output.buffer]);
-  } catch(error) { self.postMessage({error:error.message||'Image optimization failed.'}); }
+  } catch(error) { self.postMessage({error:`Image optimization failed while ${stage}. ${error.message||'Close other image editors and try again.'}`}); }
   finally { image?.close(); }
 };
+self.postMessage({ready:true});

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.6
+
+- Make Edit → Save changes replace the selected variant while preserving its ID and every device assignment; reject stale edits.
+- Write validated replacement files before atomically publishing metadata and affected playback state, and wait for active transfers before replacement.
+- Remove the dithering question-mark button and add selection-specific RGB/LAB matching descriptions.
+- Keep success/error notices above open native dialogs and readable when scrolled.
+- Add optimizer readiness checks, a startup retry, stage-specific progress/errors, timeouts, and cancellation when an editor closes; release decoded source bitmaps earlier.
+- Document current upstream firmware's conditional image requests and 304 handling.
+
 ## 0.1.5
 
 - Add per-device upside-down mounting correction for fixed-URL delivery, with previews showing the compensated mounted view in portrait or landscape.

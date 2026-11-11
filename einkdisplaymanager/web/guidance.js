@@ -13,6 +13,6 @@ export function frameHelp(){
 export function compositionHelp(){
   return `<details class="help"><summary>Crop, dimensions, and multiple devices</summary>
   <p>Choose the target display before adjusting the crop. Contain keeps the whole image and adds white margins. Cover fills the target and trims edges; crop-position sliders move the visible area within those edges. Cropping never stretches the source.</p>
-  <p>A variant stores the target model, native pixel dimensions, mounting orientation, crop position, and color recipe. Matching devices can reuse it. For a different size, aspect ratio, or orientation, reopen the recipe and save another variant from the same original. We never silently resize an already dithered variant to fit another device.</p>
+  <p>A variant stores the target model, native pixel dimensions, mounting orientation, crop position, and color recipe. Matching devices can reuse it. Editing and saving changes updates that variant for every assigned device. For a different size, aspect ratio, or orientation that should stay independent, prepare a separate variant from the original. We never silently resize an already dithered variant to fit another device.</p>
   <p>Only OpenPaper L is supported now. Portrait composition is 1200 × 1600; landscape is 1600 × 1200. Both export the native 1200 × 1600 BMP expected by the firmware. Other models will receive separate tested profiles, rather than arbitrary width/height fields.</p></details>`;
 }

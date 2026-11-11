@@ -45,9 +45,14 @@ class Store:
         return json.loads(row[0])
 
     def save(self, kind, doc):
+        self.save_many([(kind, doc)])
+
+    def save_many(self, records):
+        """Commit related metadata pointers and playback changes together."""
         with self.db:
-            self.db.execute('INSERT INTO records VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET doc=excluded.doc',
-                            (kind, doc['id'], json.dumps(doc, separators=(',', ':'), allow_nan=False)))
+            self.db.executemany('INSERT INTO records VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET doc=excluded.doc',
+                                [(kind, doc['id'], json.dumps(doc, separators=(',', ':'), allow_nan=False))
+                                 for kind, doc in records])
 
     def delete(self, kind, identifier):
         self.get(kind, identifier)

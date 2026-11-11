@@ -89,6 +89,22 @@ certificates; erasing their partition prevents returning to cloud firmware witho
 a backup/replacement. Flashing remains an external manual step. Bluetooth-upload
 mode has no timed wake-up; use URL-download mode for this add-on's slideshow.
 
+### HTTP 304 and unchanged images
+
+Current upstream firmware explicitly handles **304 Not Modified** for both images
+and the settings JSON. With a valid cached image and no forced download, its image
+request sends `If-None-Match` for a cached ETag or `If-Modified-Since` for a cached
+Last-Modified value. A 304 keeps the image and skips download and panel rendering.
+The add-on still evaluates a due image-list change before comparing validators,
+so an old cache entry does not stop playback from advancing. Editing the selected
+variant or changing mounting correction changes the validator with the output.
+
+This describes the current [upstream download and refresh code](https://github.com/paperlesspaper/paperlesspaper-firmware-offline/blob/main/src/main.cpp)
+(file blob `c96c94eab76fa42dd7e1d8ffa9320a5c6a37c6ec`, checked 2026-11-11),
+not a claim about every installed firmware build. Older builds may instead request
+HTTP 200 and skip its body after comparing Last-Modified locally. Keep both image
+validators available for compatibility.
+
 ## Add-on configuration
 
 | Option | Default | Purpose |
@@ -173,14 +189,15 @@ picker. The original filename is shown separately and retained for downloads.
 Renaming does not alter image bytes, saved variants, queue entries, or device URLs.
 Uploading the same original again keeps its chosen display name.
 
-**Original** means the exact uploaded bytes. Compatible baseline RGB/grayscale
+**Original** normally delivers the exact uploaded bytes; the explicit per-device
+upside-down correction described below transforms only the delivery copy. Compatible baseline RGB/grayscale
 JPEGs and uncompressed 24-/32-bit BMPs can be fitted/dithered on the frame. JPEG
 headers and Huffman lookup constraints are checked. Progressive JPEGs, unsupported
 Huffman tables, CMYK JPEGs, PNGs, and arbitrary indexed BMPs require a variant.
 Some optimized-Huffman JPEGs are compatible; others are rejected. Original mode
 does not promise browser-style EXIF orientation or color management on the frame.
 
-**Variant** means a separately saved, immutable 1200 × 1600 top-down, uncompressed
+**Variant** means a saved 1200 × 1600 top-down, uncompressed
 4-bit BMP with valid Spectra 6 pixel codes. The firmware can take its direct-output
 path instead of dithering again. A compatible original in that same format is
 also accepted. The fixed image URL needs no extension: firmware detects the file
@@ -240,19 +257,46 @@ other display sizes require separate tested profiles and encoders.
 selected viewing area while cropping edges; horizontal/vertical crop positions
 move the visible area within those edges. Neither mode stretches the source.
 
+### Color matching and dithering help
+
+Descriptions below **Color matching** and **Dithering** follow the selected option.
+RGB compares channel distances and provides a predictable baseline for graphics
+and palette comparisons. Perceptual LAB approximates differences as perceived by
+people; try it for photos, skin tones, and subtle colors, allowing more processing
+time. The optimizer uses its own perceptual matching paths for different methods;
+compare the palette and matching choice on the actual reflective panel. Neither
+choice guarantees a better result for every photo. There is no separate dithering
+question-mark button.
+
 ### Editing a saved variant
 
 Use **Edit** beside a saved variant. This restores its orientation, crop, palette,
 algorithm, and adjustment controls, then processes the unchanged original again.
-**Save new revision** creates a separate variant linked to its parent. Existing
-assignments continue to use the previous variant until deliberately changed.
-The recipe is self-contained, so deleting an unused parent does not prevent
-editing a child. **Prepare for this device** in the device image picker starts
-with the appropriate target and mounting.
+**Save changes** replaces that variant's output, name, and recipe while keeping
+its ID and all device assignments. Every device sharing it will use the updated
+result. An active transfer finishes before replacement; a currently selected
+changed variant stays selected for its next corrected delivery, even if its
+interval has elapsed. The image URL stays fixed, while cache validators reflect
+the changed bytes. Concurrent edits from an older window are rejected so a stale
+editor cannot silently overwrite a newer save.
+
+Files remain immutable and content-addressed internally: validated replacement
+files are written before variant metadata and affected playback state are committed
+together. Files still referenced by another variant/original are retained. A failed
+validation or storage-limit check leaves the previous variant intact. There is no
+version-history UI or undo for a successful overwrite. To prepare a separate variant,
+open the original's editor and use **Save as new variant**. **Prepare for this device**
+in the device image picker starts with the appropriate target and mounting.
 
 Optimization uses the vendored `epdoptimize@1.2.0` in an isolated browser worker,
 not the HA backend's event loop. A current browser with OffscreenCanvas support
-is needed. The server normalizes editor input orientation, embedded ICC profiles
+is needed. Startup has a readiness check, one retry for a failed start, and a
+15-second startup timeout; processing has a three-minute timeout. Progress and
+errors appear beside the preview, with failures also visible over an open dialog.
+Closing/replacing the editor cancels its pending source request and worker so a
+late result cannot overwrite a different editor. Decoded source bitmaps are
+released after composition. This does not establish the cause of any previously
+reported browser failure. The server normalizes editor input orientation, embedded ICC profiles
 to sRGB, and transparency, and
 validates every finished BMP before saving. Automatic and manual settings are
 recorded in the variant's recipe. Manual brightness/contrast/saturation adjustments
@@ -412,12 +456,13 @@ exercise upload, the real full-resolution optimizer, saving a variant, device
 settings, original/BMP switching at one URL, and mobile layout. The rotated
 black/white crop with manual contrast and Atkinson processing is also checked
 against actual saved BMP pixel codes. Landscape native pixels are rotated back
-and compared exactly with the preview. Current local result: 40 Python tests and
+and compared exactly with the preview. Current local result: 43 Python tests and
 the Chromium workflow pass. Hash-verified Linux ARM64 and AMD64 runtime wheels
 are available for the pinned Python 3.13/Debian base; this is not a container build.
 
-Browser coverage also restores an edited recipe, saves a linked revision,
-operates the question-mark help, exercises all offered dithering methods at full
+Browser coverage also restores and overwrites an edited variant, checks inline
+matching/dithering help and notifications above modal content, injects worker-start
+failures and invalid source data, verifies cancellation, and exercises all offered methods at full
 resolution, and checks the actual dimensions of a device's mounting-aware preview.
 Rotation checks cover exact native BMP pixels, compatible original formats,
 unchanged shared media, device-specific previews, cache validators, current-image

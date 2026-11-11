@@ -587,3 +587,106 @@ async def test_original_upside_down_delivery_and_correction_failure_diagnostics(
     activity = await (await admin.get('/api/devices/' + d['id'] + '/status')).json()
     assert activity['transfer']['error_code'] == 'correction_failed'
     assert 'private processing detail' not in str(activity)
+
+
+async def test_overwrite_variant_preserves_assignments_and_revalidates_current_delivery(system):
+    from correction import rotate_delivery
+    from test_correction import asymmetric_bmp
+
+    manager, admin, frames = system
+    a = await upload(admin)
+    original = await (await admin.get(f'/api/media/asset/{a}/file')).read()
+    old = asymmetric_bmp()
+    v = (await (await admin.post(f'/api/assets/{a}/variants', data=old)).json())['id']
+    shared = (await (await admin.post(f'/api/assets/{a}/variants', data=old)).json())['id']
+    before = manager.store.get('variant', v)
+    d = await device(admin, [a])
+    d = await (await admin.put('/api/devices/'+d['id'], json={'entries':[
+        {'asset_id':a,'variant_id':v,'mode':'variant'}, {'asset_id':a,'mode':'original'}]})).json()
+    peer = await (await admin.post('/api/devices', json={'name':'Inverted peer','copy_from':d['id']})).json()
+    await admin.put('/api/devices/'+peer['id'], json={'upside_down':True})
+    validators = {}
+    for frame in (d, peer):
+        response = await frames.get(path(frame['urls']['image']))
+        await response.read()
+        validators[frame['id']] = response.headers['ETag']
+        persisted = manager.store.get('device',frame['id'])
+        persisted['state']['deadline'] = time.time()-1
+        manager.store.save('device',persisted)
+    new = bytearray(placeholder())
+    new[118:718] = b'\x33'*600
+    response = await admin.put(f'/api/assets/{a}/variants/{v}',data=new,headers={
+        'X-Variant-Version':'0','X-Variant-Name':'Updated variant','X-Recipe':'{"dither":"stucki","orientation":"landscape"}'})
+    assert response.status == 200
+    assert await response.json() == {'id':v,'revision':1}
+    updated = manager.store.get('variant',v)
+    assert updated['id'] == before['id'] and updated['created_at'] == before['created_at']
+    assert updated['name'] == 'Updated variant' and updated['recipe']['dither'] == 'stucki'
+    assert len(manager.store.all('variant')) == 2
+    for frame in (d, peer):
+        persisted = manager.store.get('device',frame['id'])
+        assert persisted['entries'] == frame['entries']
+        assert persisted['state']['selected'] == frame['entries'][0]['id'] and persisted['state']['pending']
+        response = await frames.get(path(frame['urls']['image']),headers={'If-None-Match':validators[frame['id']]})
+        assert response.status == 200
+        assert await response.read() == (bytes(new) if frame is d else rotate_delivery(bytes(new),'image/bmp'))
+        assert response.headers['ETag'] != validators[frame['id']]
+        assert manager.store.get('device',frame['id'])['state']['selected'] == frame['entries'][0]['id']
+    assert await (await admin.get(f'/api/media/asset/{a}/file')).read() == original
+    assert await (await admin.get(f'/api/media/variant/{shared}/file')).read() == old
+    assert Image.open(io.BytesIO(await (await admin.get(f'/api/media/variant/{v}/thumbnail')).read())).size == (640,480)
+
+
+async def test_overwrite_variant_rejects_stale_foreign_invalid_and_quota_failures(system):
+    from test_correction import asymmetric_bmp
+
+    manager, admin, _frames = system
+    a = await upload(admin)
+    v = (await (await admin.post(f'/api/assets/{a}/variants', data=placeholder())).json())['id']
+    before = manager.store.get('variant',v)
+    headers = {'X-Variant-Version':'0'}
+    endpoint = f'/api/assets/{a}/variants/{v}'
+    assert (await admin.put(endpoint,data=placeholder())).status == 409
+    other = await upload(admin,picture(color='green'))
+    assert (await admin.put(f'/api/assets/{other}/variants/{v}',data=placeholder(),headers=headers)).status == 400
+    assert (await admin.put(endpoint,data=b'invalid',headers=headers)).status == 400
+    manager.store.quota = manager.store.usage()
+    assert (await admin.put(endpoint,data=asymmetric_bmp(),headers=headers)).status == 400
+    assert manager.store.get('variant',v) == before
+    manager.store.quota += 2*1024*1024
+    assert (await admin.put(endpoint,data=asymmetric_bmp(),headers=headers)).status == 200
+    assert (await admin.put(endpoint,data=placeholder(),headers=headers)).status == 409
+    assert manager.store.get('variant',v)['revision'] == 1
+
+
+async def test_variant_overwrite_waits_for_an_active_transfer(system, monkeypatch):
+    from aiohttp import web
+    from test_correction import asymmetric_bmp
+
+    manager, admin, frames = system
+    a = await upload(admin)
+    old = placeholder()
+    v = (await (await admin.post(f'/api/assets/{a}/variants',data=old)).json())['id']
+    d = await device(admin, [])
+    await admin.put('/api/devices/'+d['id'],json={'entries':[{'asset_id':a,'variant_id':v,'mode':'variant'}]})
+    started, release = asyncio.Event(), asyncio.Event()
+    write = web.StreamResponse.write
+    async def blocked(response,chunk):
+        if response.content_type == 'image/bmp' and not started.is_set():
+            started.set()
+            await release.wait()
+        return await write(response,chunk)
+    monkeypatch.setattr(web.StreamResponse,'write',blocked)
+    download = await frames.get(path(d['urls']['image']))
+    await started.wait()
+    replacing = asyncio.create_task(admin.put(f'/api/assets/{a}/variants/{v}',data=asymmetric_bmp(),headers={'X-Variant-Version':'0'}))
+    try:
+        await asyncio.sleep(.05)
+        assert not replacing.done()
+        assert manager.store.get('variant',v)['hash'] == manager.representation(manager.store.get('device',d['id']))['hash']
+    finally:
+        release.set()
+    assert await download.read() == old
+    assert (await replacing).status == 200
+    assert manager.store.get('device',d['id'])['state']['pending']
+    assert await (await frames.get(path(d['urls']['image']))).read() == asymmetric_bmp()

@@ -79,10 +79,39 @@ async def main():
                     assert await gallery.evaluate('(node)=>node.isConnected'), 'Polling rebuilt the library'
                     await page.clock.resume()
                     await page.get_by_role('button', name='Open Blue mountain.jpg', exact=True).click()
+                    # A worker load failure must be visible above the native modal,
+                    # restore controls, and permit a fresh attempt.
+                    starts = 0
+                    async def refuse_optimizer(route):
+                        nonlocal starts
+                        starts += 1
+                        await route.fulfill(status=503, content_type='text/javascript', body='')
+                    await page.route('**/static/optimizer.js', refuse_optimizer)
+                    await page.get_by_role('button', name='Update full-resolution preview').click()
+                    await page.locator('#preview-note').filter(has_text='Its browser module could not load').wait_for()
+                    assert starts == 2, 'Startup failure was not retried once'
+                    assert not await page.locator('#optimize').is_disabled()
+                    assert await page.locator('#save-variant').is_disabled()
+                    assert await page.locator('#notice').evaluate('(node)=>{const r=node.getBoundingClientRect();return node.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}')
+                    await page.screenshot(path=str(artifacts / 'optimizer-start-error.png'),full_page=True)
+                    await page.unroute('**/static/optimizer.js', refuse_optimizer)
+                    starts = 0
+                    async def transient_optimizer_failure(route):
+                        nonlocal starts
+                        starts += 1
+                        if starts == 1:
+                            await route.fulfill(status=503,content_type='text/javascript',body='')
+                        else:
+                            await route.continue_()
+                    await page.route('**/static/optimizer.js', transient_optimizer_failure)
                     preview_box = await page.locator('.preview-stage').bounding_box()
                     await page.get_by_role('button', name='Update full-resolution preview').click()
                     await page.get_by_role('button', name='Save as new variant').wait_for(state='visible')
                     await page.locator('#save-variant:not([disabled])').wait_for(timeout=90000)
+                    assert starts == 2, 'A transient startup failure did not recover'
+                    await page.unroute('**/static/optimizer.js', transient_optimizer_failure)
+                    invalid = await page.evaluate('''async ()=>{const {optimizeImage}=await import('./static/optimizer-client.js');try{await optimizeImage({source:new Blob(['invalid image'],{type:'image/png'}),recipe:{},signal:new AbortController().signal});return 'unexpected success';}catch(error){return error.message;}}''')
+                    assert 'decoding the source image' in invalid
                     updated_box = await page.locator('.preview-stage').bounding_box()
                     assert preview_box['height'] == updated_box['height'] and preview_box['width'] == updated_box['width']
                     await page.set_viewport_size({'width': 1440, 'height': 750})
@@ -94,6 +123,16 @@ async def main():
                     await page.screenshot(path=str(artifacts / 'optimizer-desktop.png'), full_page=True)
                     await page.get_by_role('button', name='Save as new variant').click()
                     await page.get_by_text('Saved a new variant.', exact=False).wait_for()
+                    async def stall_optimizer(route):
+                        await route.fulfill(content_type='text/javascript',body="self.onmessage=()=>{};self.postMessage({ready:true});")
+                    await page.route('**/static/optimizer.js',stall_optimizer)
+                    await page.get_by_role('button',name='Update full-resolution preview').click()
+                    await page.locator('#preview-note').filter(has_text='Starting optimizer').wait_for()
+                    await page.get_by_role('button',name='Close dialog').click()
+                    await page.unroute('**/static/optimizer.js',stall_optimizer)
+                    await page.get_by_role('button',name='Open Blue mountain.jpg',exact=True).click()
+                    assert not await page.locator('#optimize').is_disabled()
+                    assert not await page.locator('#notice').evaluate('(node)=>node.classList.contains("error")&&!node.hidden')
                     # Exercise a second processing path and validate its actual pixel codes.
                     await page.locator('#orientation').select_option('landscape')
                     await page.locator('#fit').select_option('cover')
@@ -126,28 +165,32 @@ async def main():
                     assert await page.locator('#contrast').input_value() == '15'
                     assert await page.locator('#focusX').input_value() == '80'
                     assert await page.locator('#dither').input_value() == 'atkinson'
-                    await page.get_by_role('button', name='About dithering methods').click()
-                    assert await page.locator('#dither-help').is_visible()
-                    await page.get_by_role('button', name='About dithering methods').click()
+                    assert await page.get_by_role('button', name='About dithering methods').count() == 0
+                    assert 'predictable baseline' in await page.locator('#matching-tip').inner_text()
                     await page.locator('#dither').select_option('stucki')
                     await page.locator('#palette').select_option('spectra6')
                     await page.locator('#matching').select_option('lab')
+                    assert 'human perception' in await page.locator('#matching-tip').inner_text()
+                    assert 'photographic gradients' in await page.locator('#dither-tip').inner_text()
                     await page.get_by_role('button', name='Update full-resolution preview').click()
                     await page.locator('#save-variant:not([disabled])').wait_for(timeout=90000)
-                    await page.get_by_role('button', name='Save new revision', exact=True).click()
-                    await page.get_by_text('Monochrome crop (edited)', exact=True).wait_for()
+                    await page.get_by_role('button', name='Save changes', exact=True).click()
+                    await page.locator('#notice').filter(has_text='Variant updated.').wait_for()
+                    assert await page.locator('#notice').evaluate('(node)=>node.parentElement===document.querySelector("#editor")')
+                    assert await page.locator('#notice').evaluate('(node)=>{const r=node.getBoundingClientRect();return node.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}')
                     async with session.get(origin + '/api/state') as response:
                         snapshot = await response.json()
-                    revision = next(v for v in snapshot['variants'] if v.get('parent_variant_id') == monochrome['id'])
+                    revision = next(v for v in snapshot['variants'] if v['id'] == monochrome['id'])
                     assert revision['recipe']['palette'] == 'spectra6' and revision['recipe']['dither'] == 'stucki'
-                    assert any(v['id'] == monochrome['id'] for v in snapshot['variants'])
+                    assert revision['revision'] == 1 and revision['name'] == monochrome['name']
+                    assert len(snapshot['variants']) == 2
                     # Exercise each new worker algorithm without publishing extra variants.
                     output_hashes = []
                     for algorithm in ('floyd', 'jarvis', 'burkes', 'sierra3', 'ordered', 'blueNoise', 'none'):
                         result = await page.evaluate('''async ({asset, algorithm})=>{
                           const source=await (await fetch(`api/media/asset/${asset}/source`)).blob();
                           const worker=new Worker(new URL('static/optimizer.js',location.href),{type:'module'});
-                          const data=await new Promise((resolve,reject)=>{worker.onmessage=e=>e.data.error?reject(new Error(e.data.error)):resolve(e.data);worker.onerror=e=>reject(new Error(e.message));worker.postMessage({source,recipe:{profile:'openpaper_l',orientation:'portrait',fit:'contain',rotation:0,palette:'spectra6',matching:'rgb',automatic:false,brightness:0,contrast:0,saturation:0,dither:algorithm}});});
+                          const data=await new Promise((resolve,reject)=>{worker.onmessage=e=>{if(e.data.ready||e.data.progress)return;e.data.error?reject(new Error(e.data.error)):resolve(e.data);};worker.onerror=e=>reject(new Error(e.message));worker.postMessage({source,recipe:{profile:'openpaper_l',orientation:'portrait',fit:'contain',rotation:0,palette:'spectra6',matching:'rgb',automatic:false,brightness:0,contrast:0,saturation:0,dither:algorithm}});});
                           worker.terminate();const pixels=new Uint8Array(data.bmp), view=new DataView(data.bmp);
                           if(pixels.length!==960118||view.getInt32(18,true)!==1200||view.getInt32(22,true)!==-1600)throw new Error('Invalid native output');
                           const valid=new Set([0,1,2,3,5,6]);for(const b of pixels.subarray(118))if(!valid.has(b>>4)||!valid.has(b&15))throw new Error('Invalid palette code');
@@ -252,7 +295,7 @@ async def main():
                     assert await page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                     assert not errors, errors
                     await browser.close()
-            print('Browser smoke passed: upload, full-resolution dithering methods, calibrated palette, recipe editing/revisions, device orientation/help, fixed-URL original/BMP delivery, CORS, and responsive layouts.')
+            print('Browser smoke passed: upload, full-resolution dithering methods, calibrated palette, variant overwrite, worker startup recovery/cancellation, matching descriptions, visible modal notifications, device orientation/help, fixed-URL original/BMP delivery, CORS, and responsive layouts.')
             print(f'Screenshots: {artifacts}')
         finally:
             process.terminate()

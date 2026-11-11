@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.1.5**; locally tested, with Green,
+Status: experimental implementation **0.1.6**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -368,7 +368,7 @@ license and platform feasibility are established.
 
 - [x] Add-on packaging, schema-versioned persistence, Ingress UI, and endpoint isolation
   implemented; actual container/Ingress acceptance remains in Phase 0/4.
-- [x] Shared upload library, thumbnails, deduplication, immutable saved variants,
+- [x] Shared upload library, thumbnails, deduplication, editable saved variants with stable assignments,
   optimization controls/preview, and per-entry original/variant selection.
 - [x] Register an OpenPaper L profile, configure JSON, populate its image list,
   and expose fixed URLs with manual next/previous and served-image status; tested
@@ -516,3 +516,16 @@ delivery bytes, and the first corrected request retains the current image.
 Transformed-image caching is RAM-only and bounded to eight entries / 32 MiB.
 Automated coverage includes exact pixels, original formats, shared-media
 immutability, device independence, conditional fetches, and browser form behavior.
+
+Version 0.1.6 makes Edit overwrite a variant under the same ID, retaining every
+device assignment. Validated replacement files precede an atomic metadata/playback
+commit; active deliveries finish first, stale editors are rejected, and the current
+changed image remains selected for its next delivery. Content files stay immutable;
+shared files remain referenced. This supersedes the previous UI's new-revision-only
+editing behavior. Inline selection help replaces the dithering question-mark button
+and also explains RGB/LAB matching. Notifications remain visible over native dialogs.
+Worker startup now uses readiness, one retry, bounded waits, stage-specific progress
+and errors, and cancellation on editor close. Automated checks cover invalid worker
+starts, image decode failures, retained assignments, storage/validation failure,
+concurrent transfers, and modal notification visibility. Current upstream firmware
+supports image and JSON 304 handling; installed builds still require version checks.

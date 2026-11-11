@@ -19,6 +19,11 @@ export const PALETTES = {
   grayscale:{name:'Black and white', use:'Restricts output to the black and white display codes. Useful for monochrome artwork, text, and intentional black/white photos.'},
 };
 
+export const MATCHING = {
+  rgb:{name:'RGB · predictable baseline',use:'Compares distances between red, green, and blue values. A fast, predictable baseline for graphics, pure colors, and comparing palettes; equal RGB distances do not always look equally different to the eye.'},
+  lab:{name:'Perceptual LAB · compare on frame',use:'Compares colors in a space that approximates human perception. Try for photos, skin tones, and subtle colors; processing can take longer and palette choices still matter. Compare the result on your frame.'},
+};
+
 export function ditherOptions(value){
   const method=DITHERS[value];
   if(!method)throw new Error('Choose a supported dithering method.');
