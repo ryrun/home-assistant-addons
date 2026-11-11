@@ -8,7 +8,7 @@ PROFILES = {item['id']: item for item in json.loads((Path(__file__).parent / 'we
 
 def display_profile(value='openpaper_l'):
     if not isinstance(value, str) or value not in PROFILES:
-        raise ValueError('Choose a supported OpenPaper display model.')
+        raise ValueError('Choose a supported display model.')
     return PROFILES[value]
 
 
@@ -23,14 +23,14 @@ def original_profile(asset):
         return asset['native_profile']
     # Old validated originals predate native_profile metadata. An uncompressed
     # 24/32-bit BMP at these dimensions cannot have the exact 4-bit file length.
-    return next((p['id'] for p in PROFILES.values() if asset['mime'] == 'image/bmp'
+    return next((p['id'] for p in PROFILES.values() if p.get('format', 'bmp') == 'bmp' and asset['mime'] == 'image/bmp'
                  and (asset['width'], asset['height'], asset['bytes']) ==
                  (p['width'], p['height'], 118 + p['width'] * p['height'] // 2)), None)
 
 
 def original_compatible(asset, profile_id):
     native = original_profile(asset)
-    return asset['original_supported'] and (native is None or native == profile_id)
+    return (native is None or native == profile_id) and (asset['original_supported'] or profile_id == 'inkplate_6')
 
 
 def device_orientation(device):

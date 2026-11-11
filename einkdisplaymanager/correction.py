@@ -24,6 +24,8 @@ def rotate_delivery(data, mime):
                          subsampling=JpegImagePlugin.get_sampling(source), optimize=False, progressive=False)
         elif mime == 'image/bmp':
             rotated.convert('RGB').save(output, 'BMP')
+        elif mime == 'image/png':
+            rotated.save(output, 'PNG')
         else:
             raise ValueError('This original format cannot be rotated for device delivery.')
     result = output.getvalue()

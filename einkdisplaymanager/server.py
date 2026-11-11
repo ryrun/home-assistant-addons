@@ -24,10 +24,11 @@ from media import (
     MAX_UPLOAD,
     device_thumbnail,
     digest,
+    inkplate_original,
     inspect_image,
     placeholder,
     source_png,
-    validate_bmp,
+    validate_variant,
     variant_thumbnail,
 )
 from mqtt_bridge import MQTTBridge
@@ -43,7 +44,7 @@ from profiles import (
 )
 from storage import Store, new_id
 
-VERSION = '0.3.0'
+VERSION = '0.4.0'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -146,6 +147,7 @@ class Manager:
         result.pop('token')
         result['orientation'] = device_orientation(device)
         result['upside_down'] = bool(device_rotation(device))
+        result['telemetry'] = self.telemetry(device['id'])
         result['transfer'] = self.diagnostics.transfer(device['id'])
         result['health'] = self.mqtt.health(device)
         if detail:
@@ -322,10 +324,10 @@ class Manager:
             device = self.store.get('device', request.query['device'])
             if kind == 'variant' and item['profile'] != device['profile']:
                 raise ValueError('Choose a variant prepared for this device model.')
-            data, _mime, _hash = await self.delivery(item, device_rotation(device), device['profile'])
+            data, _mime, _hash = await self.delivery(item, device_rotation(device), device['profile'], device_orientation(device))
             async with self.workers:
                 data = await asyncio.to_thread(device_thumbnail, data, device_orientation(device) == 'landscape',
-                                               kind == 'variant', bool(device_rotation(device)), device['profile'])
+                                               kind == 'variant' or device['profile'] == 'inkplate_6', bool(device_rotation(device)), device['profile'])
             return web.Response(body=data, content_type='image/jpeg')
         if output == 'thumbnail' and request.query.get('orientation'):
             mounting = orientation(request.query['orientation'])
@@ -362,7 +364,7 @@ class Manager:
             recipe.setdefault('profile', profile['id'])
             recipe.setdefault('orientation', profile['native_orientation'])
             async with self.workers:
-                await asyncio.to_thread(validate_bmp, data, profile['id'])
+                await asyncio.to_thread(validate_variant, data, profile['id'])
                 metadata, thumb = await asyncio.to_thread(inspect_image, data)
             parent_id = request.headers.get('X-Parent-Variant')
             if parent_id and self.store.get('variant', parent_id)['asset_id'] != asset_id:
@@ -375,7 +377,7 @@ class Manager:
             name = title(unquote(request.headers.get('X-Variant-Name', 'Optimized for ' + profile['name'])))
             if previous is None and len(self.store.all('variant')) >= 4000:
                 raise ValueError('The library limit of 4000 saved variants has been reached.')
-            file = await asyncio.to_thread(self.store.put_file, data, '.bmp')
+            file = await asyncio.to_thread(self.store.put_file, data, '.' + profile.get('format', 'bmp'))
             thumbnail = await asyncio.to_thread(self.store.put_file, thumb, '.jpg')
             doc = dict(metadata, id=new_id(), asset_id=asset_id, name=name, recipe=recipe,
                        parent_variant_id=parent_id, profile=recipe.get('profile', 'openpaper_l'),
@@ -470,6 +472,7 @@ class Manager:
                 device['name'] = title(data['name'])
             if 'profile' in data and data['profile'] != device['profile']:
                 raise ValueError('Device type cannot be changed. Create a new device for another model.')
+            old_orientation = device_orientation(device)
             if 'orientation' in data:
                 device['orientation'] = orientation(data['orientation'])
             old_rotation = device_rotation(device)
@@ -486,6 +489,8 @@ class Manager:
                 if not isinstance(settings, dict) or set(settings) - {'motionWakeup', 'autoRotation', 'chargerMode'}:
                     raise ValueError('Unsupported firmware setting.')
                 settings = {key: boolean(val) for key, val in settings.items()}
+                if device['profile'] == 'inkplate_6' and any(settings.values()):
+                    raise ValueError('OpenPaper motion, sensor rotation, and NiMH charging settings do not apply to Inkplate 6.')
                 if settings.get('chargerMode') and not device['settings'].get('chargerMode') and data.get('confirm_nimh') is not True:
                     raise ValueError('Confirm that this device contains NiMH batteries before enabling charging.')
                 device['settings'].update(settings)
@@ -493,7 +498,7 @@ class Manager:
                 if data.get('settings', {}).get('autoRotation') is True:
                     raise ValueError('Turn off automatic sensor rotation when using upside-down mounting correction.')
                 device['settings']['autoRotation'] = False
-            if old_rotation != device_rotation(device):
+            if old_rotation != device_rotation(device) or (device['profile'] == 'inkplate_6' and old_orientation != device_orientation(device)):
                 # Deliver the corrected current selection before advancing again.
                 device['state']['pending'] = True
             if 'entries' in data:
@@ -513,10 +518,10 @@ class Manager:
                             raise ValueError('Variant does not belong to this original.')
                         if variant.get('profile') != device['profile']:
                             raise ValueError('Choose a variant prepared for this device model and resolution.')
-                    elif mode != 'original' or not asset['original_supported']:
+                    elif mode != 'original':
                         raise ValueError(asset['original_note'])
                     elif not original_compatible(asset, device['profile']):
-                        raise ValueError('This display-ready original belongs to another model. Prepare a matching variant from the source image.')
+                        raise ValueError('Choose an original compatible with this device model, or prepare a matching variant.')
                     entry_id = item.get('id') or new_id()
                     if item.get('id') and entry_id not in old:
                         raise ValueError('Unknown image list entry. Reload the device.')
@@ -572,7 +577,7 @@ class Manager:
         identifier = request.match_info['device']
         device = self.store.get('device', identifier)
         return web.json_response({'id': identifier, 'state': device['state'], 'paused': device['paused'],
-                                  'health': self.mqtt.health(device),
+                                  'health': self.mqtt.health(device), 'telemetry': self.telemetry(identifier),
                                   **self.diagnostics.view(identifier)})
 
     async def remove_device(self, request):
@@ -580,12 +585,29 @@ class Manager:
         async with self.media_lock, self.locks[identifier]:
             self.store.delete('device', identifier)
             self.diagnostics.remove(identifier)
-            for kind in ('settings_response', 'image_response', 'mqtt_watch'):
+            for kind in ('settings_response', 'image_response', 'mqtt_watch', 'telemetry'):
                 try:
                     self.store.delete(kind, identifier)
                 except KeyError:
                     pass
         return web.json_response({'deleted': True})
+
+    def telemetry(self, identifier):
+        try:
+            return self.store.get('telemetry', identifier)
+        except KeyError:
+            return {'battery_millivolts': None, 'measured_at': None}
+
+    def record_telemetry(self, request, device):
+        # Only authenticated device GETs reach here. Browser previews and HEAD
+        # must not turn a supplied header into a reported hardware measurement.
+        if device['profile'] != 'inkplate_6' or request.method != 'GET' or browser_request(request):
+            return
+        value = request.headers.get('X-Display-Battery-Millivolts', '')
+        if not (1 <= len(value) <= 5 and value.isascii() and value.isdecimal() and 500 <= int(value) <= 20000):
+            return  # Missing/malformed telemetry must not prevent image updates.
+        self.store.save('telemetry', {'id': device['id'], 'battery_millivolts': int(value), 'measured_at': time.time()})
+        self.mqtt.wake.set()
 
     async def settings_json(self, request):
         identifier = request.match_info['device']
@@ -615,6 +637,7 @@ class Manager:
                 except (ValueError, TypeError, OverflowError):
                     pass
             if request.method == 'GET' and not browser_request(request):
+                self.record_telemetry(request, device)
                 device['state']['last_settings_request'] = time.time()
                 self.store.save('device', device)
                 self.diagnostics.event(identifier, 'settings_unchanged' if unchanged else 'settings_served',
@@ -630,22 +653,27 @@ class Manager:
             return None
         return self.store.get('variant', entry['variant_id']) if entry['mode'] == 'variant' else self.store.get('asset', entry['asset_id'])
 
-    async def delivery(self, item, rotation=0, profile_id='openpaper_l'):
+    async def delivery(self, item, rotation=0, profile_id='openpaper_l', mounting='landscape'):
         if item is None:
             blank = self.blanks[profile_id]
-            return blank, 'image/bmp', digest(blank)
+            return blank, 'image/png' if profile_id == 'inkplate_6' else 'image/bmp', digest(blank)
         path = self.store.path(item['file'])
-        key = (item['hash'], rotation, 1)
-        if rotation and key in self.delivery_cache:
+        convert = profile_id == 'inkplate_6' and 'asset_id' not in item
+        key = (item['hash'], rotation, profile_id, mounting if convert else None, 2)
+        if (rotation or convert) and key in self.delivery_cache:
             self.delivery_cache.move_to_end(key)
             return self.delivery_cache[key]
         data = await asyncio.to_thread(path.read_bytes)
-        if not rotation:
+        if not rotation and not convert:
             return data, item['mime'], item['hash']
+        mime = 'image/png' if convert else item['mime']
         async with self.workers:
-            data = await asyncio.to_thread(rotate_delivery, data, item['mime'])
+            if convert:
+                data = await asyncio.to_thread(inkplate_original, data, mounting, bool(rotation))
+            else:
+                data = await asyncio.to_thread(rotate_delivery, data, mime)
             output_hash = await asyncio.to_thread(digest, data)
-        result = (data, item['mime'], output_hash)
+        result = (data, mime, output_hash)
         if key in self.delivery_cache:
             self.delivery_cache.move_to_end(key)
             return self.delivery_cache[key]
@@ -666,6 +694,7 @@ class Manager:
                 raise web.HTTPGone(reason='Device is disabled.')
             frame_fetch = request.method == 'GET' and not browser_request(request)
             if frame_fetch:
+                self.record_telemetry(request, device)
                 select_for_request(device, time.time())
                 device['state']['last_image_request'] = time.time()
                 self.store.save('device', device)
@@ -676,8 +705,8 @@ class Manager:
                     self.diagnostics.start(identifier, item['bytes'] if item else len(blank),
                                            device['state']['selected'],
                                            item.get('asset_id', item['id']) if item else None,
-                                           item['mime'] if item else 'image/bmp')
-                data, mime, output_hash = await self.delivery(item, device_rotation(device), device['profile'])
+                                           ('image/png' if device['profile'] == 'inkplate_6' else item['mime'] if item else 'image/bmp'))
+                data, mime, output_hash = await self.delivery(item, device_rotation(device), device['profile'], device_orientation(device))
             except (KeyError, OSError):
                 if frame_fetch:
                     if not self.diagnostics.running(identifier):

@@ -21,7 +21,7 @@ from playwright.async_api import async_playwright, expect
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from correction import rotate_delivery
-from media import validate_bmp
+from media import validate_bmp, validate_variant
 
 
 def free_port():
@@ -264,13 +264,18 @@ async def main():
                     await page.get_by_role('heading', name='Living room', exact=True).wait_for()
                     await page.get_by_role('button', name='Add images', exact=False).click()
                     await page.get_by_label('Image version for Blue mountain.jpg').select_option('original')
-                    await page.get_by_role('button', name='Add to device').click()
-                    await page.get_by_text('Image added to the device list.').wait_for()
                     options = await page.get_by_label('Image version for Blue mountain.jpg').locator('option').evaluate_all('(items)=>items.map(o=>o.value)')
                     variant_id = next(v for v in options if v != 'original')
-                    await page.get_by_label('Image version for Blue mountain.jpg').select_option(variant_id)
-                    await page.get_by_role('button', name='Added · add again').click()
+                    await page.get_by_role('button', name='Add to device').click()
+                    await page.get_by_text('Image added to the device list.').wait_for()
+                    assert await page.locator('[data-add-asset]').count() == 0
+                    await page.get_by_text('All library images are already assigned',exact=False).wait_for()
                     await page.get_by_role('button', name='Close dialog').click()
+                    # Preserve regression coverage for existing lists with repeated
+                    # motifs. New picker additions hide the whole assigned asset.
+                    await page.evaluate('''async variantId=>{const state=await fetch('api/state').then(r=>r.json());const d=await fetch('api/devices/'+state.devices[0].id).then(r=>r.json());const entry={asset_id:state.assets[0].id,mode:'variant',variant_id:variantId};const response=await fetch('api/devices/'+d.id,{method:'PUT',headers:{'Content-Type':'application/json','X-Eink-CSRF':state.csrf},body:JSON.stringify({entries:[...d.entries,entry],modified:d.modified})});if(!response.ok)throw new Error('Legacy duplicate fixture failed');}''',variant_id)
+                    await page.locator('#refresh-device').click()
+                    await page.locator('.queue [data-entry]').nth(1).wait_for()
                     await page.get_by_label('Name', exact=True).fill('Studio frame')
                     await page.get_by_label('Update interval (seconds)').fill('120')
                     await page.get_by_label('Mounting orientation').select_option('landscape')
@@ -436,9 +441,86 @@ async def main():
                     assert await page.get_by_label('Image version for Native Seven.bmp').locator('option[value="original"]').is_disabled()
                     assert await page.locator(f'[data-add-asset="{native_asset}"]').is_disabled()
                     await page.get_by_role('button',name='Close dialog').click()
+                    # Inkplate: native grayscale PNG through the real worker and UI.
+                    await page.goto(origin+'/#devices')
+                    await page.locator('#add-device').click()
+                    await page.get_by_label('Device name').fill('Inkplate desk')
+                    await page.get_by_label('Device type').select_option('inkplate_6')
+                    await page.locator('#new-device button.primary').click()
+                    await page.get_by_role('heading',name='Inkplate desk',exact=True).wait_for()
+                    assert await page.get_by_label('Wake on movement').is_disabled()
+                    assert await page.get_by_label('Charge NiMH batteries over USB').is_disabled()
+                    await page.get_by_text('Connect Inkplate 6 with ESPHome',exact=True).click()
+                    example_url=await page.get_by_role('link',name='Download ESPHome example').get_attribute('href')
+                    assert (await page.request.get(origin+'/'+example_url)).status==200
+                    await page.get_by_role('button',name='Add images',exact=False).click()
+                    # A motif assigned to another model is still available here.
+                    mountain_asset=next(a['id'] for a in small_state['assets'] if a['filename']=='Blue mountain.jpg')
+                    await page.locator(f'[data-prepare-asset="{mountain_asset}"]').click()
+                    assert (await page.locator('#target-profile').input_value()).startswith('device:')
+                    assert await page.locator('#palette').input_value()=='gray8'
+                    assert await page.locator('#palette option').count()==1
+                    assert await page.locator('#saturation').is_hidden()
+                    assert 'Eight grayscale levels' in await page.locator('#output-dimensions').inner_text()
+                    await page.get_by_role('button',name='Update full-resolution preview').click()
+                    await page.locator('#save-variant:not([disabled])').wait_for(timeout=90000)
+                    await page.get_by_role('button',name='Save as new variant',exact=True).click()
+                    await page.get_by_text('Saved a new variant.',exact=True).wait_for()
+                    ink_state=await page.evaluate('fetch("api/state").then(r=>r.json())')
+                    ink_variant=next(v for v in ink_state['variants'] if v['profile']=='inkplate_6')
+                    async with session.get(origin+f"/api/media/variant/{ink_variant['id']}/file") as response:
+                        ink_native=await response.read()
+                    validate_variant(ink_native,'inkplate_6')
+                    ink_image=Image.open(io.BytesIO(ink_native))
+                    assert len(set(ink_image.convert('L').tobytes()))>=3
+                    # A full ramp must retain all eight levels, including both endpoints.
+                    ramp=await page.evaluate('''async()=>{const c=new OffscreenCanvas(600,800),ctx=c.getContext('2d');for(let x=0;x<600;x++){const v=Math.round(x*255/599);ctx.fillStyle=`rgb(${v},${v},${v})`;ctx.fillRect(x,0,1,800);}const {optimizeImage}=await import('./static/optimizer-client.js');const result=await optimizeImage({source:await c.convertToBlob(),recipe:{profile:'inkplate_6',orientation:'portrait',fit:'contain',rotation:0,palette:'gray8',dither:'none',matching:'rgb',automatic:false},signal:new AbortController().signal});const b=await createImageBitmap(result.preview),out=new OffscreenCanvas(600,800),o=out.getContext('2d');o.drawImage(b,0,0);const levels=new Set();const px=o.getImageData(0,0,600,800).data;for(let i=0;i<px.length;i+=4)levels.add(px[i]);return {mime:result.mime,levels:[...levels].sort((a,b)=>a-b),nativeWidth:result.recipe.nativeWidth,nativeHeight:result.recipe.nativeHeight};}''')
+                    assert ramp=={'mime':'image/png','levels':[0,36,73,109,146,182,219,255],'nativeWidth':800,'nativeHeight':600}
+                    await page.locator(f'[data-edit-variant="{ink_variant["id"]}"]').click()
+                    await page.locator('#orientation').select_option('portrait')
+                    await page.get_by_role('button',name='Update full-resolution preview').click()
+                    await page.locator('#save-variant:not([disabled])').wait_for(timeout=90000)
+                    preview_base64=await page.locator('#image-preview').evaluate('''async img=>{await img.decode();const c=document.createElement('canvas');c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext('2d').drawImage(img,0,0);return c.toDataURL('image/png').split(',')[1];}''')
+                    await page.get_by_role('button',name='Save changes',exact=True).click()
+                    await page.get_by_text('Variant updated. All device assignments have been retained.',exact=True).wait_for()
+                    async with session.get(origin+f"/api/media/variant/{ink_variant['id']}/file") as response:
+                        ink_native=await response.read()
+                    validate_variant(ink_native,'inkplate_6')
+                    ink_image=Image.open(io.BytesIO(ink_native))
+                    native_view=ink_image.transpose(Image.Transpose.ROTATE_270).convert('RGB')
+                    assert native_view.size==(600,800)
+                    assert native_view.tobytes()==Image.open(io.BytesIO(base64.b64decode(preview_base64))).convert('RGB').tobytes()
+                    await page.get_by_role('button',name='Close dialog').click()
+                    await page.get_by_role('button',name='Add images',exact=False).click()
+                    await page.locator(f'[data-representation="{mountain_asset}"]').select_option(ink_variant['id'])
+                    await page.locator(f'[data-add-asset="{mountain_asset}"]').click()
+                    await page.get_by_text('Image added to the device list.',exact=True).wait_for()
+                    assert await page.locator(f'[data-add-asset="{mountain_asset}"]').count()==0
+                    await page.get_by_role('button',name='Close dialog').click()
+                    ink_url=await page.locator('#image-url').input_value()
+                    ink_json=await page.locator('#settings-url').input_value()
+                    async with session.get(ink_json,headers={'X-Display-Battery-Millivolts':'3870'}) as response:
+                        settings=await response.json()
+                        assert settings['downloadUrl']==ink_url and settings['timeout']==3600
+                    async with session.get(ink_url) as response:
+                        assert response.content_type=='image/png' and await response.read()==ink_native
+                    await page.locator('#device-voltage').filter(has_text='3.870 V').wait_for()
+                    await page.get_by_label('Mounting orientation').select_option('portrait')
+                    await page.get_by_label('Mounted upside down',exact=False).check()
+                    await page.get_by_role('button',name='Save settings',exact=True).click()
+                    await page.locator('#device-save-status').filter(has_text='Settings saved.').wait_for()
+                    assert await page.locator('#device-voltage').inner_text()=='3.870 V'
+                    async with session.get(ink_url) as response:
+                        corrected=Image.open(io.BytesIO(await response.read()))
+                        assert corrected.tobytes()==ink_image.transpose(Image.Transpose.ROTATE_180).tobytes()
+                    await page.locator('#device-frame-preview img').evaluate('(img)=>img.decode()')
+                    assert await page.locator('#device-frame-preview img').evaluate('(img)=>[img.naturalWidth,img.naturalHeight]')==[480,640]
+                    await page.set_viewport_size({'width':390,'height':844})
+                    await page.screenshot(path=str(artifacts/'inkplate6-mobile.png'),full_page=True)
+                    assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')
                     assert not errors, errors
                     await browser.close()
-            print('Browser smoke passed: upload, full-resolution dithering methods, calibrated palette, variant overwrite, worker startup recovery/cancellation, automatic on/off pixels and manual tone preservation, matching descriptions, visible modal notifications, MQTT settings/secret handling and watchdog display, both models and mountings, native 800×480 BMP delivery/rotation, device orientation/help, fixed-URL original/BMP delivery, CORS, and responsive layouts.')
+            print('Browser smoke passed: upload, full-resolution dithering methods, calibrated palette, variant overwrite, worker startup recovery/cancellation, automatic on/off pixels and manual tone preservation, matching descriptions, visible modal notifications, MQTT settings/secret handling and watchdog display, all three models, Inkplate eight-level PNG/portrait pixels/editing/voltage, assigned-image filtering, native 800×480 BMP delivery/rotation, device orientation/help, fixed-URL original/BMP delivery, CORS, and responsive layouts.')
             print(f'Screenshots: {artifacts}')
         finally:
             process.terminate()

@@ -7,10 +7,10 @@ export function viewSize(profile,orientation){
 export function transportRotated(profile,orientation){return orientation!==profile.native_orientation;}
 
 export function originalProfile(asset,profiles){
-  return asset.native_profile||profiles.find(p=>asset.mime==='image/bmp'&&asset.width===p.width&&asset.height===p.height&&asset.bytes===118+p.width*p.height/2)?.id||null;
+  return asset.native_profile||profiles.find(p=>(p.format||'bmp')==='bmp'&&asset.mime==='image/bmp'&&asset.width===p.width&&asset.height===p.height&&asset.bytes===118+p.width*p.height/2)?.id||null;
 }
 
 export function originalCompatible(asset,profileId,profiles){
   const native=originalProfile(asset,profiles);
-  return asset.original_supported&&(!native||native===profileId);
+  return (!native||native===profileId)&&(asset.original_supported||profileId==='inkplate_6');
 }

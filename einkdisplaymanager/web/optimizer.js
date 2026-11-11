@@ -54,7 +54,14 @@ self.onmessage = async ({data}) => {
     ctx.save(); ctx.translate(viewW/2+fx,viewH/2+fy); ctx.rotate(recipe.rotation*Math.PI/180);
     ctx.drawImage(image,-image.width*scale/2,-image.height*scale/2,image.width*scale,image.height*scale); ctx.restore();
     image.close();image=null;
-    const basePalette=recipe.palette==='spectra6'?spectra6Palette:recipe.palette==='aitjcize'?aitjcizeSpectra6Palette:spectra6OriginalPalette;
+    const gray=profile.palette==='gray8',levels=Array.from({length:8},(_,i)=>Math.round(i*255/7));
+    if(gray){
+      const monochrome=ctx.getImageData(0,0,viewW,viewH);
+      for(let p=0;p<monochrome.data.length;p+=4){const value=Math.round(.299*monochrome.data[p]+.587*monochrome.data[p+1]+.114*monochrome.data[p+2]);monochrome.data[p]=monochrome.data[p+1]=monochrome.data[p+2]=value;}
+      ctx.putImageData(monochrome,0,0);
+    }
+    const grayPalette=levels.map((value,i)=>({name:`gray${i}`,color:'#'+value.toString(16).padStart(2,'0').repeat(3)}));
+    const basePalette=gray?grayPalette:recipe.palette==='spectra6'?spectra6Palette:recipe.palette==='aitjcize'?aitjcizeSpectra6Palette:spectra6OriginalPalette;
     let palette=basePalette.map(p=>({...p}));
     if(recipe.palette==='grayscale') palette=palette.filter(p=>p.name==='black'||p.name==='white');
     const intent=recipe.intent||(recipe.palette==='vivid'?'vivid':'natural');
@@ -70,7 +77,7 @@ self.onmessage = async ({data}) => {
     self.postMessage({progress:'Applying color matching and dithering…'});
     await ditherImage(canvas,canvas,options);
     const pixels=ctx.getImageData(0,0,viewW,viewH), indices=new Uint8Array(W*H);
-    const colors=palette.map(p=>({code:codes[p.name],rgb:p.color.match(/[a-f0-9]{2}/gi).map(x=>parseInt(x,16))}));
+    const colors=palette.map(p=>({code:gray?levels[Number(p.name.slice(4))]:codes[p.name],rgb:p.color.match(/[a-f0-9]{2}/gi).map(x=>parseInt(x,16))}));
     for(let i=0;i<indices.length;i++) {
       const p=i*4; let best=colors[0], distance=Infinity;
       for(const color of colors) {
@@ -78,7 +85,7 @@ self.onmessage = async ({data}) => {
         if(d<distance){distance=d;best=color;}
       }
       indices[i]=best.code;
-      const rgb=deviceRGB[best.code]; pixels.data[p]=rgb[0];pixels.data[p+1]=rgb[1];pixels.data[p+2]=rgb[2];pixels.data[p+3]=255;
+      const rgb=gray?[best.code,best.code,best.code]:deviceRGB[best.code]; pixels.data[p]=rgb[0];pixels.data[p+1]=rgb[1];pixels.data[p+2]=rgb[2];pixels.data[p+3]=255;
     }
     ctx.putImageData(pixels,0,0);
     // A view mounted clockwise from native needs counter-clockwise transport.
@@ -90,9 +97,16 @@ self.onmessage = async ({data}) => {
     }
     stage='encoding the output';
     self.postMessage({progress:'Encoding display output…'});
-    const output=bmp(native,W,H);
+    let output,mime='image/bmp';
+    if(gray){
+      const nativeCanvas=new OffscreenCanvas(W,H),nativeContext=nativeCanvas.getContext('2d');
+      const raster=nativeContext.createImageData(W,H);
+      for(let i=0;i<native.length;i++){const at=i*4;raster.data[at]=raster.data[at+1]=raster.data[at+2]=native[i];raster.data[at+3]=255;}
+      nativeContext.putImageData(raster,0,0);
+      output=new Uint8Array(await (await nativeCanvas.convertToBlob({type:'image/png'})).arrayBuffer());mime='image/png';
+    }else output=bmp(native,W,H);
     const preview=await canvas.convertToBlob({type:'image/png'});
-    self.postMessage({bmp:output.buffer,preview,recipe:{...recipe,intent,automaticAnalysis:analysis,orientation:mounting,nativeRotation:rotateTransport?270:0,nativeWidth:W,nativeHeight:H,viewWidth:viewW,viewHeight:viewH,resolvedOptions:options,optimizer:'epdoptimize@1.2.0',profile:profile.id,encoder:5}},[output.buffer]);
+    self.postMessage({bmp:output.buffer,mime,preview,recipe:{...recipe,intent,automaticAnalysis:analysis,orientation:mounting,nativeRotation:rotateTransport?270:0,nativeWidth:W,nativeHeight:H,viewWidth:viewW,viewHeight:viewH,resolvedOptions:options,optimizer:'epdoptimize@1.2.0',profile:profile.id,encoder:6}},[output.buffer]);
   } catch(error) { self.postMessage({error:`Image optimization failed while ${stage}. ${error.message||'Close other image editors and try again.'}`}); }
   finally { image?.close(); }
 };

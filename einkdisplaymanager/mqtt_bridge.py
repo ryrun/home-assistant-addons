@@ -32,6 +32,10 @@ ENTITIES = {
     'update_interval': ('sensor', 'Image interval', {'device_class': 'duration', 'unit_of_measurement': 's'}),
     'transfer_status': ('sensor', 'Image transfer status', {'icon': 'mdi:download-network'}),
 }
+INKPLATE_ENTITIES = {
+    'battery_voltage': ('sensor', 'Battery voltage', {'device_class': 'voltage', 'unit_of_measurement': 'V', 'state_class': 'measurement'}),
+    'battery_measured_at': ('sensor', 'Battery measured at', {'device_class': 'timestamp'}),
+}
 
 
 def validate_config(data, old):
@@ -163,7 +167,11 @@ class MQTTBridge:
             image_name = self.store.get('asset', entry['asset_id'])['name'] if entry else None
         except KeyError:
             image_name = None
+        telemetry = self.manager.telemetry(device['id'])
+        voltage = telemetry.get('battery_millivolts')
         return {key: health[key] for key in ('frame_status', 'battery_estimate', 'update_overdue')} | {
+            'battery_voltage': voltage / 1000 if voltage is not None else None,
+            'battery_measured_at': iso(telemetry.get('measured_at')),
             'last_contact': iso(max(state.get('last_image_request') or 0, state.get('last_settings_request') or 0)),
             'last_image_delivery': iso(state.get('last_served_at')), 'next_expected_image': iso(health['expected_at']),
             'selected_image': image_name, 'image_count': sum(e['enabled'] for e in device['entries']),
@@ -186,18 +194,21 @@ class MQTTBridge:
             messages[state_topic] = (payload, True)
             if not config['discovery']:
                 continue
-            for key, (domain, name, extra) in ENTITIES.items():
+            entities = ENTITIES | (INKPLATE_ENTITIES if device['profile'] == 'inkplate_6' else {})
+            for key, (domain, name, extra) in entities.items():
                 discovery = {'name': name, 'unique_id': f'einkdisplaymanager_{self.instance}_{identifier}_{key}',
                              'state_topic': state_topic, 'value_template': '{{ value_json.' + key + ' }}',
                              'availability_topic': f'{base}/availability', 'qos': 1,
                              'device': {'identifiers': [f'einkdisplaymanager_{self.instance}_{identifier}'],
-                                        'name': device['name'], 'manufacturer': 'paperlesspaper', 'model': display_profile(device['profile'])['name']},
+                                        'name': device['name'], 'manufacturer': display_profile(device['profile']).get('manufacturer', 'paperlesspaper'), 'model': display_profile(device['profile'])['name']},
                              'origin': {'name': 'E-Ink Display Manager', 'sw_version': self.version,
                                         'support_url': 'https://github.com/ryrun/home-assistant-addons'}, **extra}
                 if key != 'selected_image':
                     discovery['entity_category'] = 'diagnostic'
                 if key == 'update_overdue':
                     discovery['value_template'] = "{{ 'ON' if value_json.update_overdue else 'OFF' }}"
+                if key in INKPLATE_ENTITIES:
+                    discovery['value_template'] = '{{ value_json.' + key + " if value_json." + key + " is not none else 'unknown' }}"
                 if key in ('battery_estimate', 'transfer_status'):
                     discovery.update(json_attributes_topic=state_topic,
                                      json_attributes_template='{{ value_json.' + ('battery_attributes' if key == 'battery_estimate' else 'transfer_attributes') + ' | tojson }}')

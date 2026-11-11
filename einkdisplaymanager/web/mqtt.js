@@ -5,7 +5,7 @@ export function mqttSettingsHTML(config){
   return `<section class="panel"><h2>MQTT & Home Assistant</h2><p class="help">The add-on publishes your registered frames as Home Assistant MQTT devices. Frames continue fetching images over HTTP; they do not need MQTT firmware.</p>
   <form id="mqtt-form" class="stack">
     <label class="check"><input name="enabled" type="checkbox" ${config.enabled?'checked':''}>Enable MQTT</label>
-    <div class="form-grid"><label class="field">Broker<input name="broker" aria-label="Broker" value="${escape(config.broker)}" placeholder="192.0.2.10" maxlength="253" autocomplete="off"><small>Hostname or IP address, without a URL scheme.</small></label>
+    <div class="form-grid"><label class="field">Broker<input name="broker" aria-label="Broker" value="${escape(config.broker)}" placeholder="192.168.1.10" maxlength="253" autocomplete="off"><small>Hostname or IP address, without a URL scheme.</small></label>
     <label class="field">MQTT port<input name="port" type="number" min="1" max="65535" value="${config.port}" required></label>
     <label class="field">MQTT username<input name="username" value="${escape(config.username)}" maxlength="253" autocomplete="off"></label>
     <label class="field">MQTT password<input name="password" aria-label="MQTT password" type="password" maxlength="512" autocomplete="new-password" placeholder="${config.password_set?'Saved password · leave blank to keep':'Optional'}"><small>The saved password is never returned to your browser.</small></label></div>

@@ -13,10 +13,11 @@
    device port. Do not use a changing Ingress URL or the external HA URL.
 4. Upload images in **Media Library**. Open an image, adjust it, update the
    full-resolution preview, and save a variant if desired.
-5. In **Devices**, add an OpenPaper L or OpenPaper 7 with the matching device type. Open **Add images** and select an original
-   or a saved variant for each assignment. Repeat images are allowed as separate
-   entries; drag entries or use their arrow buttons to arrange the base order.
-6. Copy the device's **Settings JSON URL**. In the upstream
+5. In **Devices**, add an OpenPaper L, OpenPaper 7, or Inkplate 6 with the matching device type. Open **Add images** and select an original
+   or a saved variant for each assignment. Already assigned motifs are hidden in this device’s picker, including
+   disabled entries and other variants of the same original. Removing an entry
+   makes its motif available again. Existing repeated entries remain supported; drag entries or use their arrow buttons to arrange the base order.
+6. For Inkplate 6, follow the ESPHome section below. For OpenPaper, copy the device's **Settings JSON URL**. In the upstream
    [Web UI & flasher](https://paperlesspaper.github.io/paperlesspaper-firmware-offline/),
    configure offline firmware, WiFi, and this Settings-JSON-URL on the frame.
    The add-on's JSON includes the fixed image URL and supported settings.
@@ -27,12 +28,87 @@
 saved” confirms storage in the add-on; the frame applies them on its next wake-up.
 Save failures remain visible beside the form, with the entered values retained.
 
+## Inkplate 6 with ESPHome
+
+Inkplate 6 has 800 × 600 pixels and **eight total grayscale levels**, including
+black and white. Register it as **Inkplate 6**, then choose portrait or landscape
+mounting. Native delivery stays 800 × 600 in either case. Portrait composition is
+600 × 800 and rotates into native raster without another dithering pass.
+
+- Original mode accepts validated JPEG, PNG, or BMP library sources (including
+  progressive JPEG), normalizes EXIF/ICC/transparency, fits the entire image with
+  white margins, and converts it to eight grayscale levels on the server. Sources
+  remain unchanged. This is a simple fit with nearest-level quantization; use a
+  variant to control cropping, tone, and dithering. OpenPaper-native indexed BMP
+  originals remain model-specific; prepare a fresh Inkplate variant from the source.
+- Saved Inkplate variants are full-resolution PNG, opaque, with equal RGB channels
+  at levels `0, 36, 73, 109, 146, 182, 219, 255`. The server validates decoded pixels.
+  The editor offers the eight-level palette, tone optimization, RGB/LAB matching,
+  and all existing dithering methods. Saturation is hidden for this monochrome target.
+- Previews use actual delivered pixels, including per-device 180° correction.
+  Original conversions share the bounded RAM delivery cache (8 entries / 32 MiB);
+  cache keys include source hash, profile, mounting, and correction. Variants are
+  never resized or re-dithered during delivery. PNG uses `Content-Type: image/png`
+  at the same extensionless image URL, with content-based ETag/Last-Modified.
+- Settings JSON retains the exact OpenPaper schema. ESPHome reads `downloadUrl`
+  and `timeout` in seconds; motion/rotation/NiMH fields stay false and are ignored.
+  Hardware charging on Inkplate is independent of these OpenPaper settings.
+
+Download [the ESPHome merge example](web/examples/inkplate6.yaml), also linked under
+**Devices → Connect your frame**. Baseline: ESPHome **2026.10.2 or later**.
+This is a package fragment for an existing working configuration, not a replacement
+for your board pins. Keep your WiFi, OTA, calibrated battery sensor, and PSRAM setup.
+
+1. Set `eink_settings_url` in ESPHome `secrets.yaml` to the device’s Settings JSON URL.
+2. Keep the correct display model/pins for your board revision (`inkplate_6` or
+   `inkplate_6_v2`). Set display ID `inkplate_display`, `greyscale: true`,
+   `partial_updating: false`, `rotation: 0`, and `update_interval: never`.
+   Its drawing lambda is `it.image(0, 0, id(manager_image));`. Grayscale mode does
+   not support partial refresh. Do not add another scale/rotation or on-frame layout.
+3. The example references your calibrated polling sensor `battery_voltage` in
+   **volts**. Rename those references to your existing sensor ID. To omit telemetry,
+   remove the sensor update and request-header mapping; image fetching still works.
+4. Merge the example’s `esphome.on_boot`, image, scripts, HTTP client, globals,
+   and deep sleep configuration with your existing sections. Do not keep an old
+   timer or drawing automation that refreshes the same panel independently.
+5. On wake, the client measures voltage, GETs settings, parses bounded valid fields,
+   GETs the image, refreshes the panel after decode, then sleeps for `timeout`.
+   Network/JSON/decode errors retain the physical image and retry after 15 minutes.
+   A 120-second awake limit prevents endless wake time. Keep an OTA maintenance
+   method from your existing configuration; deep sleep limits the OTA window.
+
+The JSON request supplies `X-Display-Battery-Millivolts: 3870` for a 3.870 V reading.
+The server accepts ASCII integer values from 500 to 20000 mV on authenticated
+non-browser GETs for Inkplate settings/image endpoints, including JSON 304 responses.
+Missing/invalid headers are ignored without blocking downloads. HEAD, browser
+previews, rejected credentials, and other device models cannot update this telemetry.
+Voltage and receipt time persist, appear in device status, and publish as separate
+**Battery voltage** (V) and **Battery measured at** MQTT discovery sensors. Old values
+retain their measurement timestamp; no chemistry-independent charge percentage is
+inferred. The existing Estimated battery sensor remains an explicitly synthetic
+image-delivery watchdog. A voltage report alone does not reset that watchdog.
+
+The example requests JSON unconditionally on each wake: deep sleep loses ordinary
+RAM caches, so a cold client must not persist validators without the matching body.
+`online_image` handles its own RAM validators; a fresh boot starts without them.
+An in-memory 304 avoids another panel refresh. Do not persist a bare ETag across
+boots without retaining the image data. The JSON response does not echo battery
+telemetry; measurement flows from device to server in the request header.
+
+Sources: [Inkplate 6 specification](https://docs.soldered.com/inkplate/6/overview/),
+[ESPHome Inkplate](https://esphome.io/components/display/inkplate/),
+[Online Image](https://esphome.io/components/image/online_image/),
+[HTTP request and JSON parsing](https://esphome.io/components/http_request/),
+[Deep Sleep](https://esphome.io/components/deep_sleep/).
+Software validation does not establish physical grayscale quality or battery life.
+
 ## Supported display models
 
-| Device type | Native transport BMP | Native mounting | Portrait view | Landscape view | Firmware target |
+| Device type | Native transport | Native mounting | Portrait view | Landscape view | Firmware target |
 |---|---|---|---|---|---|
-| OpenPaper L · 13.3-inch Spectra 6 | 1200 × 1600 | Portrait | 1200 × 1600 | 1600 × 1200 | `epd13` |
-| OpenPaper 7 · 7.3-inch Spectra 6 | 800 × 480 | Landscape | 480 × 800 | 800 × 480 | `epd7` |
+| OpenPaper L · 13.3-inch Spectra 6 | BMP · 1200 × 1600 | Portrait | 1200 × 1600 | 1600 × 1200 | `epd13` |
+| OpenPaper 7 · 7.3-inch Spectra 6 | BMP · 800 × 480 | Landscape | 480 × 800 | 800 × 480 | `epd7` |
+| Inkplate 6 · eight grayscale levels | PNG · 800 × 600 | Landscape | 600 × 800 | 800 × 600 | ESPHome `inkplate_6` / `inkplate_6_v2` |
 
 OpenPaper 7 is the smaller current Spectra 6 model, not a generic profile for older
 AcEP/7-color hardware. Select the device type when registering a frame and choose
@@ -42,7 +118,7 @@ model and assignments. Old records and recipes without explicit model settings
 retain their OpenPaper L defaults.
 
 The authoritative catalog is `web/profiles.json`, shared by Python and the browser
-worker. Each model has its own strict top-down uncompressed 4-bit BMP contract,
+worker. OpenPaper models have their own strict top-down uncompressed 4-bit BMP contract,
 valid pixel codes, native size, placeholder, preview dimensions, and mounting
 conversion. OpenPaper L output is 960,118 bytes; OpenPaper 7 output is 192,118 bytes.
 The 118-byte header/palette and native pixel indices remain unchanged by the
@@ -358,7 +434,7 @@ picker. The original filename is shown separately and retained for downloads.
 Renaming does not alter image bytes, saved variants, queue entries, or device URLs.
 Uploading the same original again keeps its chosen display name.
 
-**Original** normally delivers the exact uploaded bytes; the explicit per-device
+**OpenPaper Original** normally delivers the exact uploaded bytes; the explicit per-device
 upside-down correction described below transforms only the delivery copy. Compatible baseline RGB/grayscale
 JPEGs and uncompressed 24-/32-bit BMPs can be fitted/dithered on the frame. JPEG
 headers and Huffman lookup constraints are checked. Progressive JPEGs, unsupported
@@ -366,15 +442,17 @@ Huffman tables, CMYK JPEGs, PNGs, and arbitrary indexed BMPs require a variant.
 Some optimized-Huffman JPEGs are compatible; others are rejected. Original mode
 does not promise browser-style EXIF orientation or color management on the frame.
 
-**Variant** means a saved model-sized top-down, uncompressed
+**OpenPaper Variant** means a saved model-sized top-down, uncompressed
 4-bit BMP with valid Spectra 6 pixel codes. The firmware can take its direct-output
 path instead of dithering again. A compatible original in that same format is
-also accepted. The fixed image URL needs no extension: firmware detects the file
+also accepted. **Inkplate Original** fits and quantizes a delivery copy; an
+**Inkplate Variant** is an eight-level grayscale PNG, as described above.
+The fixed image URL needs no extension: firmware detects the file
 signature, and the server sends the corresponding content type and content ETag.
 
 The editor's **Display orientation** chooses portrait/landscape composition
 independently of source-image rotation. Dimensions follow the model table above.
-When composition differs from the native mounting (L landscape or Seven portrait),
+When composition differs from the native mounting (L landscape, Seven portrait, or Inkplate portrait),
 the output is rotated counter-clockwise into that model's native transport raster,
 without another dithering pass. Saved thumbnails and editor previews stay in the
 chosen viewing orientation. The mounted preview corresponds to turning the frame
@@ -722,3 +800,18 @@ desktop/mobile. The picker excludes L variants from Seven devices and disables a
 prepared Seven original on an L device. Python tests also exercise per-model
 placeholders, legacy-original compatibility, duplication, strict BMP validation,
 original/variant assignment rules, firmware JSON, and MQTT model metadata.
+
+### Inkplate 6 validation (0.4.0)
+
+The suite has 72 Python and 14 JavaScript tests. Inkplate coverage includes strict
+PNG pixel/size validation, lossless correction, original conversion and its mounted
+previews, placeholders, fixed-URL cache validators, variant overwrite with retained
+assignments, unchanged JSON schema, authenticated telemetry and ignored invalid/
+browser/HEAD reports, separate voltage discovery, and device cleanup.
+
+The real Chromium worker/UI checks all eight grayscale levels on a ramp, prepares
+and edits an Inkplate variant, verifies portrait output against preview pixels,
+assigns it, checks immediate picker filtering, reads voltage, and verifies corrected
+delivery/mobile layout. Existing OpenPaper, MQTT, and interrupted-transfer browser
+checks remain in the suite. Firmware compilation, real HA installation, and actual
+Inkplate display/battery acceptance are separate checks.

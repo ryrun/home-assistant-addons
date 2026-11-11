@@ -65,3 +65,23 @@ release. Test dependencies are separately locked in `requirements-dev.txt`.
   native portrait, 960,118-byte BMP. No firmware/driver implementation is copied.
 - Both geometries and pixel rotations have software/browser validation only;
   physical OpenPaper 7 acceptance remains pending.
+
+## Inkplate 6 / ESPHome addition
+
+Researched 2026-11-11. Independently encoded hardware facts: native 800 × 600,
+eight grayscale levels including black/white, ESPHome 3-bit grayscale mode with
+full refresh. No manufacturer display driver or board pin configuration is copied.
+
+- [Soldered hardware overview](https://docs.soldered.com/inkplate/6/overview/)
+- [ESPHome Inkplate](https://esphome.io/components/display/inkplate/)
+- [ESPHome Online Image](https://esphome.io/components/image/online_image/)
+- [ESPHome HTTP and JSON](https://esphome.io/components/http_request/)
+- [ESPHome Deep Sleep](https://esphome.io/components/deep_sleep/)
+- [ESPHome 2026.10.2 image client](https://github.com/esphome/esphome/blob/2026.10.2/esphome/components/online_image/online_image.cpp)
+- [ESPHome 2026.10.2 Inkplate grayscale mapping](https://github.com/esphome/esphome/blob/2026.10.2/esphome/components/inkplate/inkplate.cpp)
+
+The shipped YAML is our own merge example for a user's existing working board
+configuration. It retains OpenPaper-compatible JSON; measured voltage arrives in
+a request header and is not a new JSON field. Physical Inkplate acceptance and
+full firmware compilation remain distinct from server/browser/YAML validation.
+Dynamic scripting remains a plan only; no QuickJS code or dependency is bundled.

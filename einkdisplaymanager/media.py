@@ -16,6 +16,7 @@ MAX_PIXELS = 32_000_000
 Image.MAX_IMAGE_PIXELS = MAX_PIXELS
 COLORS = {0: (0, 0, 0), 1: (0, 0, 255), 2: (0, 255, 0),
           3: (255, 0, 0), 5: (255, 255, 0), 6: (255, 255, 255)}
+GRAY8 = tuple(round(index * 255 / 7) for index in range(8))
 
 
 def digest(data):
@@ -104,6 +105,8 @@ def original_support(data, fmt, mode):
 
 def native_bmp_profile(data):
     for identifier, profile in PROFILES.items():
+        if profile.get('format') == 'png':
+            continue
         if len(data) != 118 + profile['width'] * profile['height'] // 2:
             continue
         try:
@@ -117,6 +120,8 @@ def native_bmp_profile(data):
 def validate_bmp(data, profile_id='openpaper_l'):
     """Require the direct display path: top-down, uncompressed 4-bit device indices."""
     profile = display_profile(profile_id)
+    if profile.get('format') == 'png':
+        raise ValueError('Inkplate 6 requires an eight-level grayscale PNG, not an OpenPaper BMP.')
     width, height = profile['width'], profile['height']
     if len(data) != 118 + width * height // 2 or data[:2] != b'BM':
         raise ValueError(f'Expected a full-resolution {profile["name"]} 4-bit BMP.')
@@ -130,6 +135,39 @@ def validate_bmp(data, profile_id='openpaper_l'):
     valid = set(COLORS)
     if any((v >> 4) not in valid or (v & 15) not in valid for v in data[118:]):
         raise ValueError('BMP contains unsupported device color indices.')
+
+
+def validate_variant(data, profile_id):
+    if display_profile(profile_id).get('format') != 'png':
+        return validate_bmp(data, profile_id)
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            if image.format != 'PNG' or image.size != (800, 600) or getattr(image, 'n_frames', 1) != 1:
+                raise ValueError('Inkplate 6 variants require a single-frame 800 × 600 grayscale PNG.')
+            # Validate decoded pixels, including alpha; never silently re-quantize a variant.
+            if any(r != g or r != b or r not in GRAY8 or a != 255
+                   for r, g, b, a in image.convert('RGBA').get_flattened_data()):
+                raise ValueError('Inkplate 6 PNG pixels must use exactly the supported eight grayscale levels without transparency.')
+    except (OSError, SyntaxError) as exc:
+        raise ValueError('The Inkplate PNG is damaged or unreadable.') from exc
+
+
+def inkplate_original(data, mounting='landscape', upside_down=False):
+    """Fit a library original once; delivery and its preview use these same pixels."""
+    size = (600, 800) if mounting == 'portrait' else (800, 600)
+    with Image.open(io.BytesIO(data)) as source:
+        image = ImageOps.contain(editor_image(source), size, Image.Resampling.LANCZOS)
+    canvas = Image.new('RGB', size, 'white')
+    canvas.paste(image, ((size[0] - image.width) // 2, (size[1] - image.height) // 2))
+    # No error diffusion in Original mode; saved variants expose all dither choices.
+    image = canvas.convert('L').point([GRAY8[min(7, round(value * 7 / 255))] for value in range(256)])
+    if mounting == 'portrait':
+        image = image.transpose(Image.Transpose.ROTATE_90)
+    if upside_down:
+        image = image.transpose(Image.Transpose.ROTATE_180)
+    output = io.BytesIO()
+    image.save(output, 'PNG')
+    return output.getvalue()
 
 
 def inspect_image(data):
@@ -214,6 +252,10 @@ def device_thumbnail(data, landscape=False, prepared=False, upside_down=False, p
 def placeholder(profile_id='openpaper_l'):
     profile = display_profile(profile_id)
     width, height = profile['width'], profile['height']
+    if profile.get('format') == 'png':
+        output = io.BytesIO()
+        Image.new('L', (width, height), 255).save(output, 'PNG')
+        return output.getvalue()
     header = bytearray(118)
     header[:2] = b'BM'
     struct.pack_into('<I', header, 2, 118 + width * height // 2)

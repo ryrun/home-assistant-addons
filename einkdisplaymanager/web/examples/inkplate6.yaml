@@ -1,0 +1,121 @@
+# Merge into a working Inkplate 6 configuration; this is not a board pin definition.
+# Baseline: ESPHome 2026.10.2. Keep your existing WiFi, board, OTA, and PSRAM setup.
+# Required existing IDs:
+#   inkplate_display: your display, greyscale: true, partial_updating: false,
+#                    rotation: 0, update_interval: never
+#                    lambda: it.image(0, 0, id(manager_image));
+#   battery_voltage: your calibrated, polling battery sensor in VOLTS
+#                    (rename the references below if your sensor has another ID)
+# secrets.yaml: eink_settings_url: "<copy this device's Settings JSON URL>"
+# Keep URLs private. Prefer logger level WARN; debug logs may include URLs/tokens.
+
+esphome:
+  on_boot:
+    priority: -100
+    then:
+      - wait_until:
+          condition:
+            wifi.connected:
+          timeout: 30s
+      - if:
+          condition:
+            wifi.connected:
+          then:
+            - component.update: battery_voltage
+            - delay: 250ms
+            - script.execute: manager_fetch_settings
+          else:
+            - script.execute: manager_sleep
+
+http_request:
+  timeout: 30s
+  # LAN HTTP works directly. Keep certificate verification enabled for HTTPS.
+  verify_ssl: true
+
+globals:
+  - id: manager_interval_seconds
+    type: uint32_t
+    restore_value: false
+    initial_value: '900'
+  - id: manager_image_url
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+
+deep_sleep:
+  id: manager_deep_sleep
+  # Bounded awake time if WiFi, settings, or decoding gets stuck.
+  run_duration: 120s
+  sleep_duration: 15min
+
+image:
+  - platform: online_image
+    id: manager_image
+    url: "http://example.invalid/unused.png" # replaced before the first download
+    format: PNG
+    type: GRAYSCALE
+    update_interval: never
+    on_download_finished:
+      then:
+        - if:
+            condition:
+              lambda: return !cached;
+            then:
+              - component.update: inkplate_display
+        - script.execute: manager_sleep
+    on_error:
+      then:
+        # Keep the existing physical image and retry in 15 minutes.
+        - lambda: id(manager_interval_seconds) = 900;
+        - script.execute: manager_sleep
+
+script:
+  - id: manager_sleep
+    mode: single
+    then:
+      - delay: 250ms
+      - deep_sleep.enter:
+          id: manager_deep_sleep
+          sleep_duration: !lambda return id(manager_interval_seconds) * 1000UL;
+
+  - id: manager_fetch_settings
+    mode: single
+    then:
+      - http_request.get:
+          url: !secret eink_settings_url
+          request_headers:
+            X-Display-Battery-Millivolts: !lambda |-
+              const float voltage = id(battery_voltage).state;
+              if (!std::isfinite(voltage) || voltage < 0.5f || voltage > 20.0f) return std::string("");
+              return str_sprintf("%.0f", voltage * 1000.0f);
+          capture_response: true
+          max_response_buffer_size: 2048
+          # No conditional JSON headers: each wake starts with an empty RAM buffer.
+          on_response:
+            then:
+              - lambda: |-
+                  id(manager_image_url).clear();
+                  id(manager_interval_seconds) = 900;
+                  if (response->status_code != 200) return;
+                  json::parse_json(body, [](JsonObject root) -> bool {
+                    if (!root["downloadUrl"].is<const char *>() || !root["timeout"].is<uint32_t>()) return false;
+                    const std::string url = root["downloadUrl"].as<std::string>();
+                    const uint32_t seconds = root["timeout"].as<uint32_t>();
+                    if (url.size() > 128 || (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0) || seconds < 60 || seconds > 2592000) return false;
+                    id(manager_image_url) = url;
+                    id(manager_interval_seconds) = seconds;
+                    return true;
+                  });
+              - if:
+                  condition:
+                    lambda: return !id(manager_image_url).empty();
+                  then:
+                    - online_image.set_url:
+                        id: manager_image
+                        url: !lambda return id(manager_image_url);
+                  else:
+                    - script.execute: manager_sleep
+          on_error:
+            then:
+              - lambda: id(manager_interval_seconds) = 900;
+              - script.execute: manager_sleep

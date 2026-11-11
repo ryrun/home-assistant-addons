@@ -8,7 +8,7 @@ export const DITHERS = {
   sierra3:{name:'Sierra-3', type:'errorDiffusion', matrix:'sierra3', use:'Another photographic option balancing gradients and detail. Compare with Stucki on the actual frame; neither is universally better.'},
   ordered:{name:'Ordered Bayer · 4 × 4', type:'ordered', use:'A regular repeating pattern. Useful for graphics and consistent texture, but the grid may be visible in photos and smooth skies.'},
   blueNoise:{name:'Blue-noise style · experimental', type:'blueNoise', use:'Uses the bundled 64 × 64 high-frequency tile in optimizer 1.2.0. Try for a less directional texture; inspect gradients and color balance on the frame.'},
-  none:{name:'None · nearest color', type:'quantizationOnly', use:'No simulated intermediate shades. Useful for icons, text, and artwork already using the six display colors; photos may show banding.'},
+  none:{name:'None · nearest color', type:'quantizationOnly', use:'No simulated intermediate shades. Useful for icons, text, and artwork already using the target palette; photos may show banding.'},
 };
 
 export const PALETTES = {
@@ -16,6 +16,7 @@ export const PALETTES = {
   spectra6:{name:'Spectra 6 · calibrated library palette', use:'Matches the library’s calibrated ink colors before exporting native codes. Try with Floyd–Steinberg or Stucki for photos. Not calibrated to your individual panel.'},
   aitjcize:{name:'Spectra 6 · alternative calibrated palette', use:'An alternative library palette inspired by epaper-image-convert. Compare color balance with the calibrated Spectra 6 palette on your frame.'},
   vivid:{name:'Spectra 6 · vivid automatic adjustment', use:'Uses the original RGB palette with a vivid automatic intent. Can help muted images; bright colors may be exaggerated.'},
+  gray8:{name:'Inkplate · eight grayscale levels', use:'Uses all eight grayscale levels, including black and white. Try Floyd–Steinberg or Stucki for photos, or None for crisp text and prepared graphics.'},
   grayscale:{name:'Black and white', use:'Restricts output to the black and white display codes. Useful for monochrome artwork, text, and intentional black/white photos.'},
 };
 

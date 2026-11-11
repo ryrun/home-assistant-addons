@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.3.0**; locally tested, with Green,
+Status: experimental implementation **0.4.0**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -80,14 +80,17 @@ for this add-on must be in **English**, consistent with the other add-ons.
 - Run locally on Home Assistant Green without the manufacturer's cloud.
 - Manage multiple frames with **OpenPaper L** (13.3-inch, native 1200 × 1600 portrait)
   and **OpenPaper 7** (7.3-inch, native 800 × 480 landscape), both Spectra 6.
-  The owner's L is available for testing; Seven has software validation only.
+  Add **Inkplate 6** (ESPHome, native 800 × 600 landscape, eight grayscale levels)
+  for normal uploaded images. The owner has an L and an Inkplate 6; Seven has
+  software validation only. Physical Inkplate acceptance remains pending.
 - Keep native dimensions, mounting, palette, and encoder behavior in explicit
   model profiles shared by the backend and browser.
 - Provide a shared **Media Library** for originals and explicitly saved variants.
 - Provide **Devices**, where each registered frame has its own settings, ordered
   image list, playback state, stable image URL, and stable settings JSON URL.
 - Let each device image-list entry select either an optimized variant or the
-  unmodified original, subject to firmware compatibility checks.
+  original source, subject to model-specific compatibility. OpenPaper sends compatible
+  originals unchanged; Inkplate explicitly fits and quantizes the delivery copy.
 - Play entries in order. Optionally shuffle the next queue **after a complete
   cycle**, before selecting its first entry. Never choose randomly per request.
 - Advance only on an eligible image request after the configured interval.
@@ -97,9 +100,9 @@ for this add-on must be in **English**, consistent with the other add-ons.
 
 V1 excludes manufacturer-cloud accounts, automatic firmware flashing, remote
 wake-up of sleeping frames, arbitrary dashboard screenshots, and a general photo
-editor. A custom integration, native HA entities, MQTT discovery, reusable shared
-playlists, and fixed wall-clock playback are possible later extensions, not v1
-requirements. An add-on does not automatically provide HA entities.
+editor. A custom integration, reusable shared playlists, and fixed wall-clock
+playback remain outside the current scope. Optional MQTT discovery is implemented
+since 0.2.0; an add-on does not automatically provide HA entities on its own.
 
 ## 2. Interface and user workflow
 
@@ -124,8 +127,9 @@ requirements. An add-on does not automatically provide HA entities.
 ### Devices
 
 - Add, rename, configure, disable, duplicate configuration, and remove a device.
-- Select OpenPaper L or OpenPaper 7; keep existing model identities fixed.
-- Fill its image list from the Media Library without copying originals.
+- Select OpenPaper L, OpenPaper 7, or Inkplate 6; keep existing model identities fixed.
+- Fill its image list from the Media Library without copying originals. Hide
+  already assigned motifs in this device’s picker, including alternate variants.
 - Each entry shows its selected source/variant, output mode, enabled state, and
   position. Offer drag-and-drop and accessible move-up/move-down controls.
 - Show the manually arranged order separately from the effective playback queue
@@ -152,17 +156,19 @@ images to a device; image lists belong directly to devices in v1.
 
 | Per-entry mode | Served bytes | Processing responsibility |
 |---|---|---|
-| Optimized variant | Saved, validated model-native 4-bit BMP (L 1200 × 1600; Seven 800 × 480) with the correct device color codes | Add-on prepares output; frame does not re-dither this compatible output |
-| Original | Original uploaded file, byte-for-byte, if supported | Firmware decodes, fits, and dithers as required by that input format |
+| OpenPaper variant | Saved, validated model-native 4-bit BMP (L 1200 × 1600; Seven 800 × 480) with the correct device color codes | Add-on prepares output; frame does not re-dither this compatible output |
+| OpenPaper original | Original uploaded file, byte-for-byte, if supported | Firmware decodes, fits, and dithers as required by that input format |
+| Inkplate variant | Validated 800 × 600 eight-level grayscale PNG | Add-on prepares crop/tones/dither; ESPHome decodes and draws without resizing |
+| Inkplate original source | Explicitly fitted/quantized PNG delivery copy | Add-on fits the original into the chosen mounting; stored source stays unchanged |
 
-Selecting an original must not force the user to optimize it first. Conversely,
+For OpenPaper, selecting an original must not force the user to optimize it first. Conversely,
 upload support and original-delivery support are different: JPEG and PNG may both
 be accepted by the library, but **PNG cannot be passed through to this firmware**.
 Explain incompatibility at assignment time and offer creation of a compatible
 variant; never silently convert while calling the result an unmodified original.
 An already compatible original 4-bit BMP may also bypass on-device dithering.
 
-According to the upstream firmware documentation, JPEG and uncompressed 24-/32-bit
+According to the OpenPaper upstream firmware documentation, JPEG and uncompressed 24-/32-bit
 BMP are dithered on-device. A 4-bit BMP at another size is also converted. Progressive
 JPEG is decoded at reduced resolution, optimized Huffman tables may be rejected,
 and compressed/8-bit BMP is unsupported. Validate these cases and show actionable
@@ -577,3 +583,204 @@ Sources are recorded in UPSTREAM.md; physical Seven acceptance remains pending.
 
 Management thumbnail URLs include content/mounting revisions to refresh stale
 browser images after edits. Device image/settings URLs remain fixed.
+
+
+Version 0.4.0 adds Inkplate 6 for uploaded images: full-resolution eight-level PNG
+variants, target-aware editor and previews, portrait/landscape composition, exact
+180° correction, and original-mode server fit/quantization. Originals stay immutable;
+conversion cache shares the existing 8-entry / 32 MiB RAM bound. The ESPHome merge
+example retains the existing board configuration and uses the OpenPaper JSON
+schema (`downloadUrl`, `timeout` in seconds), then fetches PNG and sleeps. A voltage
+request header on authenticated device GETs records measured millivolts and time,
+with device UI and separate MQTT voltage/timestamp sensors. This does not infer
+charge or reset the activity watchdog. OpenPaper-only hardware options are disabled
+for Inkplate. The image picker hides all already assigned asset IDs for that device,
+including disabled entries and alternate variants, immediately after each addition.
+Other devices retain independent choices; removal makes the motif available again.
+
+## 12. Planned dynamic images — agreed design, not implemented
+
+This section records the complete discussion baseline. Version 0.4.0 supports
+uploaded pictures only. Do not enable Home Assistant API privileges or add a script
+runtime as part of the static Inkplate support.
+
+### Product behavior and independent refresh intervals
+
+- A **Dynamic image** is a first-class Media Library item beside uploaded images.
+  Users write and edit its script directly in the add-on UI, save it, preview it,
+  see validation/runtime errors, and assign it through ordinary device image lists.
+  No manual file editing or visual layout builder is required.
+- Each dynamic image has its **own generation interval**, independent of all device
+  fetch intervals. For example, render a sensor image every minute while an Inkplate
+  fetches every 15 minutes and an OpenPaper fetches hourly. Device GETs consume the
+  latest completed cache; they do not trigger rendering or a fresh HA request.
+- A bounded background scheduler reads selected HA entities, executes the script,
+  renders/optimizes the image, then atomically replaces its RAM cache. Coalesce
+  overlapping runs per item; skip missed ticks instead of starting a catch-up storm.
+- Generated rasters and encoded outputs live **in RAM only**, with byte/count and
+  concurrency budgets. Persist scripts, names, refresh intervals, target recipes,
+  selected entity IDs, asset/font registrations, and version metadata. Do not store
+  generated image blobs in HA states or write a file on every render.
+- Use explicit model/orientation targets. Share compatible cached targets among
+  devices, rather than duplicating a render for every device. Include script,
+  snapshot, target, font/asset versions, and optimizer configuration in cache keys.
+  Invalidate changes without ever resizing an already dithered output.
+- Ordinary fixed device image URLs, ordered lists, shuffle-after-cycle, pause,
+  mounted previews, 180° correction, authenticated access, and HTTP completion
+  tracking continue to work. Background rendering does not advance playlists,
+  count as a device contact, or reset the image-delivery watchdog.
+- ETags represent **actual delivered bytes**, not render timestamps. An unchanged
+  raster can keep its validator and return 304 to a client retaining the matching
+  body. Dynamic frame-fetch timing remains independent of the generation schedule.
+- Keep the last good output when HA is unavailable, a sensor is unknown, a script
+  times out, or rendering fails. Show render/snapshot times and stale/error status
+  separately from frame-transfer errors. Define a clear first-render placeholder
+  or retry response when there is no previous good output. Restart regenerates
+  outputs because the cache is intentionally volatile; it must not send empty files.
+
+### Script language and drawing API
+
+- Preferred candidate: **JavaScript interpreted by an embedded QuickJS-NG core**.
+  No direct Python execution, arbitrary shell commands, or on-device business logic.
+  Normal arithmetic, strings, arrays, conditions, loops, and helper functions allow
+  programmable layouts without assembling widgets by hand.
+- Expose a small documented drawing API such as `screen.text`, `screen.line`,
+  `screen.rectangle`, and registered images, with explicit positions, alignment,
+  colors, and registered font IDs. Provide dimensions and a fixed render-time value
+  as input. Define supported syntax/API versions before storing production scripts.
+- Read-only helpers such as `ha.state(entityId)` and `ha.number(entityId)` operate
+  solely on a **preloaded JSON snapshot** of explicitly selected entities. Include
+  unavailable/unknown behavior, typed fallbacks, selected attributes, timestamps,
+  units, and staleness. No synchronous network calls from a script.
+- A script returns bounded JSON drawing commands. Validate the complete command
+  schema, own properties, types, finite coordinates, colors, string lengths, command
+  count, and registered references before trusted Pillow rendering. Reject unknown
+  fields/prototypes rather than merging arbitrary user objects into host options.
+  Never pass Python objects, credentials, file handles, or unrestricted callbacks
+  into the JS context. The renderer is trusted code, not another user interpreter.
+- Use real font rendering and text measurement, including glyph fallback, wrapping,
+  clipping, Unicode, alignment, and predictable missing-glyph errors. Proposed shared
+  font location: `/share/einkdisplaymanager/fonts/`; confirm the add-on share mapping
+  and access mode before implementing it. Register validated fonts by ID, bound file
+  sizes/counts, reject symlinks/path traversal, and handle font licensing. Scripts
+  never choose file paths. Font changes invalidate relevant render caches.
+- The current optimizer runs in a browser worker. Background dynamic rendering
+  needs a deliberate **server-side rendering and optimization pipeline**; it cannot
+  depend on an open browser or silently assume browser APIs exist in QuickJS.
+  Verify palette/dither parity and resource cost on Green for OpenPaper Spectra 6
+  and Inkplate eight-level output. Keep compatible-original and prepared-output
+  behavior explicit; avoid an unwanted second dithering pass on the frame.
+
+### Home Assistant data and credential boundary
+
+- Current add-on configuration has `homeassistant_api: false` and `hassio_api: false`.
+  Supervisor network defaults used for the LAN suggestion do not imply HA entity
+  access. Dynamic images will require an intentional permission/configuration change.
+- Candidate transport: authenticated Core proxy `http://supervisor/core/api`, reading
+  `/api/states/<entity_id>` (or a bounded read-only subscription/cache after validation).
+  The Supervisor token must remain only in the trusted parent data-fetching service.
+- Home Assistant API access via this token has broad administrator-level power;
+  an application-side read-only entity allowlist is **not a platform-enforced narrow
+  token scope**. No script gets a token, API client, service-call method, event writer,
+  MQTT client, or live connection. Do not expose HA commands through the drawing API.
+- Cache and batch selected sensor reads, bound timeouts/response sizes, and avoid
+  querying every HA entity for every image. Share snapshots where useful. Handle
+  HA restart, unavailable entities, no permission, and network loss explicitly.
+
+### Security requirements and feasibility gates
+
+- The embedded QuickJS core has no inherent shell/system API. `std`, `os`, file,
+  process, and network helpers belong to optional host bindings/CLI libraries.
+  Do **not** run the `qjs` command-line environment, register `quickjs-libc`, expose
+  `std`/`os`, add `fetch`/sockets/files, install a module loader, or bridge Python
+  object attributes. No external imports, package installation, or arbitrary URLs.
+- Removing global names alone is not a security sandbox. Core JS built-ins still
+  exist; the decisive boundary is no privileged host capability plus enforced
+  limits and OS isolation. Prototype tricks must never recover a hidden host object.
+- Execute in an isolated worker process with enforceable CPU/wall-clock, memory,
+  stack, string/array/output, drawing, and image-dimension limits. Kill and recreate
+  a worker on timeout or crash. Bound queue length and workers to keep Green usable.
+- Establish a demonstrable OS boundary: no HA/MQTT credentials or inherited secret
+  environment, no network access, no writable application/storage paths, and access
+  only to explicitly allowed read-only inputs if any. Verify which unprivileged
+  user/seccomp/process controls actually work inside the HA add-on container. A
+  same-user child process alone does not protect secrets from a native engine bug.
+  Do not enable script execution until this isolation is demonstrated.
+- Accept source text only, never user-supplied QuickJS bytecode. A native runtime
+  vulnerability remains possible; do not claim the solution is hack-proof. Pin the
+  runtime, track upstream fixes, and include adversarial resource/escape tests.
+- Research baseline: the original `PetterS/quickjs` Python wrapper was archived in
+  January 2026. Evaluate the maintained `genotrance/quickjs-ng` wrapper and its
+  ARM64/AMD64 availability before choosing it. Neither runtime nor wrapper is
+  installed in the add-on yet. QuickJS-NG's security policy does not promise private
+  security reports/CVEs; untrusted bytecode hardening is outside its support scope.
+- Errors must be useful in the editor but contain no raw tokens, environment,
+  filesystem paths, sensor snapshots beyond the authorized values, or stack dumps
+  leaking host details. Protect script edits via the existing admin Ingress/CSRF
+  boundary; rendering does not add another LAN management API.
+
+### Device protocol decision
+
+- Retain the **OpenPaper-compatible Settings JSON**, then fetch its `downloadUrl`.
+  `timeout` controls the next device fetch/sleep interval in seconds. The dynamic
+  image generation interval is an add-on scheduler setting and is not sent as the
+  device sleep interval. No custom interval response header is needed.
+- Inkplate/ESPHome uses standard `http_request` JSON parsing and `online_image` PNG
+  downloads. Telemetry travels **device → server in request headers**, e.g.
+  `X-Display-Battery-Millivolts`, while JSON is server → device configuration.
+  Voltage/time are separate from the synthetic 100/0% activity sensor. Do not
+  derive a generic battery percentage without chemistry/load/calibration evidence.
+- The static support implements this Inkplate request header already. The current
+  OpenPaper offline firmware sends no battery telemetry on normal HTTP GETs; it
+  exposes voltage/USB/charging over BLE setup information. HTTP reporting for those
+  frames still requires an upstream/custom firmware change. The feature request
+  text was prepared for the owner; posting was not performed by the add-on.
+- Research alternative: ESPHome `online_image` supports templated outgoing headers,
+  but does not expose arbitrary collected response headers in normal YAML. The
+  generic `http_request` supports `collect_headers` but does not hand a decoded image
+  directly to `online_image`. A one-transfer image-plus-sleep-header design would
+  therefore need an external component. The agreed JSON design avoids that need.
+- Deep sleep clears ordinary RAM. A client may use 304 only when it retains the
+  corresponding JSON/image body; do not persist validators alone across reboots.
+  Keep local bounded interval defaults and preserve the physical image on errors.
+
+### Proposed implementation and acceptance sequence
+
+- [ ] Validate HA API access and read-only snapshot service with no script exposure.
+- [ ] Prove QuickJS-NG core embedding, runtime limits, and OS isolation on both
+      architectures and within the actual HA add-on environment.
+- [ ] Implement versioned drawing commands, font registration, trusted renderer,
+      target-specific output, and server optimization with bounded resources.
+- [ ] Add Dynamic image editor, validation, preview, errors, selected entity list,
+      own refresh interval, and persisted configuration through existing Ingress.
+- [ ] Add RAM scheduler/cache with atomic swap, last-good output, restart/first-render
+      behavior, deduplication, invalidation, and separate render/device diagnostics.
+- [ ] Integrate dynamic items into existing device lists without changing fixed URLs
+      or causing sensor renders to advance playback or reset watchdog health.
+- [ ] Test infinite loops/recursion, huge allocations/outputs, malformed commands,
+      prototype manipulation, attempted module/file/network/process access, worker
+      crashes, unavailable HA, stale snapshots, font faults, concurrent fetches,
+      304 behavior, restart, and RAM pressure on Green.
+- [ ] Verify real OpenPaper L and Inkplate 6 image quality, grayscale levels,
+      independently timed updates, cold boots, deep sleep, telemetry, and battery
+      consumption. Simulation does not replace hardware/platform acceptance.
+
+Research sources checked 2026-11-11:
+
+- [QuickJS-NG standard library — optional CLI/host bindings](https://quickjs-ng.github.io/quickjs/stdlib/)
+- [QuickJS-NG embedding and limits](https://quickjs-ng.github.io/quickjs/developer-guide/intro/)
+- [QuickJS-NG security policy](https://github.com/quickjs-ng/quickjs/security)
+- [Maintained Python QuickJS-NG wrapper](https://github.com/genotrance/quickjs-ng)
+- [Home Assistant API proxy and permissions](https://developers.home-assistant.io/docs/apps/communication/)
+- [Home Assistant REST states API](https://developers.home-assistant.io/docs/api/rest/)
+- [Inkplate 6 hardware](https://docs.soldered.com/inkplate/6/overview/)
+- [ESPHome image download](https://esphome.io/components/image/online_image/)
+- [ESPHome HTTP headers and JSON](https://esphome.io/components/http_request/)
+- [ESPHome deep sleep](https://esphome.io/components/deep_sleep/)
+
+Static Inkplate local evidence: 72 passing Python tests and 14 passing JavaScript
+tests; real Chromium worker/UI tests include an eight-level ramp, portrait PNG
+pixel equivalence, edited assignments, measured-voltage display, fixed-URL
+correction, per-device motif filtering, and mobile layout. Live stalled-transfer
+verification still passes. Physical Inkplate/Green acceptance and a complete
+ESPHome firmware build are pending.

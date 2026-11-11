@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0
+
+- Add Inkplate 6 / ESPHome with native 800 × 600 PNG output, eight grayscale levels, portrait/landscape composition, model-specific variants, and exact 180° delivery correction.
+- Fit normal JPEG/PNG/BMP originals into the Inkplate viewing area and quantize to grayscale; preserve sources and cache conversions within the existing bounded RAM budget.
+- Include an ESPHome example for OpenPaper-compatible settings JSON, timed image fetching/deep sleep, and optional measured battery-voltage request headers.
+- Show measured voltage and its timestamp in device status and publish separate MQTT sensors; retain the explicitly synthetic battery watchdog.
+- Disable OpenPaper-only charging/motion/rotation controls for Inkplate and provide relevant setup help.
+- Filter already assigned motifs from each device’s image picker, removing them immediately after adding and explaining empty results.
+- Use a neutral MQTT broker example address consistent with the LAN example.
+- Record dynamic-image scripting, independent refresh intervals, HA snapshots, fonts, RAM caching, and security requirements as future work in plan.md.
+
 ## 0.3.0
 
 - Add OpenPaper 7 (7.3-inch Spectra 6, native 800 × 480 landscape) alongside OpenPaper L (native 1200 × 1600 portrait).
