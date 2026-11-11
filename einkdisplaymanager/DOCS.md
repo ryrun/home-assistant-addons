@@ -27,6 +27,63 @@
 saved” confirms storage in the add-on; the frame applies them on its next wake-up.
 Save failures remain visible beside the form, with the entered values retained.
 
+## Live transfer status and device log
+
+Each device page shows **Transfer status** and a **Device log**, updated every two
+seconds while the page is visible. Polling updates only status fields, previews,
+and log rows; it does not replace the settings form or discard unsaved edits.
+
+Transfer states distinguish preparation, HTTP sending, completion, `304` unchanged,
+and interruption/failure. Progress counts bytes written by the server, not bytes
+acknowledged by the frame's application. At 100%, the frame may still be receiving,
+writing flash, decoding, or refreshing the panel. There is no local acknowledgement
+for those on-device stages, so the UI cannot confirm a physical refresh.
+
+Manual Next/Previous/Show-next and token changes are blocked during an active image
+transfer. Wait for sending to finish before resetting the physical frame, and
+allow the panel refresh to finish afterward. A hardware reset can interrupt WiFi;
+the add-on cannot prevent or observe the physical button press itself.
+
+The latest **100 events per device** are retained across restarts, newest first in
+the UI. Entries include timestamps, HTTP result, server-written bytes, duration,
+and a bounded event/error category. They record authenticated frame requests,
+settings checks, manual selections, and configuration changes. Browser previews
+do not count as frame downloads. URLs, tokens, credentials, raw headers, and raw
+exception strings are not recorded. Only the authenticated management interface
+can read the log; device endpoints cannot access it. No older history can be
+reconstructed for errors that occurred before this feature was installed.
+
+An unfinished transfer detected after an add-on restart is marked interrupted,
+with the prior byte count explicitly unknown. Progress is kept in memory while
+streaming, with durable start/end summaries rather than a disk write for every
+network chunk. Logs are automatically removed when the device is removed.
+
+### Interpreting an interrupted transfer
+
+- `connection_closed`: the peer closed the connection before server-side HTTP
+  completion. A frame reset, WiFi failure, or firmware-side cancellation is possible;
+  the server cannot determine which occurred from a closed socket alone.
+- `timeout`: server delivery exceeded its 60-second deadline.
+- `cancelled` / `restart`: the request or add-on stopped during preparation/sending.
+- `file_unavailable`: the selected media file could not be read; restore it or
+  deliberately choose another image.
+
+One firmware compatibility trap is addressed in 0.1.4: with an existing flash image
+and an empty cached validator, its code can compare an empty response Last-Modified
+with that empty cached value even when an ETag is present. It may then skip the
+body and close an HTTP 200 response. Images now include both nonempty Last-Modified
+and ETag validators. Last-Modified changes monotonically when served bytes change,
+so two images created in the same second cannot freeze legacy conditional fetches.
+This is a concrete possible cause of the previous generic interruption message,
+not proof of what happened on a particular device. See the
+[upstream download path](https://github.com/paperlesspaper/paperlesspaper-firmware-offline/blob/main/src/main.cpp).
+
+If the issue recurs, check the new event's category, duration, and byte count. No
+new frame events suggest checking the LAN URL, mapped port, token, WiFi, allowlist,
+and whether the frame is awake in URL-download mode. A prepared OpenPaper L BMP is
+960,118 bytes and avoids on-device dithering; large originals need more transfer
+and flash resources. CORS does not affect the frame's own HTTP client.
+
 Before changing firmware, follow the upstream instructions to back up device
 certificates; erasing their partition prevents returning to cloud firmware without
 a backup/replacement. Flashing remains an external manual step. Bluetooth-upload
@@ -332,13 +389,18 @@ exercise upload, the real full-resolution optimizer, saving a variant, device
 settings, original/BMP switching at one URL, and mobile layout. The rotated
 black/white crop with manual contrast and Atkinson processing is also checked
 against actual saved BMP pixel codes. Landscape native pixels are rotated back
-and compared exactly with the preview. Current local result: 26 Python tests and
+and compared exactly with the preview. Current local result: 32 Python tests and
 the Chromium workflow pass. Hash-verified Linux ARM64 and AMD64 runtime wheels
 are available for the pinned Python 3.13/Debian base; this is not a container build.
 
 Browser coverage also restores an edited recipe, saves a linked revision,
 operates the question-mark help, exercises all offered dithering methods at full
 resolution, and checks the actual dimensions of a device's mounting-aware preview.
+
+`scripts/transfer_smoke.py` additionally uses a real, deliberately stalled local
+HTTP image response to verify live progress, selection protection, an interrupted
+connection and retry, persistent form input, and mobile log layout. Run it in the
+same Playwright-enabled environment as the general browser smoke test.
 
 Before a stable release: build both Linux architectures, install on Green, verify
 actual HA Ingress and backup/restore, measure Green resource use, and test image

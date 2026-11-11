@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.4
+
+- Send stable ETag and Last-Modified image validators, preventing the offline firmware's empty-validator shortcut from skipping a new download and closing the connection.
+- Support Last-Modified-only conditional image requests without freezing the next selected image.
+- Show live per-device HTTP transfer stage, server-written bytes, and elapsed time, refreshed without replacing settings forms.
+- Keep the latest 100 persistent device events, including settings checks, image transfers, interruptions, cache hits, and manual actions; omit credentials and raw request data.
+- Distinguish closed connections, server timeouts, cancellations, unavailable files, and restart-interrupted transfers.
+- Disable manual image selection during active transfers and report that HTTP completion does not confirm a physical panel refresh.
+
 ## 0.1.3
 
 - Show Saving, success, and error feedback beside device settings; confirmation distinguishes saving in the add-on from application on the frame's next wake-up.

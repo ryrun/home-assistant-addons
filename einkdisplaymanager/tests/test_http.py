@@ -394,3 +394,99 @@ async def test_image_name_changes_preserve_original_file_variants_and_assignment
         assert stored['name'] == 'Renamed legacy photo' and stored['filename'] == 'legacy.jpg'
     finally:
         restarted.store.close()
+
+
+async def test_image_headers_do_not_trigger_firmware_empty_validator_shortcut(system):
+    _manager, admin, frames = system
+    a = await upload(admin)
+    d = await device(admin, [a])
+    for url in [path(d['urls']['image'])]:
+        response = await frames.get(url)
+        await response.read()
+        etag, last_modified = response.headers['ETag'], response.headers['Last-Modified']
+        # Firmware: with an existing image and an empty settings.lastModified,
+        # an empty response Last-Modified would compare equal even with an ETag.
+        cached = ''
+        assert not (('etag:' + etag) == cached or last_modified == cached)
+        unchanged = await frames.get(url, headers={'If-None-Match':etag})
+        assert unchanged.status == 304 and unchanged.headers['Last-Modified'] == last_modified
+    empty = await device(admin, [])
+    response = await frames.get(path(empty['urls']['image']))
+    assert response.headers['Last-Modified']
+    await response.read()
+
+
+async def test_last_modified_fallback_revalidates_current_image_without_freezing_next(system):
+    manager, admin, frames = system
+    a = await upload(admin)
+    b = await upload(admin,picture(color='red'))
+    d = await device(admin,[a,b])
+    url = path(d['urls']['image'])
+    first = await frames.get(url)
+    await first.read()
+    old_modified = first.headers['Last-Modified']
+    assert (await frames.get(url,headers={'If-Modified-Since':old_modified})).status == 304
+    stored = manager.store.get('device',d['id'])
+    stored['state']['deadline'] = 1
+    manager.store.save('device',stored)
+    next_image = await frames.get(url,headers={'If-Modified-Since':old_modified})
+    assert next_image.status == 200
+    assert await next_image.read() == picture(color='red')
+    assert next_image.headers['Last-Modified'] != old_modified
+
+
+async def test_live_transfer_progress_and_logs_are_readable_without_the_transfer_lock(system, monkeypatch):
+    from aiohttp import web
+    manager, admin, frames = system
+    a = await upload(admin)
+    d = await device(admin,[a])
+    entered, release = asyncio.Event(), asyncio.Event()
+    original_write = web.StreamResponse.write
+
+    async def slow_write(self, data):
+        if data.startswith(b'\xff\xd8'):
+            entered.set()
+            await release.wait()
+        return await original_write(self,data)
+
+    monkeypatch.setattr(web.StreamResponse,'write',slow_write)
+    async def download():
+        response = await frames.get(path(d['urls']['image']))
+        return await response.read()
+    transfer = asyncio.create_task(download())
+    try:
+        await asyncio.wait_for(entered.wait(),timeout=2)
+        response = await asyncio.wait_for(admin.get('/api/devices/'+d['id']+'/status'),timeout=1)
+        active = await response.json()
+        assert active['transfer']['status'] == 'sending'
+        assert active['transfer']['total_bytes'] == len(picture())
+        assert active['transfer']['bytes_written'] == 0
+        assert active['events'][-1]['event'] == 'image_started'
+        token = manager.store.get('device',d['id'])['token']
+        assert token not in str(active)
+        assert (await admin.post('/api/devices/'+d['id']+'/next')).status == 409
+    finally:
+        release.set()
+        assert await transfer == picture()
+    finished = await (await admin.get('/api/devices/'+d['id']+'/status')).json()
+    assert finished['transfer']['status'] == 'completed'
+    assert finished['transfer']['bytes_written'] == len(picture())
+    assert finished['events'][-1]['event'] == 'image_completed'
+
+
+async def test_transfer_timeout_has_distinct_diagnostic_category(system,monkeypatch):
+    from aiohttp import web
+    _manager, admin, frames = system
+    a = await upload(admin)
+    d = await device(admin,[a])
+    async def timed_out(self,data):
+        raise TimeoutError('Synthetic timeout; do not log raw exception data')
+    monkeypatch.setattr(web.StreamResponse,'write',timed_out)
+    with suppress(ClientError,ConnectionError):
+        response = await frames.get(path(d['urls']['image']))
+        await response.read()
+    status = await (await admin.get('/api/devices/'+d['id']+'/status')).json()
+    assert status['transfer']['status'] == 'interrupted'
+    assert status['transfer']['error_code'] == 'timeout'
+    assert status['state']['pending'] is True
+    assert 'Synthetic timeout' not in str(status)

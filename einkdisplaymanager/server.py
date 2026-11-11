@@ -18,6 +18,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from aiohttp import web
+from diagnostics import Diagnostics
 from media import (
     MAX_UPLOAD,
     device_thumbnail,
@@ -33,7 +34,7 @@ from playback import advance, completed, initial_state, reconcile, select_for_re
 from profiles import PROFILES, device_orientation, orientation
 from storage import Store, new_id
 
-VERSION = '0.1.3'
+VERSION = '0.1.4'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -99,6 +100,7 @@ class Manager:
         self.dev = dev
         self.network = network_defaults()
         self.store = Store(root, integer(self.options.get('storage_limit_mb', 1024), 64, 32768))
+        self.diagnostics = Diagnostics(self.store)
         self.networks = [ipaddress.ip_network(n, strict=False) for n in self.options.get('allowed_networks', DEFAULT_NETWORKS)]
         if not self.networks:
             raise ValueError('Configure at least one allowed device network.')
@@ -130,7 +132,9 @@ class Manager:
         result = copy.deepcopy(device)
         result.pop('token')
         result['orientation'] = device_orientation(device)
+        result['transfer'] = self.diagnostics.transfer(device['id'])
         if detail:
+            result['events'] = self.diagnostics.record(device['id'])['events']
             result['urls'] = self.urls(device)
             result['settings_json'] = self.firmware_settings(device)
         return result
@@ -246,6 +250,7 @@ class Manager:
             for device in self.store.all('device'):
                 device['modified'] = max(time.time(), device['modified'] + 1)
                 self.store.save('device', device)
+                self.diagnostics.event(device['id'], 'connection_settings_saved', 'LAN connection settings changed.')
         return web.json_response(self.settings)
 
     async def upload(self, request):
@@ -369,6 +374,7 @@ class Manager:
             reconcile(device)
         self.urls(device)
         self.store.save('device', device)
+        self.diagnostics.event(device['id'], 'device_created', 'Device registered in the add-on.')
         return web.json_response(self.public_device(device, detail=True), status=201)
 
     async def get_device(self, request):
@@ -436,10 +442,13 @@ class Manager:
                 reconcile(device)
             device['modified'] = max(time.time(), device['modified'] + 1)
             self.store.save('device', device)
+            self.diagnostics.event(identifier, 'settings_saved', 'Device settings or image list saved.')
             return web.json_response(self.public_device(device, detail=True))
 
     async def device_action(self, request):
         identifier, action = request.match_info['device'], request.match_info['action']
+        if self.diagnostics.running(identifier):
+            raise web.HTTPConflict(reason='An image transfer is in progress. Wait for it to finish before changing the selection or token.')
         async with self.locks[identifier]:
             device = self.store.get('device', identifier)
             if action in ('next', 'previous'):
@@ -462,16 +471,29 @@ class Manager:
             else:
                 raise web.HTTPNotFound()
             self.store.save('device', device)
+            self.diagnostics.event(identifier, 'manual_' + action.replace('-', '_'), {
+                'next': 'Next image selected in the add-on; the frame has not been woken.',
+                'previous': 'Previous image selected in the add-on; the frame has not been woken.',
+                'choose': 'Image selected manually; the frame has not been woken.',
+                'rotate-token': 'Device access token rotated; update the frame settings URL.'}[action])
             return web.json_response(self.public_device(device, detail=True))
+
+    async def device_status(self, request):
+        identifier = request.match_info['device']
+        device = self.store.get('device', identifier)
+        return web.json_response({'id': identifier, 'state': device['state'], 'paused': device['paused'],
+                                  **self.diagnostics.view(identifier)})
 
     async def remove_device(self, request):
         identifier = request.match_info['device']
         async with self.locks[identifier]:
             self.store.delete('device', identifier)
-            try:
-                self.store.delete('settings_response', identifier)
-            except KeyError:
-                pass
+            self.diagnostics.remove(identifier)
+            for kind in ('settings_response', 'image_response'):
+                try:
+                    self.store.delete(kind, identifier)
+                except KeyError:
+                    pass
         return web.json_response({'deleted': True})
 
     async def settings_json(self, request):
@@ -504,6 +526,9 @@ class Manager:
             if request.method == 'GET' and not browser_request(request):
                 device['state']['last_settings_request'] = time.time()
                 self.store.save('device', device)
+                self.diagnostics.event(identifier, 'settings_unchanged' if unchanged else 'settings_served',
+                                       'Settings checked; unchanged.' if unchanged else 'Settings JSON delivered (application on the frame is unconfirmed).',
+                                       http_status=304 if unchanged else 200)
             return web.Response(status=304 if unchanged else 200, body=None if unchanged else data,
                                 content_type='application/json', headers=headers)
 
@@ -518,7 +543,6 @@ class Manager:
         identifier = request.match_info['device']
         async with self.transfers, self.locks[identifier]:
             device = self.store.get('device', identifier)
-            # Recheck credentials after acquiring the lock (rotation/removal may have intervened).
             if not hmac.compare_digest(request.query.get('k', ''), device['token']):
                 raise web.HTTPUnauthorized()
             if not device['enabled']:
@@ -528,44 +552,97 @@ class Manager:
                 select_for_request(device, time.time())
                 device['state']['last_image_request'] = time.time()
                 self.store.save('device', device)
-            item = self.representation(device)
             try:
+                item = self.representation(device)
+                if frame_fetch:
+                    self.diagnostics.start(identifier, item['bytes'] if item else len(self.blank),
+                                           device['state']['selected'],
+                                           item.get('asset_id', item['id']) if item else None,
+                                           item['mime'] if item else 'image/bmp')
                 data = await asyncio.to_thread(self.store.path(item['file']).read_bytes) if item else self.blank
             except (KeyError, OSError):
-                device['state']['last_error'] = 'Selected file is unavailable; restore the image from backup.'
-                self.store.save('device', device)
+                if frame_fetch:
+                    if not self.diagnostics.running(identifier):
+                        self.diagnostics.start(identifier, 0, device['state']['selected'], None, None)
+                    device['state']['last_error'] = 'Selected image is unavailable; restore the file or choose another image.'
+                    self.store.save('device', device)
+                    self.diagnostics.finish(identifier, 'failed', 'Selected image file is unavailable.',
+                                            http_status=503, error_code='file_unavailable')
                 raise web.HTTPServiceUnavailable(reason='Selected image is unavailable.') from None
+            except asyncio.CancelledError:
+                if frame_fetch:
+                    self.diagnostics.finish(identifier, 'interrupted', 'Request stopped while preparing the image.',
+                                            error_code='cancelled')
+                raise
             output_hash = item['hash'] if item else digest(data)
             etag = '"' + output_hash + '"'
-            headers = {'ETag': etag, 'Cache-Control': 'private, no-cache', 'Referrer-Policy': 'no-referrer',
+            # Offline firmware can mistake an empty Last-Modified and empty cached
+            # validator for a match even when an ETag is present. Supply both.
+            try:
+                validator = self.store.get('image_response', identifier)
+            except KeyError:
+                validator = {'id': identifier, 'hash': None, 'modified': 0}
+            if validator['hash'] != output_hash:
+                validator.update(hash=output_hash, modified=max(time.time(), validator['modified'] + 1))
+                self.store.save('image_response', validator)
+            headers = {'ETag': etag, 'Last-Modified': formatdate(validator['modified'], usegmt=True),
+                       'Cache-Control': 'private, no-cache', 'Referrer-Policy': 'no-referrer',
                        'X-Content-Type-Options': 'nosniff'}
             unchanged = etag in [v.strip() for v in request.headers.get('If-None-Match', '').split(',')]
+            if not request.headers.get('If-None-Match') and request.headers.get('If-Modified-Since'):
+                try:
+                    unchanged = int(validator['modified']) <= parsedate_to_datetime(request.headers['If-Modified-Since']).timestamp()
+                except (ValueError, TypeError, OverflowError):
+                    pass
             if unchanged:
                 if frame_fetch:
                     completed(device, output_hash, time.time())
                     self.store.save('device', device)
+                    self.diagnostics.finish(identifier, 'unchanged', 'Image unchanged (HTTP 304); no image body sent.', http_status=304)
                 return web.Response(status=304, headers=headers)
             response = web.StreamResponse(headers=headers)
             response.content_type = item['mime'] if item else 'image/bmp'
             response.content_length = len(data)
+            if frame_fetch:
+                self.diagnostics.update(identifier, total_bytes=len(data))
+
             async def transmit():
                 await response.prepare(request)
                 if request.method == 'GET':
                     for offset in range(0, len(data), 65536):
-                        await response.write(data[offset:offset + 65536])
+                        chunk = data[offset:offset + 65536]
+                        await response.write(chunk)
+                        if frame_fetch:
+                            self.diagnostics.update(identifier, bytes_written=offset + len(chunk))
                 await response.write_eof()
+
             try:
                 await asyncio.wait_for(transmit(), timeout=60)
-            except (ConnectionError, TimeoutError, asyncio.CancelledError):
+            except (ConnectionError, TimeoutError, asyncio.CancelledError) as exc:
+                if isinstance(exc, TimeoutError):
+                    code = 'timeout'
+                    message = 'Image transfer interrupted: server delivery exceeded 60 seconds. Check WiFi and image size.'
+                elif isinstance(exc, asyncio.CancelledError):
+                    code = 'cancelled'
+                    message = 'Image transfer interrupted: request or add-on stopped. The frame may retry.'
+                else:
+                    code = 'connection_closed'
+                    message = 'Image transfer interrupted: the connection closed before HTTP delivery completed. A reset, WiFi loss, or device-side cancellation is possible.'
                 if frame_fetch:
-                    device['state']['last_error'] = 'Image transfer interrupted; the selected image will be retried.'
+                    device['state']['last_error'] = message
                     self.store.save('device', device)
+                    self.diagnostics.finish(identifier, 'interrupted', message,
+                                            http_status=200 if response.prepared else None, error_code=code)
                 if request.transport:
                     request.transport.close()
-                raise
+                if isinstance(exc, asyncio.CancelledError):
+                    raise
+                return response
             if frame_fetch:
                 completed(device, output_hash, time.time())
                 self.store.save('device', device)
+                self.diagnostics.finish(identifier, 'completed',
+                                        'HTTP image delivery completed; physical display refresh is not confirmed.', http_status=200)
             return response
 
     def apps(self):
@@ -579,6 +656,7 @@ class Manager:
         admin.router.add_delete('/api/media/{kind}/{item}', self.delete_media)
         admin.router.add_post('/api/devices', self.add_device)
         admin.router.add_get('/api/devices/{device}', self.get_device)
+        admin.router.add_get('/api/devices/{device}/status', self.device_status)
         admin.router.add_put('/api/devices/{device}', self.update_device)
         admin.router.add_delete('/api/devices/{device}', self.remove_device)
         admin.router.add_post('/api/devices/{device}/{action}', self.device_action)
