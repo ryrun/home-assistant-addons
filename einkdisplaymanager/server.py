@@ -33,7 +33,7 @@ from playback import advance, completed, initial_state, reconcile, select_for_re
 from profiles import PROFILES, device_orientation, orientation
 from storage import Store, new_id
 
-VERSION = '0.1.2'
+VERSION = '0.1.3'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -219,6 +219,7 @@ class Manager:
             item.pop('file', None)
             item.pop('thumbnail', None)
         for asset in assets:
+            asset.setdefault('filename', asset['name'])
             asset['usage'] = sum(e['asset_id'] == asset['id'] for e in entries)
         for variant in variants:
             variant['usage'] = sum(e.get('variant_id') == variant['id'] for e in entries)
@@ -261,9 +262,21 @@ class Manager:
                 raise ValueError('The library limit of 2000 originals has been reached.')
             file = await asyncio.to_thread(self.store.put_file, raw, '.original')
             thumbnail = await asyncio.to_thread(self.store.put_file, thumb, '.jpg')
-            asset = dict(metadata, id=new_id(), name=name, created_at=time.time(), file=file, thumbnail=thumbnail)
+            asset = dict(metadata, id=new_id(), name=name, filename=name, created_at=time.time(), file=file, thumbnail=thumbnail)
             self.store.save('asset', asset)
             return web.json_response({'id': asset['id'], 'duplicate': False}, status=201)
+
+    async def rename_asset(self, request):
+        data = await self.json(request)
+        if set(data) != {'name'}:
+            raise ValueError('Provide only the image name.')
+        name = title(data['name'])
+        async with self.media_lock:
+            asset = self.store.get('asset', request.match_info['asset'])
+            asset.setdefault('filename', asset['name'])
+            asset['name'] = name
+            self.store.save('asset', asset)
+        return web.json_response({'id': asset['id'], 'name': name, 'filename': asset['filename']})
 
     async def media_file(self, request):
         kind, identifier, output = request.match_info['kind'], request.match_info['item'], request.match_info['output']
@@ -560,6 +573,7 @@ class Manager:
         admin.router.add_get('/api/state', self.snapshot)
         admin.router.add_put('/api/settings', self.global_settings)
         admin.router.add_post('/api/assets', self.upload)
+        admin.router.add_patch('/api/assets/{asset}', self.rename_asset)
         admin.router.add_post('/api/assets/{asset}/variants', self.create_variant)
         admin.router.add_get('/api/media/{kind}/{item}/{output}', self.media_file)
         admin.router.add_delete('/api/media/{kind}/{item}', self.delete_media)

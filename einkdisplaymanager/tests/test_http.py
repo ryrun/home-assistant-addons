@@ -356,3 +356,41 @@ async def test_settings_validator_tracks_content_changes_not_only_device_edits(s
     assert new_modified != old_modified
     response = await frames.get(url, headers={'If-Modified-Since':new_modified})
     assert response.status == 304
+
+
+async def test_image_name_changes_preserve_original_file_variants_and_assignments(system, tmp_path):
+    manager, admin, frames = system
+    a = await upload(admin, name='original.jpg')
+    v = (await (await admin.post(f'/api/assets/{a}/variants',data=placeholder())).json())['id']
+    d = await device(admin,[a])
+    before = manager.store.get('asset',a)
+    variant_before = manager.store.get('variant',v)
+    entries_before = manager.store.get('device',d['id'])['entries']
+    assert (await admin.patch(f'/api/assets/{a}',json={'name':'Forbidden'},headers={'X-Eink-CSRF':''})).status == 403
+    response = await admin.patch(f'/api/assets/{a}',json={'name':'  Summer by the lake  '})
+    assert response.status == 200
+    assert (await response.json())['name'] == 'Summer by the lake'
+    after = manager.store.get('asset',a)
+    assert after == {**before,'name':'Summer by the lake'}
+    assert after['filename'] == 'original.jpg'
+    assert manager.store.get('variant',v) == variant_before
+    assert manager.store.get('device',d['id'])['entries'] == entries_before
+    assert await (await frames.get(path(d['urls']['image']))).read() == picture()
+    for bad_name in ['', ' ', 'x'*121, 'bad\nname', None]:
+        assert (await admin.patch(f'/api/assets/{a}',json={'name':bad_name})).status == 400
+    duplicate = await admin.post('/api/assets',data=picture(),headers={'X-File-Name':'different.jpg'})
+    assert (await duplicate.json())['id'] == a
+    assert manager.store.get('asset',a)['name'] == 'Summer by the lake'
+    # Existing installations did not store filename separately. Preserve it on
+    # first rename, and keep the chosen display name after reopening the store.
+    legacy = manager.store.get('asset',a)
+    del legacy['filename']
+    legacy['name'] = 'legacy.jpg'
+    manager.store.save('asset',legacy)
+    assert (await admin.patch(f'/api/assets/{a}',json={'name':'Renamed legacy photo'})).status == 200
+    restarted = Manager(tmp_path,dev=True)
+    try:
+        stored = restarted.store.get('asset',a)
+        assert stored['name'] == 'Renamed legacy photo' and stored['filename'] == 'legacy.jpg'
+    finally:
+        restarted.store.close()

@@ -181,6 +181,21 @@ async def main():
                     await page.get_by_label('Mounting orientation').select_option('landscape')
                     await page.get_by_role('button', name='Save settings', exact=True).click()
                     await page.get_by_role('heading', name='Studio frame', exact=True).wait_for()
+                    await page.locator('#device-save-status').filter(has_text='Settings saved. The frame will apply them on its next wake-up.').wait_for()
+                    async def reject_stale_save(route):
+                        if route.request.method == 'PUT':
+                            await asyncio.sleep(.4)
+                            await route.fulfill(status=409,content_type='application/json',body='{"error":"Refresh device before saving."}')
+                        else:
+                            await route.continue_()
+                    await page.route('**/api/devices/*',reject_stale_save)
+                    await page.get_by_role('button',name='Save settings',exact=True).click()
+                    assert await page.get_by_role('button',name='Saving…',exact=True).is_disabled()
+                    await page.locator('#device-save-status').filter(has_text='Refresh device before saving.').wait_for()
+                    assert await page.get_by_label('Name',exact=True).input_value() == 'Studio frame'
+                    await page.unroute('**/api/devices/*',reject_stale_save)
+                    await page.get_by_role('button',name='Save settings',exact=True).click()
+                    await page.locator('#device-save-status').filter(has_text='Settings saved.').wait_for()
                     assert await page.get_by_label('Mounting orientation').input_value() == 'landscape'
                     await page.get_by_text('Refresh the frame and apply settings', exact=True).click()
                     await page.get_by_text('press the large reset button twice', exact=False).wait_for()
@@ -215,6 +230,15 @@ async def main():
                         await page.screenshot(path=str(artifacts / f'device-{width}.png'), full_page=True)
                         assert await page.evaluate('document.documentElement.scrollWidth <= innerWidth'), f'Horizontal overflow at {width}px'
                     await page.get_by_role('link', name='Media Library', exact=False).click()
+                    await page.get_by_role('button', name='Open Blue mountain.jpg', exact=True).click()
+                    await page.get_by_label('Image name',exact=False).fill('Mountain evening')
+                    await page.get_by_role('button',name='Save name',exact=True).click()
+                    await page.locator('#image-name-status').filter(has_text='Image name saved.').wait_for()
+                    await page.locator('#dialog-title').filter(has_text='Mountain evening').wait_for()
+                    await page.get_by_role('button', name='Close dialog').click()
+                    await page.get_by_role('button', name='Open Mountain evening', exact=True).wait_for()
+                    await page.reload()
+                    await page.get_by_role('button', name='Open Mountain evening', exact=True).wait_for()
                     await page.screenshot(path=str(artifacts / 'library-mobile.png'), full_page=True)
                     assert await page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                     assert not errors, errors

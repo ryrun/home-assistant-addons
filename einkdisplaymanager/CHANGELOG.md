@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3
+
+- Show Saving, success, and error feedback beside device settings; confirmation distinguishes saving in the add-on from application on the frame's next wake-up.
+- Add editable image names in the Media Library while retaining original filenames, file contents, variants, and device assignments.
+- Use chosen image names in the gallery, search/sort, device image lists, and image picker.
+
 ## 0.1.2
 
 - Add per-device mounting orientation and previews derived from native output.

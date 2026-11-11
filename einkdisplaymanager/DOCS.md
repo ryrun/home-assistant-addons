@@ -23,6 +23,10 @@
 7. Wake the frame and verify that its request timestamps and last served image
    update. Test the output physically before leaving the device unattended.
 
+**Save settings** displays progress and confirmation beside the button. “Settings
+saved” confirms storage in the add-on; the frame applies them on its next wake-up.
+Save failures remain visible beside the form, with the entered values retained.
+
 Before changing firmware, follow the upstream instructions to back up device
 certificates; erasing their partition prevents returning to cloud firmware without
 a backup/replacement. Flashing remains an external manual step. Bluetooth-upload
@@ -105,6 +109,12 @@ The library accepts single-frame JPEG, PNG, and BMP images up to 20 MiB and
 rejected. Files are identified by content hash; matching filenames never replace
 an existing original. The current limits are 2000 originals, 4000 variants,
 32 devices, and 1000 entries per device.
+
+Open an image and change **Image name**, then select **Save name**. This display
+name replaces the filename in the gallery, search/sort, device lists, and image
+picker. The original filename is shown separately and retained for downloads.
+Renaming does not alter image bytes, saved variants, queue entries, or device URLs.
+Uploading the same original again keeps its chosen display name.
 
 **Original** means the exact uploaded bytes. Compatible baseline RGB/grayscale
 JPEGs and uncompressed 24-/32-bit BMPs can be fitted/dithered on the frame. JPEG
@@ -322,7 +332,7 @@ exercise upload, the real full-resolution optimizer, saving a variant, device
 settings, original/BMP switching at one URL, and mobile layout. The rotated
 black/white crop with manual contrast and Atkinson processing is also checked
 against actual saved BMP pixel codes. Landscape native pixels are rotated back
-and compared exactly with the preview. Current local result: 25 Python tests and
+and compared exactly with the preview. Current local result: 26 Python tests and
 the Chromium workflow pass. Hash-verified Linux ARM64 and AMD64 runtime wheels
 are available for the pinned Python 3.13/Debian base; this is not a container build.
 

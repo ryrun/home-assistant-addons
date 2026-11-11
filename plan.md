@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.1.2**; locally tested, with Green,
+Status: experimental implementation **0.1.3**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -479,7 +479,7 @@ choices made for the initial implementation are recorded here and in the English
    device transfers with a 60-second delivery timeout, and a configurable disk
    budget. Cold backups are requested to stop the service during Supervisor backups.
 
-Local evidence: **25 passing Python tests** cover image/profile validation, HTTP/auth,
+Local evidence: **26 passing Python tests** cover image/profile validation, HTTP/auth,
 queues, persistence, retries, concurrency, and device independence. Chromium smoke
 checks exercise upload, full-resolution optimization, saved variants, device setup,
 settings, original/BMP delivery through one URL, and desktop/mobile layouts.
@@ -498,4 +498,6 @@ flasher CORS, a stable editor layout, and landscape composition with native BMP
 delivery. Version 0.1.2 adds mounting-aware device previews, explicit conversion
 targets, editable recipes saved as new revisions, dithering/palette choices with
 help, physical refresh instructions, and content-based settings validators.
+Version 0.1.3 adds inline device-save feedback and editable image display names,
+retaining original filenames and existing device/variant references.
 No stable release or physical-device validation is implied.
