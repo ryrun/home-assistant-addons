@@ -17,11 +17,14 @@ from email.utils import formatdate, parsedate_to_datetime
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
+import battery
+import scheduling
 from aiohttp import web
 from correction import rotate_delivery
 from diagnostics import Diagnostics
 from media import (
     MAX_UPLOAD,
+    composition_thumbnail,
     device_thumbnail,
     digest,
     inkplate_original,
@@ -44,7 +47,7 @@ from profiles import (
 )
 from storage import Store, new_id
 
-VERSION = '0.4.0'
+VERSION = '0.5.0'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -148,6 +151,10 @@ class Manager:
         result['orientation'] = device_orientation(device)
         result['upside_down'] = bool(device_rotation(device))
         result['telemetry'] = self.telemetry(device['id'])
+        result['schedule'] = scheduling.config(device)
+        result['timing'] = scheduling.view(device, time.time())
+        result['battery'] = battery.config(device)
+        result['battery_status'] = battery.status(device, result['telemetry'])
         result['transfer'] = self.diagnostics.transfer(device['id'])
         result['health'] = self.mqtt.health(device)
         if detail:
@@ -156,9 +163,9 @@ class Manager:
             result['settings_json'] = self.firmware_settings(device)
         return result
 
-    def firmware_settings(self, device):
+    def firmware_settings(self, device, now=None):
         url = self.urls(device)['image']
-        result = {'timeout': device['interval'], 'motionWakeup': False, 'autoRotation': False,
+        result = {'timeout': scheduling.sleep_seconds(device, time.time() if now is None else now), 'motionWakeup': False, 'autoRotation': False,
                   'chargerMode': False, **device['settings'], 'httpAuthUser': '', 'httpAuthPassword': ''}
         if device_rotation(device):
             result['autoRotation'] = False
@@ -324,6 +331,13 @@ class Manager:
             device = self.store.get('device', request.query['device'])
             if kind == 'variant' and item['profile'] != device['profile']:
                 raise ValueError('Choose a variant prepared for this device model.')
+            if kind == 'variant' and request.query.get('comparison') == 'source':
+                original = self.store.get('asset', item['asset_id'])
+                async with self.workers:
+                    data = await asyncio.to_thread(self.store.path(original['file']).read_bytes)
+                    data = await asyncio.to_thread(composition_thumbnail, data, item.get('recipe', {}),
+                                                   device['profile'], device_orientation(device))
+                return web.Response(body=data, content_type='image/jpeg')
             data, _mime, _hash = await self.delivery(item, device_rotation(device), device['profile'], device_orientation(device))
             async with self.workers:
                 data = await asyncio.to_thread(device_thumbnail, data, device_orientation(device) == 'landscape',
@@ -447,6 +461,8 @@ class Manager:
             if data.get('copy_from'):
                 for key in ('interval', 'shuffle', 'settings', 'entries'):
                     device[key] = copy.deepcopy(source[key])
+                device['schedule'] = scheduling.config(source)
+                device['battery'] = battery.config(source)
                 device['orientation'] = device_orientation(source)
                 device['upside_down'] = bool(device_rotation(source))
                 for entry in device['entries']:
@@ -481,9 +497,21 @@ class Manager:
             for key in ('shuffle', 'paused', 'enabled'):
                 if key in data:
                     device[key] = boolean(data[key])
+            previous_interval, previous_schedule = device['interval'], scheduling.config(device)
             if 'interval' in data:
                 device['interval'] = integer(data['interval'], 60, 2592000)
-                device['state']['deadline'] = time.time() + device['interval']
+            if 'schedule' in data or 'interval' in data:
+                changes = data.get('schedule', {})
+                if not isinstance(changes, dict):
+                    raise ValueError('Provide refresh schedule settings as an object.')
+                device['schedule'] = scheduling.validate(previous_schedule | changes, device['interval'])
+            if 'battery' in data:
+                if not isinstance(data['battery'], dict):
+                    raise ValueError('Provide battery settings as an object.')
+                device['battery'] = battery.validate(battery.config(device) | data['battery'])
+            if previous_interval != device['interval'] or (previous_schedule != scheduling.config(device) and (scheduling.active(device) or previous_schedule['anchor_enabled'] or previous_schedule['quiet_enabled'])):
+                device['state']['deadline'] = scheduling.next_due(device, time.time())
+                device['state']['expected_image_at'] = device['state']['deadline']
             if 'settings' in data:
                 settings = data['settings']
                 if not isinstance(settings, dict) or set(settings) - {'motionWakeup', 'autoRotation', 'chargerMode'}:
@@ -549,7 +577,7 @@ class Manager:
             if action in ('next', 'previous'):
                 reconcile(device)
                 advance(device, -1 if action == 'previous' else 1)
-                device['state']['deadline'] = time.time() + device['interval']
+                device['state']['deadline'] = scheduling.next_due(device, time.time())
             elif action == 'choose':
                 data = await self.json(request)
                 reconcile(device)
@@ -559,7 +587,7 @@ class Manager:
                     raise ValueError('Choose an enabled entry.')
                 if selected not in device['state']['queue']:
                     device['state']['queue'].append(selected)
-                device['state'].update(selected=selected, pending=True, deadline=time.time() + device['interval'])
+                device['state'].update(selected=selected, pending=True, deadline=scheduling.next_due(device, time.time()))
             elif action == 'rotate-token':
                 device['token'] = secrets.token_urlsafe(24)
                 device['modified'] = max(time.time(), device['modified'] + 1)
@@ -578,6 +606,8 @@ class Manager:
         device = self.store.get('device', identifier)
         return web.json_response({'id': identifier, 'state': device['state'], 'paused': device['paused'],
                                   'health': self.mqtt.health(device), 'telemetry': self.telemetry(identifier),
+                                  'timing': scheduling.view(device, time.time()),
+                                  'battery_status': battery.status(device, self.telemetry(identifier)),
                                   **self.diagnostics.view(identifier)})
 
     async def remove_device(self, request):
@@ -601,10 +631,10 @@ class Manager:
     def record_telemetry(self, request, device):
         # Only authenticated device GETs reach here. Browser previews and HEAD
         # must not turn a supplied header into a reported hardware measurement.
-        if device['profile'] != 'inkplate_6' or request.method != 'GET' or browser_request(request):
+        if request.method != 'GET' or browser_request(request):
             return
-        value = request.headers.get('X-Display-Battery-Millivolts', '')
-        if not (1 <= len(value) <= 5 and value.isascii() and value.isdecimal() and 500 <= int(value) <= 20000):
+        value = request.headers.get('X-Display-Battery-Millivolts', request.headers.get('X-OpenPaper-Battery-Millivolts', ''))
+        if not (1 <= len(value) <= 6 and value.isascii() and value.isdecimal() and 500 <= int(value) <= 200000):
             return  # Missing/malformed telemetry must not prevent image updates.
         self.store.save('telemetry', {'id': device['id'], 'battery_millivolts': int(value), 'measured_at': time.time()})
         self.mqtt.wake.set()
@@ -619,26 +649,40 @@ class Manager:
                 raise web.HTTPGone(reason='Device is disabled.')
             if not self.settings['base_url']:
                 raise web.HTTPServiceUnavailable(reason='Configure the LAN base URL in the manager.')
-            data = json.dumps(self.firmware_settings(device), sort_keys=True, separators=(',', ':')).encode()
+            now = time.time()
+            dynamic = scheduling.active(device)
+            settings = self.firmware_settings(device, now) if dynamic else self.firmware_settings(device)
+            data = json.dumps(settings, sort_keys=True, separators=(',', ':')).encode()
             content_hash = digest(data)
-            try:
-                validator = self.store.get('settings_response', identifier)
-            except KeyError:
-                validator = {'id': identifier, 'hash': None, 'modified': device['modified']}
-            if validator['hash'] != content_hash:
-                validator.update(hash=content_hash, modified=max(time.time(), validator['modified'] + 1))
-                self.store.save('settings_response', validator)
+            if dynamic:
+                # A remaining sleep duration is relative to THIS request. Never
+                # let a conditional JSON response reuse an old countdown.
+                validator = {'id': identifier, 'hash': None, 'modified': now}
+            else:
+                try:
+                    validator = self.store.get('settings_response', identifier)
+                except KeyError:
+                    validator = {'id': identifier, 'hash': None, 'modified': device['modified']}
+                if validator['hash'] != content_hash:
+                    validator.update(hash=content_hash, modified=max(now, validator['modified'] + 1))
+                    self.store.save('settings_response', validator)
             headers = {'ETag': '"' + content_hash + '"', 'Last-Modified': formatdate(validator['modified'], usegmt=True),
-                       'Cache-Control': 'private, no-cache'}
-            unchanged = request.headers.get('If-None-Match') == headers['ETag']
-            if not request.headers.get('If-None-Match') and request.headers.get('If-Modified-Since'):
+                       'Cache-Control': 'private, no-store' if dynamic else 'private, no-cache'}
+            unchanged = not dynamic and request.headers.get('If-None-Match') == headers['ETag']
+            if not dynamic and not request.headers.get('If-None-Match') and request.headers.get('If-Modified-Since'):
                 try:
                     unchanged = int(validator['modified']) <= parsedate_to_datetime(request.headers['If-Modified-Since']).timestamp()
                 except (ValueError, TypeError, OverflowError):
                     pass
             if request.method == 'GET' and not browser_request(request):
+                if dynamic:
+                    # Mark that the frame received a countdown. Returning to a
+                    # fixed interval must invalidate any cached dynamic JSON,
+                    # even if an older fixed JSON had the same bytes as before.
+                    self.store.save('settings_response', validator)
                 self.record_telemetry(request, device)
-                device['state']['last_settings_request'] = time.time()
+                device['state']['last_settings_request'] = now
+                device['state']['next_request_at'] = now + settings['timeout']
                 self.store.save('device', device)
                 self.diagnostics.event(identifier, 'settings_unchanged' if unchanged else 'settings_served',
                                        'Settings checked; unchanged.' if unchanged else 'Settings JSON delivered (application on the frame is unconfirmed).',

@@ -105,7 +105,7 @@ async def test_inkplate_variant_edit_and_settings_telemetry_contract(system):
     status = await (await admin.get('/api/devices/' + identifier + '/status')).json()
     assert status['telemetry'] == first
     assert status['state']['last_served_at'] == last_served
-    for bad in ('NaN', '-1', '3.87', '123456', '499', '20001', ''):
+    for bad in ('NaN', '-1', '3.87', '1234567', '499', '200001', ''):
         assert (await frames.get(settings_url, headers={'X-Display-Battery-Millivolts': bad})).status == 200
         assert manager.telemetry(identifier) == first
     for request in (

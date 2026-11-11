@@ -85,3 +85,22 @@ configuration. It retains OpenPaper-compatible JSON; measured voltage arrives in
 a request header and is not a new JSON field. Physical Inkplate acceptance and
 full firmware compilation remain distinct from server/browser/YAML validation.
 Dynamic scripting remains a plan only; no QuickJS code or dependency is bundled.
+
+## Optional local schedules and voltage profiles (0.5.0)
+
+Checked on 2026-11-11:
+
+- [Python ZoneInfo](https://docs.python.org/3/library/zoneinfo.html): explicit IANA
+  zones, DST folds, and the first-party tzdata fallback. Runtime pins tzdata 2026.6
+  and ignores potentially different system zone files via PYTHONTZPATH.
+- [Pinned tzdata release](https://pypi.org/project/tzdata/2026.6/): hash-locked pure
+  Python wheel for ARM64/AMD64, with no runtime network lookup.
+- OpenPaper `src/main.cpp` blob `c96c94eab76fa42dd7e1d8ffa9320a5c6a37c6ec`: JSON
+  timeout validation is 60–2592000 seconds and changed JSON resets its sleep
+  prediction. Its separate image sleep-header range remains only 60–86400. This
+  implementation uses JSON countdowns and does not enable that header.
+
+Wall-clock grid, quiet-hour logic, comparison UI, and the linear voltage estimate
+are our own implementation. No chemistry-specific discharge curves are copied or
+assumed. Users supply voltage endpoints suitable for their cells/load; chemistry
+is descriptive metadata. Hardware timing/charge calibration remains unverified.

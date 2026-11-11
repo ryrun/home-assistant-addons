@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0
+
+- Add optional per-device wall-clock anchors, IANA time zones, reference dates, and daily quiet hours, including overnight windows and daylight-saving changes.
+- Calculate remaining sleep through the existing OpenPaper-compatible JSON timeout; return fresh JSON for active schedules so a cached countdown cannot be reused.
+- Keep playback, expected image deadlines, and the MQTT watchdog aligned with permitted slots; skip missed slots without skipping playlist entries.
+- Show last contact and next expected connection on device cards and publish a separate next-connection MQTT sensor.
+- Replace fixed-height frame previews with complete images at the device aspect ratio. Compare matching original compositions and variants as diagonal halves, with hover, keyboard, and touch controls.
+- Refine device forms, spacing, mobile controls, and image-list wrapping.
+- Add optional model-independent battery profiles with series cell count, chemistry label, and calibrated empty/full per-cell voltages. Publish a separate estimated-charge sensor without changing the existing synthetic activity indicator or charger settings.
+- Accept authenticated millivolt telemetry for every device model; current OpenPaper firmware still needs upstream support to send it.
+- Pin timezone data for consistent scheduling on both container architectures.
+
 ## 0.4.0
 
 - Add Inkplate 6 / ESPHome with native 800 × 600 PNG output, eight grayscale levels, portrait/landscape composition, model-specific variants, and exact 180° delivery correction.

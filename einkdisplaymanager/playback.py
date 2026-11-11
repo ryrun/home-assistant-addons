@@ -2,6 +2,8 @@
 
 import random
 
+from scheduling import is_quiet, next_due, sleep_seconds
+
 
 def enabled(device):
     return [e['id'] for e in device['entries'] if e['enabled']]
@@ -61,7 +63,7 @@ def advance(device, direction=1, rng=None):
 def select_for_request(device, now):
     reconcile(device)
     state = device['state']
-    if not device['paused'] and not state['pending'] and now >= state['deadline']:
+    if not device['paused'] and not is_quiet(device, now) and not state['pending'] and now >= state['deadline']:
         advance(device)
     return state['selected']
 
@@ -71,4 +73,6 @@ def completed(device, output_hash, now):
     state.update(last_served_entry=state['selected'], last_served_hash=output_hash,
                  last_served_at=now, last_error=None)
     if state['pending']:
-        state.update(pending=False, deadline=now + device['interval'])
+        state.update(pending=False, deadline=next_due(device, now))
+    state['expected_image_at'] = next_due(device, now)
+    state['next_request_at'] = now + sleep_seconds(device, now)

@@ -28,6 +28,116 @@
 saved” confirms storage in the add-on; the frame applies them on its next wake-up.
 Save failures remain visible beside the form, with the entered values retained.
 
+## Optional refresh schedule
+
+Each device keeps its normal **Update interval**. Under **Refresh schedule**, both
+options are off by default and can be enabled independently:
+
+- **Align refreshes to an anchor time**: a 24-hour interval at 03:00 targets 03:00
+  each local day. A six-hour interval targets 03:00, 09:00, 15:00, and 21:00.
+  The reference date sets the phase for multi-day or uneven intervals; a seven-hour
+  grid continues across midnight rather than restarting its interval every day.
+- **Quiet hours**: a daily start/end window can cross midnight, e.g. 22:00–08:00.
+  The start is included; the end is available for updates. Anchored slots inside
+  the window are skipped, so 03:00/09:00 with that window resumes at 09:00.
+  Without an anchor, a relative target inside the window moves to its end.
+
+Choose an IANA **Schedule time zone** such as `Europe/Berlin`. The UI suggests your
+browser zone when first enabling the options. An anchor follows local wall time:
+03:00 remains 03:00 across daylight-saving changes. A nonexistent spring-forward
+slot is skipped; a repeated autumn slot runs at its first occurrence only. A quiet
+window ending inside a spring gap ends at the first valid local minute afterward;
+an ambiguous quiet end uses the next real occurrence. The
+zone database is pinned in the container rather than inherited from its host.
+Schedules that block every possible anchored slot are rejected with an inline
+error. Disabling an option retains its previous valid settings for later use.
+
+The server computes **remaining seconds until the next permitted target** in the
+existing JSON `timeout`, clamped to the firmware's supported 60–2,592,000 seconds.
+A target less than a minute away can be reached slightly late; a target beyond
+30 days requires an intermediate wake. Active schedules always return JSON **200**
+with `Cache-Control: private, no-store`, even for conditional requests. Reusing a
+cached countdown in a JSON 304 would apply an old relative duration. With both
+options off, the original interval and conditional JSON behavior remain unchanged.
+Image ETags and image 304 handling are unaffected. Leaving scheduled mode
+invalidates the previous countdown before resuming normal conditional JSON.
+
+No new JSON keys or sleep response headers are required. Current OpenPaper source
+accepts these timeout values and resets its sleep prediction after applying changed
+settings. ESPHome uses the same JSON example. Changes apply when the device next
+requests settings; the add-on cannot wake an already sleeping frame or stop a reset,
+movement wake, firmware retry, or hardware-controlled refresh. Download and panel
+processing can make a physical update slightly later than its target. Check the
+installed firmware on real hardware before relying on minute-level accuracy.
+
+Automatic playlist advancement is suppressed inside quiet hours. First setup,
+pending transfer retries, and explicit manual selections can still be delivered.
+Missed slots do not consume playlist entries: after a long absence the frame gets
+one next image. The image watchdog uses the next permitted image target plus its
+normal grace period, so a planned night pause does not create an empty-battery
+signal. A settings-only request still cannot restore that activity indicator.
+
+**Device cards** show last image/settings contact and **Next expected connection**.
+After a JSON GET this reflects the sleep duration actually supplied; after a
+successful image GET it reflects the next predicted wake. Before first contact it
+is unknown. It is an expectation, not a connection reservation or physical panel
+acknowledgement; disabled devices have no expected connection. The device detail
+also shows its next schedule slot and whether quiet hours are currently active.
+MQTT publishes a separate next-connection timestamp.
+
+## Original and variant comparison
+
+Device cards and the detail preview preserve the complete native viewing ratio;
+there is no fixed-height crop or artificial picture-frame border. A saved variant
+shows a diagonal split: **Original** uses the same source rotation, fit/crop, focus,
+and mounting before tone optimization; **Variant** uses the delivered output.
+Hover the upper-left triangle for the full original and the lower-right for the
+full variant. Leaving restores the selected mode. **Split / Original / Variant**
+buttons work on touch screens and with the keyboard. On the focused preview,
+Left/Right choose an image and Escape restores the split.
+
+The comparison does not modify stored media or device output. Original-mode
+entries show only their output preview. OpenPaper original-mode fitting and
+physical ink colors remain approximations. Status polling retains the chosen
+preview mode and unsaved forms. Mobile controls wrap rather than hiding buttons.
+
+## Optional voltage-based battery estimate
+
+Every supported model has a **Battery profile**, disabled by default. Enter:
+
+- **Cells in series**: divide total pack voltage by this count. Defaults are four
+  for OpenPaper L/7 and one for Inkplate 6; adjust for your actual hardware.
+  Parallel capacity does not multiply the voltage or the series count.
+- **Cell chemistry**: descriptive metadata, independent of charger settings.
+- **Empty/full voltage per cell** in volts, calibrated or taken from suitable
+  manufacturer data under the device's load. Full must exceed empty. No universal
+  voltage thresholds are silently assumed.
+
+The estimate is linear between those per-cell endpoints and clamped to 0–100%.
+For a synthetic example, a four-cell pack at 5.6 V is 1.4 V per cell; user-selected
+endpoints of 1.2/1.6 V give 50%. Those example endpoints are not a chemistry-specific
+recommendation. Temperature, load, aging, and flat discharge curves (notably NiMH
+and LiFePO₄) limit accuracy. Selecting a chemistry does not install a calibrated
+nonlinear discharge curve. No report means unknown; a retained old report keeps
+its receipt timestamp visible. Capacity in mAh alone cannot infer charge from voltage.
+
+This **Estimated charge from voltage** is separate from **Estimated battery ·
+activity only**, which remains the explicit 100/0% image-fetch watchdog. Configuring
+cells never changes charging, invents voltage, queries sleeping hardware, or resets
+fetch health. Raw voltage and receipt time remain available if estimation is off.
+MQTT discovers a separate charge sensor while estimation is enabled, with estimated
+source/time/chemistry attributes. Voltage/timestamp sensors are discovered for
+Inkplate, configured profiles, or any device that has actually reported voltage.
+
+All authenticated non-browser device GETs may supply the generic
+`X-Display-Battery-Millivolts` or the compatible
+`X-OpenPaper-Battery-Millivolts` header as **total pack millivolts**. ASCII integer
+500–200000 mV values are accepted to support future series packs; malformed/missing
+values, HEAD/browser requests, disabled devices, and invalid credentials cannot
+update telemetry. Do not expose the device token. Current OpenPaper offline
+firmware still needs upstream support to send this header; Inkplate's ESPHome
+example already does. The JSON schema is unchanged and does not echo telemetry.
+
 ## Inkplate 6 with ESPHome
 
 Inkplate 6 has 800 × 600 pixels and **eight total grayscale levels**, including
@@ -78,10 +188,10 @@ for your board pins. Keep your WiFi, OTA, calibrated battery sensor, and PSRAM s
    method from your existing configuration; deep sleep limits the OTA window.
 
 The JSON request supplies `X-Display-Battery-Millivolts: 3870` for a 3.870 V reading.
-The server accepts ASCII integer values from 500 to 20000 mV on authenticated
-non-browser GETs for Inkplate settings/image endpoints, including JSON 304 responses.
+The server accepts ASCII integer values from 500 to 200000 mV on authenticated
+non-browser GETs for any device’s settings/image endpoints, including default-mode JSON 304 responses.
 Missing/invalid headers are ignored without blocking downloads. HEAD, browser
-previews, rejected credentials, and other device models cannot update this telemetry.
+previews and rejected credentials cannot update this telemetry.
 Voltage and receipt time persist, appear in device status, and publish as separate
 **Battery voltage** (V) and **Battery measured at** MQTT discovery sensors. Old values
 retain their measurement timestamp; no chemistry-independent charge percentage is
@@ -283,11 +393,14 @@ are excluded from published state and configuration. Backups contain MQTT creden
 | Image fetch status | `waiting`, `on_schedule`, `overdue`, `paused`, `disabled`, or `no_images` |
 | Last contact | Latest authenticated frame image/settings GET, not browser previews |
 | Last image delivery | Most recent successful HTTP image response, including 304 |
-| Next expected image fetch | Last successful image delivery plus interval, before grace |
+| Next expected image fetch | Next permitted image target before grace, accounting for an optional schedule |
+| Next expected connection | Predicted next device contact from its supplied sleep / latest completed image fetch |
 | Selected image | Name of the currently selected library image; not physical-display acknowledgement |
 | Enabled images | Number of enabled entries in the frame's list |
 | Image interval | Desired image interval in seconds |
 | Image transfer status | Idle/preparing/sending/completed/unchanged/interrupted/failed; latest error is an attribute |
+| Battery voltage / measured at | Raw report and timestamp for supported/configured/reporting devices |
+| Estimated charge from voltage | Optional user-calibrated linear estimate, distinct from the activity indicator |
 
 Diagnostic entities use Home Assistant's diagnostic category. The battery entity
 has `%` and the battery device class so existing dashboards can display it, but
@@ -299,7 +412,7 @@ There is no numeric state class creating long-term battery statistics.
 - After a completed image HTTP response, the estimate is **100%**. A successful
   **304** counts; a settings-only request, HEAD, browser preview, failed token, or
   interrupted image transfer does not reset the image watchdog.
-- If no successful image fetch occurs by **interval + grace**, it becomes **0%**
+- If no successful image fetch occurs by **next permitted image target + grace**, it becomes **0%**
   and **Image update overdue** turns on. The default grace is **120 seconds**,
   adjustable globally from 30 to 3600 seconds. MQTT updates within approximately
   five seconds of a deadline or HTTP state change while connected.
@@ -315,8 +428,9 @@ WiFi/network loss, a powered-off frame, or firmware/configuration issues can all
 produce it. Settings may be requested without a successful image transfer. A 100%
 value says nothing about actual remaining charge and HTTP success does not confirm
 panel refresh. Desired interval changes may not have been applied on a sleeping
-frame yet. Actual voltage/charging data remains a future firmware-telemetry feature;
-this indicator does not pretend to derive that data from HTTP requests.
+frame yet. Voltage is separately supported when firmware reports it (currently the Inkplate
+ESPHome example); current OpenPaper firmware still requires an upstream change.
+The activity indicator does not derive charge from HTTP success.
 
 ### Availability, retained messages, and cleanup
 
@@ -644,14 +758,16 @@ for palettes and methods; this add-on retains the vendored 1.2.0 implementation.
   entry. A long outage never triggers catch-up through missed intervals.
 - A selection pending delivery remains pending for retries, including across
   restarts. Concurrent requests are serialized per device. Successful completion
-  starts the next deadline relative to this delivery.
+  starts the next deadline relative to this delivery, or at the next permitted
+  wall-clock slot when optional scheduling is enabled.
 - Repeated early GETs return the same image. Matching `If-None-Match` produces
   `304`; a different due image is selected before checking the validator so an old
   ETag cannot freeze the slideshow. Identical-byte entries still count as separate
   entries even when no display refresh is needed.
 - HEAD and settings requests never advance playback. The frame supports settings
   `Last-Modified`; this value changes when generated JSON bytes change, including
-  a base URL change or a changed JSON contract after an add-on update.
+  a base URL change or a changed JSON contract after an add-on update. Active
+  schedules always return fresh JSON 200 because timeout is a countdown.
 - Pause retains the selection. Next, previous, and show-next change selection
   immediately on the server, without waking the frame. Previous moves back within
   the current effective queue and stops at its beginning. Manually choosing an
@@ -685,7 +801,8 @@ on each device page:
   download/refresh even when its cached validator says unchanged.
 - Save changed settings here and wake the frame to apply them. Firmware checks
   the remote JSON before the image on every wake. Double reset forces the image,
-  not an unconditional JSON reload; a `304` for unchanged settings is expected.
+  not an unconditional JSON reload; a `304` for unchanged default-mode settings is expected. Active schedules
+  return fresh JSON 200 to update the remaining sleep duration.
 - Choose Next image/Show next here before waking the frame if you want another
   list entry. The add-on cannot remotely wake a sleeping device.
 
@@ -751,7 +868,7 @@ exercise upload, the real full-resolution optimizer, saving a variant, device
 settings, original/BMP switching at one URL, and mobile layout. The rotated
 black/white crop with manual contrast and Atkinson processing is also checked
 against actual saved BMP pixel codes. Landscape native pixels are rotated back
-and compared exactly with the preview. Current local result: 68 Python tests, eleven JavaScript optimizer/geometry checks,
+and compared exactly with the preview. Historical 0.3.0 result: 68 Python tests, eleven JavaScript optimizer/geometry checks,
 and the Chromium workflow pass. Hash-verified Linux ARM64 and AMD64 runtime wheels
 are available for the pinned Python 3.13/Debian base; this is not a container build.
 
@@ -815,3 +932,15 @@ assigns it, checks immediate picker filtering, reads voltage, and verifies corre
 delivery/mobile layout. Existing OpenPaper, MQTT, and interrupted-transfer browser
 checks remain in the suite. Firmware compilation, real HA installation, and actual
 Inkplate display/battery acceptance are separate checks.
+
+### Scheduling, comparison, and battery validation (0.5.0)
+
+120 Python tests include local anchors, uneven/multi-day phases, overnight and
+daytime quiet hours, DST gaps/folds, blocked grids, dynamic JSON, default-mode
+304 retention, watchdog independence, next-connection timestamps, calibrated pack
+voltage, unknown/clamped charge, MQTT metadata, and matching source-crop comparisons
+for every model/orientation. Tests run with PYTHONTZPATH empty to exercise only the
+pinned timezone package. Browser checks cover real hover, keyboard, touch controls,
+complete-image dimensions, schedule/battery save/error/draft behavior, next-contact
+cards, and desktop/mobile spacing. Physical firmware timing and calibrated cell
+charge accuracy remain hardware acceptance work.

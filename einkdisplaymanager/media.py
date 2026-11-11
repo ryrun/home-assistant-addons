@@ -226,6 +226,34 @@ def variant_thumbnail(data, profile_id, mounting):
     return device_thumbnail(data, mounting == 'landscape', prepared=True, profile_id=profile_id)
 
 
+def composition_thumbnail(data, recipe, profile_id, mounting):
+    """Original colors using the saved crop, before tone changes and dithering."""
+    from profiles import view_size
+    profile = display_profile(profile_id)
+    composition = recipe.get('orientation', profile['native_orientation'])
+    size = view_size(profile_id, composition)
+    with Image.open(io.BytesIO(data)) as source:
+        image = editor_image(source)
+    turns = {90: Image.Transpose.ROTATE_270, 180: Image.Transpose.ROTATE_180, 270: Image.Transpose.ROTATE_90}
+    if recipe.get('rotation') in turns:
+        image = image.transpose(turns[recipe['rotation']])
+    if recipe.get('fit') == 'cover':
+        def focus(key):
+            value = recipe.get(key, 50)
+            return max(0, min(100, value)) / 100 if type(value) in (int, float) else 0.5
+        image = ImageOps.fit(image, size, Image.Resampling.LANCZOS, centering=(focus('focusX'), focus('focusY')))
+    else:
+        image = ImageOps.pad(image, size, Image.Resampling.LANCZOS, color='white')
+    if composition != profile['native_orientation']:
+        image = image.transpose(Image.Transpose.ROTATE_90)
+    if mounting != profile['native_orientation']:
+        image = image.transpose(Image.Transpose.ROTATE_270)
+    image.thumbnail((640, 640), Image.Resampling.LANCZOS)
+    output = io.BytesIO()
+    image.save(output, 'JPEG', quality=90)
+    return output.getvalue()
+
+
 def device_thumbnail(data, landscape=False, prepared=False, upside_down=False, profile_id='openpaper_l'):
     """Preview native pixels in mounting orientation; original delivery is approximate."""
     with Image.open(io.BytesIO(data)) as source:

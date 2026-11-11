@@ -36,3 +36,37 @@ dialog::backdrop{background:#13223899;backdrop-filter:none}
 /* A notice lives inside the active modal so it remains above the backdrop. */
 #notice{position:fixed;inset:16px 16px auto auto;width:min(560px,calc(100vw - 32px));max-height:30vh;overflow:auto;margin:0;z-index:10;overflow-wrap:anywhere}
 dialog>#notice{position:relative;inset:auto;flex:none;width:auto;max-height:25vh;margin:12px 16px 0}
+
+/* Native-ratio comparison: both complete images share one raster, without a crop. */
+.comparison-block{margin-bottom:18px;min-width:0}
+.comparison-stage{display:grid;place-items:center;padding:12px;background:var(--bg);border:1px solid var(--line);border-radius:6px}
+.comparison-preview{--preview-ratio:.75;position:relative;width:min(100%,calc(55vh * var(--preview-ratio)));aspect-ratio:var(--preview-ratio);min-width:0;background:#fff;overflow:hidden;outline-offset:4px}
+.comparison-preview:not(:has(img)){min-height:160px;display:grid;place-items:center}
+.comparison-preview img{display:block;position:absolute;inset:0;width:100%;height:100%;max-width:none;max-height:none;object-fit:contain;border:0;box-shadow:none}
+.comparison-preview.has-comparison .preview-original{clip-path:polygon(0 0,100% 0,0 100%)}
+.comparison-preview.has-comparison .preview-output{clip-path:polygon(100% 0,100% 100%,0 100%)}
+.comparison-preview[data-mode=original] .preview-original,.comparison-preview[data-mode=output] .preview-output{clip-path:none;z-index:1}
+.comparison-preview[data-mode=original] .preview-output,.comparison-preview[data-mode=output] .preview-original{visibility:hidden}
+.comparison-label{position:absolute;z-index:2;padding:3px 7px;border:1px solid #ffffff66;border-radius:3px;background:#1e2d44dd;color:#fff;font:10px/1.4 var(--utility);pointer-events:none}
+.label-original{top:8px;left:8px}.label-output{bottom:8px;right:8px}
+.comparison-preview[data-mode=original] .label-output,.comparison-preview[data-mode=output] .label-original{display:none}
+.comparison-controls{display:flex;justify-content:center;flex-wrap:wrap;gap:6px;margin-top:10px}
+.comparison-controls button[aria-pressed=true]{border-color:var(--blue);background:var(--pale);color:var(--blue)}
+.device-card .comparison-preview{width:min(100%,calc(250px * var(--preview-ratio)))}
+.device-times{display:grid;gap:10px;margin:0 0 20px;padding-top:12px;border-top:1px solid var(--line);font-size:12px}
+.device-times dt{color:var(--muted)}.device-times dd{margin:3px 0 0;font:12px/1.5 var(--utility);overflow-wrap:anywhere}
+.detail-layout>div,.device-card,.field{min-width:0}
+.device-card .card-meta{align-items:flex-start;gap:12px}.device-card h2{overflow-wrap:anywhere}
+.device-card .actions{margin-top:auto}.device-card{display:flex;flex-direction:column}
+.device-option-group{display:grid;gap:16px;min-width:0;margin:12px 0 0;padding:18px 0 0;border:0;border-top:1px solid var(--line)}
+.device-option-group legend{padding:0 8px 0 0;font-size:15px;font-weight:600;color:var(--ink)}
+.device-option-group legend span{margin-left:6px;font-size:11px;font-weight:400;color:var(--muted)}
+.device-option-group .help{margin:0}.form-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.option-details{font-size:12px}.option-details[open] summary{margin-bottom:12px}
+.check{align-items:flex-start;gap:9px}.check input{flex-shrink:0;margin-top:4px}
+.facts{gap:18px 16px}.facts dt{line-height:1.5}.facts dd{line-height:1.6}
+#device-form .save-status{margin:0}.panel>h2{margin-bottom:20px}
+.frame-help{margin-top:18px;margin-bottom:18px}.frame-help[open]>summary{margin-bottom:14px}
+[hidden]{display:none!important}
+@media(max-width:720px){.page-head{flex-wrap:wrap;gap:14px}.panel{padding:20px}.panel .page-head{margin-bottom:20px}.queue li{flex-wrap:wrap}.queue-controls{margin-left:auto;max-width:none;gap:5px}.queue-controls button{min-height:30px;min-width:30px}.form-pair{grid-template-columns:1fr}.comparison-stage{padding:8px}.facts{gap:18px 12px}}
+@media(max-width:720px){.queue li{display:grid;grid-template-columns:42px minmax(0,1fr) 24px;gap:10px}.queue .entry-text{grid-column:2;grid-row:1}.queue li>img{grid-column:1;grid-row:1}.queue li>.check{grid-column:3;grid-row:1}.queue-controls{grid-column:2/-1;justify-content:flex-start;margin-left:0}.queue li>p{grid-column:1/-1}}

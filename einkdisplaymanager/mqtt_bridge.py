@@ -1,4 +1,4 @@
-"""MQTT discovery and an explicitly synthetic image-fetch battery indicator."""
+"""MQTT discovery with separate activity health and calibrated voltage estimates."""
 
 import asyncio
 import contextlib
@@ -12,6 +12,8 @@ import time
 from datetime import UTC, datetime
 
 import aiomqtt
+import battery
+import scheduling
 from profiles import display_profile
 from storage import new_id
 
@@ -27,14 +29,16 @@ ENTITIES = {
     'last_contact': ('sensor', 'Last contact', {'device_class': 'timestamp'}),
     'last_image_delivery': ('sensor', 'Last image delivery', {'device_class': 'timestamp'}),
     'next_expected_image': ('sensor', 'Next expected image fetch', {'device_class': 'timestamp'}),
+    'next_connection': ('sensor', 'Next expected connection', {'device_class': 'timestamp'}),
     'selected_image': ('sensor', 'Selected image', {'icon': 'mdi:image'}),
     'image_count': ('sensor', 'Enabled images', {'icon': 'mdi:image-multiple'}),
     'update_interval': ('sensor', 'Image interval', {'device_class': 'duration', 'unit_of_measurement': 's'}),
     'transfer_status': ('sensor', 'Image transfer status', {'icon': 'mdi:download-network'}),
 }
-INKPLATE_ENTITIES = {
+VOLTAGE_ENTITIES = {
     'battery_voltage': ('sensor', 'Battery voltage', {'device_class': 'voltage', 'unit_of_measurement': 'V', 'state_class': 'measurement'}),
     'battery_measured_at': ('sensor', 'Battery measured at', {'device_class': 'timestamp'}),
+    'charge_estimate': ('sensor', 'Estimated charge from voltage', {'device_class': 'battery', 'unit_of_measurement': '%'}),
 }
 
 
@@ -89,6 +93,9 @@ def fetch_health(device, watch, now, grace):
     served = state.get('last_served_at')
     anchor = max(watch['started_at'], served or 0)
     expected = anchor + device['interval']
+    if scheduling.active(device):
+        expected = state.get('expected_image_at') if served and served >= watch['started_at'] else None
+        expected = expected or scheduling.next_due(device, anchor)
     overdue_at = expected + grace
     overdue = now > overdue_at
     return {'frame_status': 'overdue' if overdue else 'on_schedule' if served else 'waiting',
@@ -171,9 +178,12 @@ class MQTTBridge:
         voltage = telemetry.get('battery_millivolts')
         return {key: health[key] for key in ('frame_status', 'battery_estimate', 'update_overdue')} | {
             'battery_voltage': voltage / 1000 if voltage is not None else None,
+            'charge_estimate': battery.status(device, telemetry)['estimated_percent'],
+            'charge_attributes': {**battery.status(device, telemetry), 'measurement_time': iso(telemetry.get('measured_at'))},
             'battery_measured_at': iso(telemetry.get('measured_at')),
             'last_contact': iso(max(state.get('last_image_request') or 0, state.get('last_settings_request') or 0)),
             'last_image_delivery': iso(state.get('last_served_at')), 'next_expected_image': iso(health['expected_at']),
+            'next_connection': iso(scheduling.view(device, time.time())['next_connection_at']),
             'selected_image': image_name, 'image_count': sum(e['enabled'] for e in device['entries']),
             'update_interval': device['interval'], 'transfer_status': self.manager.diagnostics.transfer(device['id'])['status'],
             'battery_attributes': {'estimated': True, 'source': 'image_fetch_watchdog',
@@ -194,7 +204,9 @@ class MQTTBridge:
             messages[state_topic] = (payload, True)
             if not config['discovery']:
                 continue
-            entities = ENTITIES | (INKPLATE_ENTITIES if device['profile'] == 'inkplate_6' else {})
+            voltage_supported = device['profile'] == 'inkplate_6' or battery.config(device)['enabled'] or self.manager.telemetry(identifier).get('measured_at')
+            entities = ENTITIES | ({key: value for key, value in VOLTAGE_ENTITIES.items()
+                                  if key != 'charge_estimate' or battery.config(device)['enabled']} if voltage_supported else {})
             for key, (domain, name, extra) in entities.items():
                 discovery = {'name': name, 'unique_id': f'einkdisplaymanager_{self.instance}_{identifier}_{key}',
                              'state_topic': state_topic, 'value_template': '{{ value_json.' + key + ' }}',
@@ -207,8 +219,10 @@ class MQTTBridge:
                     discovery['entity_category'] = 'diagnostic'
                 if key == 'update_overdue':
                     discovery['value_template'] = "{{ 'ON' if value_json.update_overdue else 'OFF' }}"
-                if key in INKPLATE_ENTITIES:
+                if key in VOLTAGE_ENTITIES or key == 'next_connection':
                     discovery['value_template'] = '{{ value_json.' + key + " if value_json." + key + " is not none else 'unknown' }}"
+                if key == 'charge_estimate':
+                    discovery.update(json_attributes_topic=state_topic, json_attributes_template='{{ value_json.charge_attributes | tojson }}')
                 if key in ('battery_estimate', 'transfer_status'):
                     discovery.update(json_attributes_topic=state_topic,
                                      json_attributes_template='{{ value_json.' + ('battery_attributes' if key == 'battery_estimate' else 'transfer_attributes') + ' | tojson }}')

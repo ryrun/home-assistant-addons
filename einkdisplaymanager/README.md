@@ -12,6 +12,12 @@ English management interface through HA Ingress.
 - Publish device status through MQTT and Home Assistant discovery, including an
   explicitly estimated 0/100% battery indicator based on overdue image fetches.
 - Correct upside-down mounting per device without editing shared variants.
+- Optionally align refreshes to a local anchor time and skip daily quiet hours.
+  Device cards show the next expected connection; JSON supplies the remaining sleep.
+- Compare the original composition and prepared output diagonally, with hover,
+  keyboard, and touch controls; previews retain the complete image and native ratio.
+- Configure optional cells-in-series and calibrated per-cell voltage endpoints for
+  a separate, explicitly approximate charge estimate.
 - Play in order, optionally shuffling after each completed cycle. A sleeping frame
   does not cause images to be skipped in the background.
 - Choose compatible original delivery or a prepared model-specific 4-bit BMP per entry
@@ -21,7 +27,7 @@ English management interface through HA Ingress.
   and PNG images, sleep for the configured interval, and report measured battery voltage.
 - Hide already assigned motifs in each device’s Add images picker.
 
-**Experimental 0.4.0.** Automated and browser testing are separate from real-device
+**Experimental 0.5.0.** Automated and browser testing are separate from real-device
 acceptance. Installation on Home Assistant Green and display quality on a physical
 frame still need verification. The new OpenPaper 7 profile is validated in software;
 physical acceptance on its 7.3-inch Spectra 6 hardware remains pending. Inkplate 6

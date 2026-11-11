@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.4.0**; locally tested, with Green,
+Status: experimental implementation **0.5.0**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -100,8 +100,8 @@ for this add-on must be in **English**, consistent with the other add-ons.
 
 V1 excludes manufacturer-cloud accounts, automatic firmware flashing, remote
 wake-up of sleeping frames, arbitrary dashboard screenshots, and a general photo
-editor. A custom integration, reusable shared playlists, and fixed wall-clock
-playback remain outside the current scope. Optional MQTT discovery is implemented
+editor. A custom integration and reusable shared playlists remain outside the
+current scope. Optional wall-clock anchors and quiet hours are implemented since 0.5.0. Optional MQTT discovery is implemented
 since 0.2.0; an add-on does not automatically provide HA entities on its own.
 
 ## 2. Interface and user workflow
@@ -258,8 +258,9 @@ No filename extension is needed. The firmware identifies JPEG (`FF D8`) and BMP
 (`BM`) from file bytes in `src/main.cpp`, not from the URL extension. Send the
 matching `Content-Type`, accurate length, and content-specific `ETag`; update
 validators when actual served bytes change. Keep settings `Last-Modified` stable
-until their effective content changes. Do not put changing request timestamps in
-settings responses or use request time as a content validator.
+until their effective content changes in default interval mode. Optional schedules
+return a changing timeout countdown with no-store and unconditional JSON 200; image
+validators remain content-based. Request timestamps are not added as JSON fields.
 
 Firmware URLs are limited to **128 characters**. Validate both complete generated
 URLs, including scheme, hostname, port, path, encoded IDs, and credentials. Use
@@ -273,7 +274,7 @@ supported settings, not the manager's image list/shuffle metadata:
 | JSON field | Meaning / documented constraint |
 |---|---|
 | `downloadUrl` | Fixed image endpoint for this device |
-| `timeout` | Desired wake interval in seconds, 60–2592000 |
+| `timeout` | Desired interval or remaining sleep to the next permitted target, 60–2592000 seconds |
 | `motionWakeup` | Optional movement-triggered wake-up |
 | `autoRotation` | Optional sensor-based rotation; coordinate with generated image orientation |
 | `chargerMode` | NiMH charging setting; never enable automatically or infer battery chemistry |
@@ -784,3 +785,51 @@ pixel equivalence, edited assignments, measured-voltage display, fixed-URL
 correction, per-device motif filtering, and mobile layout. Live stalled-transfer
 verification still passes. Physical Inkplate/Green acceptance and a complete
 ESPHome firmware build are pending.
+
+
+## 13. Optional device scheduling, comparison, and battery profiles (0.5.0)
+
+Implemented independently of the planned dynamic-image renderer:
+
+- Per-device interval plus optional local anchor time, reference date, and IANA
+  zone. Daily 03:00 stays at local 03:00 through DST; six-hour slots are 03/09/15/21.
+  Uneven and multi-day intervals retain a continuous grid. Missing local slots are
+  skipped and repeated autumn slots use their first occurrence. Pinned timezone
+  data is included in both architecture builds.
+- Independent daily quiet hours, including overnight. Anchored slots in quiet
+  hours are skipped; relative targets are moved to the end of the window. Invalid
+  grids that suppress every anchor are rejected. Automatic playback does not
+  advance during quiet hours or catch up by consuming skipped entries. First setup,
+  pending retries, and explicit manual selections can still deliver output.
+- Existing JSON schema with a dynamic timeout, bounded by the firmware's 60-second
+  minimum and 30-day maximum. Schedule-enabled JSON is always fresh 200/no-store,
+  including conditional requests; default interval JSON retains its 304 behavior.
+  Image ETags remain unchanged. No new response sleep header is introduced.
+- Separate stored expected contact and successful-image target timestamps. Cards
+  show last contact/next expected connection; the MQTT image watchdog uses the next
+  permitted image target plus grace, and JSON-only contacts do not restore it.
+  Settings affect a sleeping frame at its next JSON check, not immediately. Timed
+  physical refresh has firmware/transfer/panel latency and needs real acceptance.
+- Complete, aspect-correct device previews without artificial cropping. Original
+  composition follows the saved rotation/crop/focus and mounting before color
+  optimization. The diagonal Original/Variant comparison supports temporary hover
+  expansion, explicit buttons, keyboard, and touch. UI spacing, form groups, mobile
+  wrapping, and forecast timestamps were reviewed together.
+- Optional generic battery configuration: cells in series, descriptive chemistry,
+  and user-calibrated empty/full voltage per cell. Divide reported total pack volts
+  by series count, interpolate linearly, and clamp to 0–100%. No reading means
+  unknown; old readings retain their timestamp. Chemistry alone does not select a
+  calibrated discharge curve. This is an approximate voltage estimate, especially
+  limited for flat NiMH/LiFePO4 curves, and never changes charging.
+- Keep measured voltage, voltage-derived charge, and the synthetic 100/0% activity
+  signal distinct in the UI and MQTT. Profiles work for all current/future devices;
+  receive authenticated generic/OpenPaper millivolt headers for any model. Current
+  OpenPaper firmware still does not send them; the Inkplate example does.
+
+Local coverage: 120 Python tests, including schedule/DST/health/JSON/voltage tests
+and source-composition checks for all three models and both mountings; browser
+checks exercise hover/keyboard/touch, dimensions, form drafts/errors, forecasts,
+and responsive layouts. No physical timing, charge-curve, Green installation, or
+container-build acceptance is implied. The dynamic-image plan in section 12 stays
+future work and must inherit these device schedules without coupling its own
+generation intervals to device polls.
