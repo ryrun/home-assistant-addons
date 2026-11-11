@@ -47,7 +47,7 @@ from profiles import (
 )
 from storage import Store, new_id
 
-VERSION = '0.5.1'
+VERSION = '0.5.2'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -377,8 +377,15 @@ class Manager:
             profile = display_profile(recipe.get('profile', 'openpaper_l'))
             recipe.setdefault('profile', profile['id'])
             recipe.setdefault('orientation', profile['native_orientation'])
+            if 'invert' in recipe:
+                boolean(recipe['invert'])
+                if recipe['invert'] and profile['id'] != 'inkplate_6':
+                    raise ValueError('Tone inversion is available for Inkplate 6 variants.')
+            if profile['id'] == 'inkplate_6' and recipe.get('palette', 'gray8') not in ('gray8', 'grayscale'):
+                raise ValueError('Choose eight grayscale levels or black and white for Inkplate 6.')
             async with self.workers:
-                await asyncio.to_thread(validate_variant, data, profile['id'])
+                await asyncio.to_thread(validate_variant, data, profile['id'],
+                                        monochrome=profile['id'] == 'inkplate_6' and recipe.get('palette') == 'grayscale')
                 metadata, thumb = await asyncio.to_thread(inspect_image, data)
             parent_id = request.headers.get('X-Parent-Variant')
             if parent_id and self.store.get('variant', parent_id)['asset_id'] != asset_id:

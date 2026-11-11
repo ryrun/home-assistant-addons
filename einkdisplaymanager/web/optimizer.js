@@ -63,7 +63,8 @@ self.onmessage = async ({data}) => {
     const grayPalette=levels.map((value,i)=>({name:`gray${i}`,color:'#'+value.toString(16).padStart(2,'0').repeat(3)}));
     const basePalette=gray?grayPalette:recipe.palette==='spectra6'?spectra6Palette:recipe.palette==='aitjcize'?aitjcizeSpectra6Palette:spectra6OriginalPalette;
     let palette=basePalette.map(p=>({...p}));
-    if(recipe.palette==='grayscale') palette=palette.filter(p=>p.name==='black'||p.name==='white');
+    if(recipe.palette==='grayscale') palette=palette.filter(p=>gray?p.name==='gray0'||p.name==='gray7':p.name==='black'||p.name==='white');
+    const invert=gray&&recipe.invert===true;
     const intent=recipe.intent||(recipe.palette==='vivid'?'vivid':'natural');
     let suggestion=null;
     if(recipe.automatic) {
@@ -84,8 +85,9 @@ self.onmessage = async ({data}) => {
         const d=(pixels.data[p]-color.rgb[0])**2+(pixels.data[p+1]-color.rgb[1])**2+(pixels.data[p+2]-color.rgb[2])**2;
         if(d<distance){distance=d;best=color;}
       }
-      indices[i]=best.code;
-      const rgb=gray?[best.code,best.code,best.code]:deviceRGB[best.code]; pixels.data[p]=rgb[0];pixels.data[p+1]=rgb[1];pixels.data[p+2]=rgb[2];pixels.data[p+3]=255;
+      const value=invert?255-best.code:best.code;
+      indices[i]=value;
+      const rgb=gray?[value,value,value]:deviceRGB[value]; pixels.data[p]=rgb[0];pixels.data[p+1]=rgb[1];pixels.data[p+2]=rgb[2];pixels.data[p+3]=255;
     }
     ctx.putImageData(pixels,0,0);
     // A view mounted clockwise from native needs counter-clockwise transport.
@@ -106,7 +108,7 @@ self.onmessage = async ({data}) => {
       output=new Uint8Array(await (await nativeCanvas.convertToBlob({type:'image/png'})).arrayBuffer());mime='image/png';
     }else output=bmp(native,W,H);
     const preview=await canvas.convertToBlob({type:'image/png'});
-    self.postMessage({bmp:output.buffer,mime,preview,recipe:{...recipe,intent,automaticAnalysis:analysis,orientation:mounting,nativeRotation:rotateTransport?270:0,nativeWidth:W,nativeHeight:H,viewWidth:viewW,viewHeight:viewH,resolvedOptions:options,optimizer:'epdoptimize@1.2.0',profile:profile.id,encoder:6}},[output.buffer]);
+    self.postMessage({bmp:output.buffer,mime,preview,recipe:{...recipe,intent,invert,automaticAnalysis:analysis,orientation:mounting,nativeRotation:rotateTransport?270:0,nativeWidth:W,nativeHeight:H,viewWidth:viewW,viewHeight:viewH,resolvedOptions:options,optimizer:'epdoptimize@1.2.0',profile:profile.id,encoder:7}},[output.buffer]);
   } catch(error) { self.postMessage({error:`Image optimization failed while ${stage}. ${error.message||'Close other image editors and try again.'}`}); }
   finally { image?.close(); }
 };

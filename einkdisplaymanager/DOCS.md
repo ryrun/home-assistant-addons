@@ -96,9 +96,9 @@ Device cards and the detail preview preserve the complete native viewing ratio;
 there is no fixed-height crop or artificial picture-frame border. A saved variant
 shows a diagonal split: **Original** uses the same source rotation, fit/crop, focus,
 and mounting before tone optimization; **Variant** uses the delivered output.
-Hover the upper-left triangle for the full original and the lower-right for the
-full variant. Leaving restores the selected mode. **Split / Original / Variant**
-buttons work on touch screens and with the keyboard. On the focused preview,
+**Split / Original / Variant** buttons select the view explicitly. Moving the
+pointer across the preview does not change it. The buttons also work on touch
+screens and with the keyboard. On the focused preview,
 Left/Right choose an image and Escape restores the split.
 
 The comparison does not modify stored media or device output. Original-mode
@@ -158,8 +158,14 @@ mounting. Native delivery stays 800 × 600 in either case. Portrait composition 
   originals remain model-specific; prepare a fresh Inkplate variant from the source.
 - Saved Inkplate variants are full-resolution PNG, opaque, with equal RGB channels
   at levels `0, 36, 73, 109, 146, 182, 219, 255`. The server validates decoded pixels.
-  The editor offers the eight-level palette, tone optimization, RGB/LAB matching,
-  and all existing dithering methods. Saturation is hidden for this monochrome target.
+  In **Colors**, choose **Inkplate · eight grayscale levels** or **Black and white**.
+  Black-and-white PNGs contain only `0` and `255`; the server checks that restriction
+  as well as opacity and native dimensions. Both palettes offer tone optimization,
+  RGB/LAB matching, and the existing dithering choices. Saturation stays hidden.
+  **Invert tones** reverses the final quantized output, including margins: black
+  becomes white and each gray level becomes its complement. It does not run another
+  dithering pass. Palette and inversion are saved in the variant recipe and restored
+  by Edit. Saving changes retains the same variant ID and all device assignments.
 - Previews use actual delivered pixels, including per-device 180° correction.
   Original conversions share the bounded RAM delivery cache (8 entries / 32 MiB);
   cache keys include source hash, profile, mounting, and correction. Variants are
@@ -179,7 +185,12 @@ for your board pins. Keep your WiFi, OTA, calibrated battery sensor, and PSRAM s
    `inkplate_6_v2`). Set display ID `inkplate_display`, `greyscale: true`,
    `partial_updating: false`, `rotation: 0`, and `update_interval: never`.
    Its drawing lambda is `it.image(0, 0, id(manager_image));`. Grayscale mode does
-   not support partial refresh. Do not add another scale/rotation or on-frame layout.
+   not support partial refresh. For a black-and-white configuration use
+   `greyscale: false`, prepare a **Black and white** variant in the library, and
+   assign that saved variant to the device. Keep the example’s image type
+   `GRAYSCALE`: its PNG contains only black/white values in that case. Original
+   delivery remains eight-level; it is not a monochrome conversion path.
+   Do not add another scale/rotation or on-frame layout.
 3. The example references your calibrated polling sensor `battery_voltage` in
    **volts**. Rename those references to your existing sensor ID. To omit telemetry,
    remove the sensor update and request-header mapping; image fetching still works.
@@ -968,3 +979,18 @@ Local Markdown links and add-on YAML were checked. Full ESPHome firmware compila
 is still pending: the temporary validation environment could not download the
 ESPHome package before its network timeout. The example has source/syntax review;
 it is not described as a successfully built or physically tested firmware.
+
+### Inkplate tone modes and explicit comparison (0.5.2)
+
+Variants remain persistent files in `/data/media`, with metadata and recipes in
+SQLite. Preparing black-and-white or inverted output writes the finished PNG;
+normal requests read it without rerunning the optimizer. Existing per-device 180°
+correction and its bounded RAM cache are unchanged. This release does not move
+variants into RAM or implement the planned dynamic images.
+
+128 Python tests, 14 JavaScript checks, and the Chromium workflow cover strict
+monochrome validation, stored palette/inversion flags, edited assignments, PNG
+delivery, all eight tones / only two tones on full-resolution ramps, exact inverse
+pixels with automatic tone/dithering options, native portrait pixel equivalence,
+and button/keyboard/touch comparison with no hover switching. Physical display
+quality and the complete ESPHome firmware build still need external acceptance.

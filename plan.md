@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.5.1**; locally tested, with Green,
+Status: experimental implementation **0.5.2**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -158,7 +158,7 @@ images to a device; image lists belong directly to devices in v1.
 |---|---|---|
 | OpenPaper variant | Saved, validated model-native 4-bit BMP (L 1200 × 1600; Seven 800 × 480) with the correct device color codes | Add-on prepares output; frame does not re-dither this compatible output |
 | OpenPaper original | Original uploaded file, byte-for-byte, if supported | Firmware decodes, fits, and dithers as required by that input format |
-| Inkplate variant | Validated 800 × 600 eight-level grayscale PNG | Add-on prepares crop/tones/dither; ESPHome decodes and draws without resizing |
+| Inkplate variant | Validated 800 × 600 PNG in eight gray levels or black and white, optionally inverted | Add-on prepares crop/tones/dither; ESPHome decodes and draws without resizing |
 | Inkplate original source | Explicitly fitted/quantized PNG delivery copy | Add-on fits the original into the chosen mounting; stored source stays unchanged |
 
 For OpenPaper, selecting an original must not force the user to optimize it first. Conversely,
@@ -859,3 +859,25 @@ generation intervals to device polls.
 - Full ESPHome firmware compilation and physical frame/Green/container acceptance
   remain outstanding. The temporary ESPHome package download timed out during
   review; no firmware build success is claimed. Dynamic images remain planned.
+
+
+## 15. Explicit comparisons and Inkplate tone variants (0.5.2)
+
+- Remove hover-driven image switching. Keep the diagonal split and explicit
+  Split / Original / Variant buttons, keyboard shortcuts, and touch operation.
+- Inkplate 6 variant preparation supports the eight-level palette and a strict
+  black/white palette. Keep existing tone controls and dithering; optional Invert
+  tones reverses the final quantized levels exactly without a second dither pass.
+- Persist palette and inversion with the variant recipe; Edit restores both and
+  Save changes retains its ID and assignments. Native PNG dimensions, portrait
+  transport rotation, previews, and per-device 180° correction remain compatible.
+- ESPHome greyscale: false uses prepared black-and-white variants. Its image
+  decoder can remain GRAYSCALE because these PNGs contain only 0/255. Original
+  mode continues to fit sources to eight levels; do not describe it as monochrome.
+- Stored variants remain finished files under persistent /data/media. Do not move
+  the library into RAM; only existing delivery transformations use the bounded
+  cache. Planned dynamic images keep their separate RAM-only generation design.
+- Software evidence: 128 Python and 14 JavaScript tests plus real Chromium worker
+  and UI checks for gray/BW pixel sets, exact inversion, saved edit flags, native
+  portrait pixels, unchanged assignments, and stable comparison on pointer moves.
+  Physical grayscale/monochrome rendering and full ESPHome build remain pending.

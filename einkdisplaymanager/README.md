@@ -14,7 +14,7 @@ English management interface through HA Ingress.
 - Correct upside-down mounting per device without editing shared variants.
 - Optionally align refreshes to a local anchor time and skip daily quiet hours.
   Device cards show the next expected connection; JSON supplies the remaining sleep.
-- Compare the original composition and prepared output diagonally, with hover,
+- Compare the original composition and prepared output diagonally, with buttons,
   keyboard, and touch controls; previews retain the complete image and native ratio.
 - Configure optional cells-in-series and calibrated per-cell voltage endpoints for
   a separate, explicitly approximate charge estimate.
@@ -25,9 +25,12 @@ English management interface through HA Ingress.
   grayscale PNG for Inkplate 6 (800 × 600).
 - Use the included ESPHome example to fetch OpenPaper-compatible settings JSON
   and PNG images, sleep for the configured interval, and report measured battery voltage.
+- Prepare Inkplate 6 variants in eight grayscale levels or black and white, with
+  optional tone inversion saved in the recipe. Use black-and-white variants for
+  ESPHome `greyscale: false`.
 - Hide already assigned motifs in each device’s Add images picker.
 
-**Experimental 0.5.1.** Automated and browser testing are separate from real-device
+**Experimental 0.5.2.** Automated and browser testing are separate from real-device
 acceptance. Installation on Home Assistant Green and display quality on a physical
 frame still need verification. The new OpenPaper 7 profile is validated in software;
 physical acceptance on its 7.3-inch Spectra 6 hardware remains pending. Inkplate 6

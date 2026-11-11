@@ -4,6 +4,10 @@
 #   inkplate_display: your display, greyscale: true, partial_updating: false,
 #                    rotation: 0, update_interval: never
 #                    lambda: it.image(0, 0, id(manager_image));
+# For a monochrome panel configuration, use greyscale: false and assign only
+# variants prepared with Colors: Black and white in the Media Library. Keep
+# image type GRAYSCALE below: the PNG then contains only 0/255 values. Original
+# delivery remains eight-level; use a saved black-and-white variant instead.
 #   battery_voltage: your calibrated, polling battery sensor in VOLTS
 #                    (rename the references below if your sensor has another ID)
 # secrets.yaml: eink_settings_url: "<copy this device's Settings JSON URL>"

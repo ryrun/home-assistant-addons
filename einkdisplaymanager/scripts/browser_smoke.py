@@ -401,6 +401,8 @@ async def main():
                     assert await page.locator('#target-profile').input_value() == 'profile:openpaper_7'
                     assert await page.locator('#dither').input_value() == 'stucki'
                     await page.locator('#orientation').select_option('portrait')
+                    assert await page.locator('#invert-control').is_hidden()
+                    assert await page.locator('#invert').is_disabled()
                     await page.get_by_role('button',name='Update full-resolution preview').click()
                     await page.locator('#save-variant:not([disabled])').wait_for(timeout=90000)
                     small_preview = base64.b64decode(await page.locator('#image-preview').evaluate('(img)=>{const c=document.createElement("canvas");c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext("2d").drawImage(img,0,0);return c.toDataURL("image/png").split(",")[1];}'))
@@ -460,7 +462,7 @@ async def main():
                     await page.locator(f'[data-prepare-asset="{mountain_asset}"]').click()
                     assert (await page.locator('#target-profile').input_value()).startswith('device:')
                     assert await page.locator('#palette').input_value()=='gray8'
-                    assert await page.locator('#palette option').count()==1
+                    assert await page.locator('#palette option').count()==2
                     assert await page.locator('#saturation').is_hidden()
                     assert 'Eight grayscale levels' in await page.locator('#output-dimensions').inner_text()
                     await page.get_by_role('button',name='Update full-resolution preview').click()
@@ -476,10 +478,30 @@ async def main():
                     ink_image=Image.open(io.BytesIO(ink_native))
                     assert len(set(ink_image.convert('L').tobytes()))>=3
                     # A full ramp must retain all eight levels, including both endpoints.
-                    ramp=await page.evaluate('''async()=>{const c=new OffscreenCanvas(600,800),ctx=c.getContext('2d');for(let x=0;x<600;x++){const v=Math.round(x*255/599);ctx.fillStyle=`rgb(${v},${v},${v})`;ctx.fillRect(x,0,1,800);}const {optimizeImage}=await import('./static/optimizer-client.js');const result=await optimizeImage({source:await c.convertToBlob(),recipe:{profile:'inkplate_6',orientation:'portrait',fit:'contain',rotation:0,palette:'gray8',dither:'none',matching:'rgb',automatic:false},signal:new AbortController().signal});const b=await createImageBitmap(result.preview),out=new OffscreenCanvas(600,800),o=out.getContext('2d');o.drawImage(b,0,0);const levels=new Set();const px=o.getImageData(0,0,600,800).data;for(let i=0;i<px.length;i+=4)levels.add(px[i]);return {mime:result.mime,levels:[...levels].sort((a,b)=>a-b),nativeWidth:result.recipe.nativeWidth,nativeHeight:result.recipe.nativeHeight};}''')
-                    assert ramp=={'mime':'image/png','levels':[0,36,73,109,146,182,219,255],'nativeWidth':800,'nativeHeight':600}
+                    ramp=await page.evaluate('''async()=>{
+                      const c=new OffscreenCanvas(600,800),ctx=c.getContext('2d');
+                      for(let x=0;x<600;x++){const v=Math.round(x*255/599);ctx.fillStyle=`rgb(${v},${v},${v})`;ctx.fillRect(x,0,1,800);}
+                      const {optimizeImage}=await import('./static/optimizer-client.js'),source=await c.convertToBlob();
+                      const results={};
+                      for(const palette of ['gray8','grayscale']){
+                        const modes=[];
+                        for(const invert of [false,true]){
+                          const result=await optimizeImage({source,recipe:{profile:'inkplate_6',orientation:'portrait',fit:'contain',rotation:0,palette,invert,dither:palette==='gray8'?'none':'floyd',matching:'rgb',automatic:palette==='grayscale'},signal:new AbortController().signal});
+                          const b=await createImageBitmap(result.preview),out=new OffscreenCanvas(600,800),o=out.getContext('2d');o.drawImage(b,0,0);b.close();
+                          const pixels=o.getImageData(0,0,600,800).data,levels=new Set();for(let i=0;i<pixels.length;i+=4)levels.add(pixels[i]);
+                          modes.push({pixels,recipe:result.recipe});results[palette]={mime:result.mime,levels:[...levels].sort((a,b)=>a-b),nativeWidth:result.recipe.nativeWidth,nativeHeight:result.recipe.nativeHeight};
+                        }
+                        results[palette].inverseExact=modes[0].pixels.every((value,i)=>i%4===3?modes[1].pixels[i]===255:modes[1].pixels[i]===255-value);
+                        results[palette].savedInvert=modes[1].recipe.invert;
+                      }return results;
+                    }''')
+                    assert ramp['gray8']=={'mime':'image/png','levels':[0,36,73,109,146,182,219,255],'nativeWidth':800,'nativeHeight':600,'inverseExact':True,'savedInvert':True}
+                    assert ramp['grayscale']=={'mime':'image/png','levels':[0,255],'nativeWidth':800,'nativeHeight':600,'inverseExact':True,'savedInvert':True}
                     await page.locator(f'[data-edit-variant="{ink_variant["id"]}"]').click()
                     await page.locator('#orientation').select_option('portrait')
+                    await page.locator('#palette').select_option('grayscale')
+                    await page.get_by_label('Invert tones',exact=True).check()
+                    assert 'Black and white' in await page.locator('#output-dimensions').inner_text()
                     await page.get_by_role('button',name='Update full-resolution preview').click()
                     await page.locator('#save-variant:not([disabled])').wait_for(timeout=90000)
                     preview_base64=await page.locator('#image-preview').evaluate('''async img=>{await img.decode();const c=document.createElement('canvas');c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext('2d').drawImage(img,0,0);return c.toDataURL('image/png').split(',')[1];}''')
@@ -489,6 +511,11 @@ async def main():
                         ink_native=await response.read()
                     validate_variant(ink_native,'inkplate_6')
                     ink_image=Image.open(io.BytesIO(ink_native))
+                    validate_variant(ink_native,'inkplate_6',monochrome=True)
+                    assert set(ink_image.convert('L').tobytes())=={0,255}
+                    await page.locator(f'[data-edit-variant="{ink_variant["id"]}"]').click()
+                    assert await page.locator('#palette').input_value()=='grayscale'
+                    assert await page.get_by_label('Invert tones',exact=True).is_checked()
                     native_view=ink_image.transpose(Image.Transpose.ROTATE_270).convert('RGB')
                     assert native_view.size==(600,800)
                     assert native_view.tobytes()==Image.open(io.BytesIO(base64.b64decode(preview_base64))).convert('RGB').tobytes()
@@ -527,9 +554,9 @@ async def main():
                     await preview.scroll_into_view_if_needed()
                     rect=await preview.bounding_box()
                     await page.mouse.move(rect['x']+rect['width']*.2,rect['y']+rect['height']*.2)
-                    await expect(preview).to_have_attribute('data-mode','original')
+                    await expect(preview).to_have_attribute('data-mode','split')
                     await page.mouse.move(rect['x']+rect['width']*.8,rect['y']+rect['height']*.8)
-                    await expect(preview).to_have_attribute('data-mode','output')
+                    await expect(preview).to_have_attribute('data-mode','split')
                     await page.mouse.move(0,0)
                     await expect(preview).to_have_attribute('data-mode','split')
                     await preview.focus()
@@ -604,7 +631,7 @@ async def main():
                     await touch.close()
                     assert not errors, errors
                     await browser.close()
-            print('Browser smoke passed: upload, full-resolution dithering methods, calibrated palette, variant overwrite, worker startup recovery/cancellation, automatic on/off pixels and manual tone preservation, matching descriptions, visible modal notifications, MQTT settings/secret handling and watchdog display, all three models, Inkplate eight-level PNG/portrait pixels/editing/voltage, schedule/battery forms, diagonal hover/keyboard/touch controls, complete-image geometry, next connection, assigned-image filtering, native 800×480 BMP delivery/rotation, device orientation/help, fixed-URL original/BMP delivery, CORS, and responsive layouts.')
+            print('Browser smoke passed: upload, full-resolution dithering methods, calibrated palette, variant overwrite, worker startup recovery/cancellation, automatic on/off pixels and manual tone preservation, matching descriptions, visible modal notifications, MQTT settings/secret handling and watchdog display, all three models, Inkplate grayscale/monochrome PNG and exact tone inversion, portrait pixels/editing/voltage, schedule/battery forms, explicit comparison buttons/keyboard/touch controls without hover switching, complete-image geometry, next connection, assigned-image filtering, native 800×480 BMP delivery/rotation, device orientation/help, fixed-URL original/BMP delivery, CORS, and responsive layouts.')
             print(f'Screenshots: {artifacts}')
         finally:
             process.terminate()

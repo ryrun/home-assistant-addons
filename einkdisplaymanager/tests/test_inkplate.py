@@ -49,6 +49,37 @@ async def test_huge_png_header_is_a_validation_error_without_saving_files(system
     assert not manager.store.all('variant') and set(manager.store.files.iterdir()) == before
 
 
+async def test_monochrome_variant_validation_editing_and_delivery_preserve_assignments(system):
+    manager, admin, frames = system
+    asset = await upload(admin)
+    endpoint = f'/api/assets/{asset}/variants'
+    recipe = {'profile': 'inkplate_6', 'palette': 'grayscale', 'invert': True}
+    headers = {'X-Recipe': json.dumps(recipe)}
+    assert (await admin.post(endpoint, data=gray_png(), headers=headers)).status == 400
+    for invalid in (recipe | {'invert': 'yes'}, recipe | {'palette': 'spectra6'}):
+        assert (await admin.post(endpoint, data=gray_png(value=255), headers={'X-Recipe': json.dumps(invalid)})).status == 400
+    image = Image.new('L', (800, 600), 255)
+    image.paste(0, (0, 0, 240, 600))
+    output = io.BytesIO()
+    image.save(output, 'PNG')
+    data = output.getvalue()
+    response = await admin.post(endpoint, data=data, headers=headers)
+    assert response.status == 201
+    variant = (await response.json())['id']
+    device = await (await admin.post('/api/devices', json={'name': 'Mono frame', 'profile': 'inkplate_6'})).json()
+    assigned = await (await admin.put('/api/devices/' + device['id'], json={
+        'entries': [{'asset_id': asset, 'mode': 'variant', 'variant_id': variant}]})).json()
+    assert manager.store.get('variant', variant)['recipe']['invert'] is True
+    response = await frames.get(path(device['urls']['image']))
+    assert response.content_type == 'image/png' and await response.read() == data
+    validate_variant(data, 'inkplate_6', monochrome=True)
+    updated = await admin.put(endpoint + '/' + variant, data=gray_png(), headers={
+        'X-Recipe': json.dumps({'profile': 'inkplate_6', 'palette': 'gray8', 'invert': False}), 'X-Variant-Version': '0'})
+    assert updated.status == 200
+    assert manager.store.get('device', device['id'])['entries'] == assigned['entries']
+    assert await (await frames.get(path(device['urls']['image']))).read() == gray_png()
+
+
 @pytest.mark.parametrize('mounting', ['portrait', 'landscape'])
 async def test_original_png_delivery_fixed_url_orientation_and_cache(system, mounting):
     _manager, admin, frames = system

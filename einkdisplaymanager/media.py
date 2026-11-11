@@ -137,7 +137,7 @@ def validate_bmp(data, profile_id='openpaper_l'):
         raise ValueError('BMP contains unsupported device color indices.')
 
 
-def validate_variant(data, profile_id):
+def validate_variant(data, profile_id, *, monochrome=False):
     if display_profile(profile_id).get('format') != 'png':
         return validate_bmp(data, profile_id)
     try:
@@ -145,8 +145,11 @@ def validate_variant(data, profile_id):
             if image.format != 'PNG' or image.size != (800, 600) or getattr(image, 'n_frames', 1) != 1:
                 raise ValueError('Inkplate 6 variants require a single-frame 800 × 600 grayscale PNG.')
             # Validate decoded pixels, including alpha; never silently re-quantize a variant.
-            if any(r != g or r != b or r not in GRAY8 or a != 255
+            levels = (0, 255) if monochrome else GRAY8
+            if any(r != g or r != b or r not in levels or a != 255
                    for r, g, b, a in image.convert('RGBA').get_flattened_data()):
+                if monochrome:
+                    raise ValueError('Inkplate black-and-white PNG pixels must use only black and white without transparency.')
                 raise ValueError('Inkplate 6 PNG pixels must use exactly the supported eight grayscale levels without transparency.')
     except (OSError, SyntaxError, Image.DecompressionBombError) as exc:
         raise ValueError('The Inkplate PNG is damaged or unreadable.') from exc

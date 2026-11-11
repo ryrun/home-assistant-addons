@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.2
+
+- Remove pointer-hover switching from the original/variant comparison; Split, Original, and Variant buttons and keyboard controls select the view explicitly.
+- Add Black and white alongside eight grayscale levels when preparing Inkplate 6 variants, with the existing dithering choices and automatic tone optimization.
+- Add optional Invert tones for Inkplate variants, reversing final gray/black/white pixel values without another dithering pass.
+- Save and restore palette/inversion recipes during editing and retain variant IDs and device assignments on overwrite.
+- Validate black-and-white PNGs as opaque black/white pixels and keep output at native 800 × 600, including portrait composition and mounting correction.
+- Clarify ESPHome greyscale: false setup and persistent variant storage. Original delivery continues to use eight grayscale levels.
+
 ## 0.5.1
 
 - Fix next-connection and image-watchdog forecasts when a transfer crosses an anchor boundary: retain the sleep duration actually supplied in settings JSON instead of jumping to a later schedule slot.
