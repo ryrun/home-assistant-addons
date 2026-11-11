@@ -1,4 +1,5 @@
-import {ditherImage, suggestCanvasProcessingOptions, getProcessingPresetOptions, spectra6OriginalPalette} from './vendor/epdoptimize-1.2.0.mjs';
+import {ditherImage, suggestCanvasProcessingOptions, getProcessingPresetOptions, spectra6OriginalPalette, spectra6Palette, aitjcizeSpectra6Palette} from './vendor/epdoptimize-1.2.0.mjs';
+import {ditherOptions} from './processing.js';
 
 // Processing runs in a dedicated worker, always from the full normalized source.
 const W = 1200, H = 1600;
@@ -28,6 +29,7 @@ self.onmessage = async ({data}) => {
   let image;
   try {
     const {source, recipe}=data;
+    if(recipe.profile && recipe.profile!=='openpaper_l')throw new Error('This output profile is not supported yet.');
     const landscape=recipe.orientation==='landscape';
     const viewW=landscape?H:W, viewH=landscape?W:H;
     image=await createImageBitmap(source);
@@ -40,7 +42,8 @@ self.onmessage = async ({data}) => {
     const fy=recipe.fit==='cover'?(viewH-vh*scale)*((recipe.focusY??50)/100-.5):0;
     ctx.save(); ctx.translate(viewW/2+fx,viewH/2+fy); ctx.rotate(recipe.rotation*Math.PI/180);
     ctx.drawImage(image,-image.width*scale/2,-image.height*scale/2,image.width*scale,image.height*scale); ctx.restore();
-    let palette=spectra6OriginalPalette.map(p=>({...p}));
+    const basePalette=recipe.palette==='spectra6'?spectra6Palette:recipe.palette==='aitjcize'?aitjcizeSpectra6Palette:spectra6OriginalPalette;
+    let palette=basePalette.map(p=>({...p}));
     if(recipe.palette==='grayscale') palette=palette.filter(p=>p.name==='black'||p.name==='white');
     const intent=recipe.palette==='vivid'?'vivid':'natural';
     let options={};
@@ -54,9 +57,8 @@ self.onmessage = async ({data}) => {
     // Manual controls deliberately override the corresponding automatic adjustments.
     const manual=recipe.brightness!==0||recipe.contrast!==0||recipe.saturation!==0;
     if(manual) options.toneMapping={mode:'contrast',exposure:recipe.brightness/100,contrast:recipe.contrast/100,saturation:recipe.saturation/100};
-    Object.assign(options,{palette,colorMatching:'rgb',processingEngine:'js',
-      ditheringType:recipe.dither==='none'?'quantizationOnly':'errorDiffusion',
-      errorDiffusionMatrix:recipe.dither==='atkinson'?'atkinson':'floydSteinberg',serpentine:true});
+    Object.assign(options,{palette,colorMatching:recipe.matching==='lab'?'lab':'rgb',processingEngine:'js',
+      ...ditherOptions(recipe.dither),serpentine:true});
     await ditherImage(canvas,canvas,options);
     const pixels=ctx.getImageData(0,0,viewW,viewH), indices=new Uint8Array(W*H);
     const colors=palette.map(p=>({code:codes[p.name],rgb:p.color.match(/[a-f0-9]{2}/gi).map(x=>parseInt(x,16))}));
@@ -79,7 +81,7 @@ self.onmessage = async ({data}) => {
     }
     const output=bmp(pixels,native);
     const preview=await canvas.convertToBlob({type:'image/png'});
-    self.postMessage({bmp:output.buffer,preview,recipe:{...recipe,orientation:landscape?'landscape':'portrait',nativeRotation:landscape?270:0,resolvedOptions:options,optimizer:'epdoptimize@1.2.0',profile:'openpaper_l',encoder:2}},[output.buffer]);
+    self.postMessage({bmp:output.buffer,preview,recipe:{...recipe,orientation:landscape?'landscape':'portrait',nativeRotation:landscape?270:0,nativeWidth:W,nativeHeight:H,viewWidth:viewW,viewHeight:viewH,resolvedOptions:options,optimizer:'epdoptimize@1.2.0',profile:'openpaper_l',encoder:3}},[output.buffer]);
   } catch(error) { self.postMessage({error:error.message||'Image optimization failed.'}); }
   finally { image?.close(); }
 };

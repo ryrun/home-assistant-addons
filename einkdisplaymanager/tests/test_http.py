@@ -266,3 +266,93 @@ async def test_landscape_variant_keeps_native_bmp_with_landscape_thumbnail(syste
     assert thumb.size == (640, 480)
     response = await admin.get(f'/api/media/variant/{variant}/file')
     assert Image.open(io.BytesIO(await response.read())).size == (1200, 1600)
+
+
+async def test_device_mounting_previews_match_native_pixels_and_json_contract(system):
+    manager, admin, frames = system
+    a = await upload(admin)
+    data = bytearray(placeholder())
+    data[118:118+480000] = b'\x33' * 480000
+    data[118+480000:] = b'\x11' * 480000
+    response = await admin.post(f'/api/assets/{a}/variants', data=data)
+    v = (await response.json())['id']
+    d = await device(admin, [])
+    response = await admin.put('/api/devices/'+d['id'], json={'orientation': 'landscape', 'entries': [
+        {'asset_id': a, 'variant_id': v, 'mode': 'variant'}]})
+    assert response.status == 200
+    d = await response.json()
+    assert d['orientation'] == 'landscape'
+    assert d['settings_json'] == {'timeout': 60, 'motionWakeup': False, 'autoRotation': False,
+                                 'chargerMode': False, 'httpAuthUser': '', 'httpAuthPassword': '',
+                                 'downloadUrl': d['urls']['image']}
+    assert (await admin.put('/api/devices/'+d['id'], json={'orientation': 'diagonal'})).status == 400
+    for mounting, expected in [('portrait',(480,640)),('landscape',(640,480))]:
+        response = await admin.get(f'/api/media/variant/{v}/thumbnail?orientation={mounting}')
+        image = Image.open(io.BytesIO(await response.read()))
+        assert image.size == expected
+        if mounting == 'landscape':
+            left = image.getpixel((100,240))
+            right = image.getpixel((540,240))
+            assert left[2] > 240 and left[0] < 10
+            assert right[0] > 240 and right[2] < 10
+    response = await frames.get(path(d['urls']['image']))
+    assert await response.read() == data  # Preview mounting never rewrites output.
+    copied = await (await admin.post('/api/devices', json={'name':'Copy', 'copy_from':d['id']})).json()
+    assert copied['orientation'] == 'landscape'
+    legacy = manager.store.get('device',d['id'])
+    del legacy['orientation']
+    manager.store.save('device',legacy)
+    assert (await (await admin.get('/api/devices/'+d['id'])).json())['orientation'] == 'portrait'
+
+
+async def test_editing_variant_creates_revision_without_changing_assignments(system):
+    manager, admin, _frames = system
+    a = await upload(admin)
+    response = await admin.post(f'/api/assets/{a}/variants', data=placeholder(), headers={
+        'X-Recipe':'{"profile":"openpaper_l","focusX":20,"dither":"stucki"}'})
+    parent = (await response.json())['id']
+    d = await device(admin, [])
+    await admin.put('/api/devices/'+d['id'], json={'entries':[
+        {'asset_id':a,'variant_id':parent,'mode':'variant'}]})
+    before = manager.store.get('variant',parent)
+    response = await admin.post(f'/api/assets/{a}/variants', data=placeholder(), headers={
+        'X-Recipe':'{"profile":"openpaper_l","focusX":80,"dither":"jarvis"}', 'X-Parent-Variant':parent})
+    assert response.status == 201
+    child = (await response.json())['id']
+    assert child != parent
+    assert manager.store.get('variant',child)['parent_variant_id'] == parent
+    assert manager.store.get('variant',parent) == before
+    assert manager.store.get('device',d['id'])['entries'][0]['variant_id'] == parent
+    different = await upload(admin,picture(color='green'))
+    assert (await admin.post(f'/api/assets/{different}/variants', data=placeholder(),headers={'X-Parent-Variant':parent})).status == 400
+    assert (await admin.post(f'/api/assets/{a}/variants', data=placeholder(), headers={
+        'X-Recipe':'{"profile":"unknown_small_display"}'})).status == 400
+    incompatible = manager.store.get('variant',child)
+    incompatible['profile'] = 'other_size'
+    manager.store.save('variant', incompatible)
+    assert (await admin.put('/api/devices/'+d['id'],json={'entries':[
+        {'asset_id':a,'mode':'variant','variant_id':child}]})).status == 400
+
+
+async def test_settings_validator_tracks_content_changes_not_only_device_edits(system, monkeypatch):
+    manager, admin, frames = system
+    d = await device(admin, [])
+    url = path(d['urls']['settings'])
+    response = await frames.get(url)
+    old_modified = response.headers['Last-Modified']
+    await response.read()
+    original_generator = manager.firmware_settings
+    def changed_generator(device):
+        # Simulate an add-on upgrade changing supported JSON output while the
+        # stored device's configuration timestamp remains unchanged.
+        result = original_generator(device)
+        result['motionWakeup'] = True
+        return result
+    monkeypatch.setattr(manager, 'firmware_settings', changed_generator)
+    response = await frames.get(url, headers={'If-Modified-Since':old_modified})
+    assert response.status == 200
+    assert (await response.json())['motionWakeup'] is True
+    new_modified = response.headers['Last-Modified']
+    assert new_modified != old_modified
+    response = await frames.get(url, headers={'If-Modified-Since':new_modified})
+    assert response.status == 304

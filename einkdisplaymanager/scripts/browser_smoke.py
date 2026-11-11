@@ -119,6 +119,41 @@ async def main():
                         native = Image.open(io.BytesIO(mono_data)).convert('RGB').transpose(Image.Transpose.ROTATE_270)
                         preview = Image.open(io.BytesIO(preview_bytes)).convert('RGB')
                         assert ImageChops.difference(native, preview).getbbox() is None, 'Landscape preview differs from transmitted pixels'
+                    await page.locator(f'[data-edit-variant="{monochrome["id"]}"]').click()
+                    assert await page.locator('#orientation').input_value() == 'landscape'
+                    assert await page.locator('#rotation').input_value() == '90'
+                    assert await page.locator('#contrast').input_value() == '15'
+                    assert await page.locator('#focusX').input_value() == '80'
+                    assert await page.locator('#dither').input_value() == 'atkinson'
+                    await page.get_by_role('button', name='About dithering methods').click()
+                    assert await page.locator('#dither-help').is_visible()
+                    await page.get_by_role('button', name='About dithering methods').click()
+                    await page.locator('#dither').select_option('stucki')
+                    await page.locator('#palette').select_option('spectra6')
+                    await page.locator('#matching').select_option('lab')
+                    await page.get_by_role('button', name='Update full-resolution preview').click()
+                    await page.locator('#save-variant:not([disabled])').wait_for(timeout=90000)
+                    await page.get_by_role('button', name='Save new revision', exact=True).click()
+                    await page.get_by_text('Monochrome crop (edited)', exact=True).wait_for()
+                    async with session.get(origin + '/api/state') as response:
+                        snapshot = await response.json()
+                    revision = next(v for v in snapshot['variants'] if v.get('parent_variant_id') == monochrome['id'])
+                    assert revision['recipe']['palette'] == 'spectra6' and revision['recipe']['dither'] == 'stucki'
+                    assert any(v['id'] == monochrome['id'] for v in snapshot['variants'])
+                    # Exercise each new worker algorithm without publishing extra variants.
+                    output_hashes = []
+                    for algorithm in ('floyd', 'jarvis', 'burkes', 'sierra3', 'ordered', 'blueNoise', 'none'):
+                        result = await page.evaluate('''async ({asset, algorithm})=>{
+                          const source=await (await fetch(`api/media/asset/${asset}/source`)).blob();
+                          const worker=new Worker(new URL('static/optimizer.js',location.href),{type:'module'});
+                          const data=await new Promise((resolve,reject)=>{worker.onmessage=e=>e.data.error?reject(new Error(e.data.error)):resolve(e.data);worker.onerror=e=>reject(new Error(e.message));worker.postMessage({source,recipe:{profile:'openpaper_l',orientation:'portrait',fit:'contain',rotation:0,palette:'spectra6',matching:'rgb',automatic:false,brightness:0,contrast:0,saturation:0,dither:algorithm}});});
+                          worker.terminate();const pixels=new Uint8Array(data.bmp), view=new DataView(data.bmp);
+                          if(pixels.length!==960118||view.getInt32(18,true)!==1200||view.getInt32(22,true)!==-1600)throw new Error('Invalid native output');
+                          const valid=new Set([0,1,2,3,5,6]);for(const b of pixels.subarray(118))if(!valid.has(b>>4)||!valid.has(b&15))throw new Error('Invalid palette code');
+                          return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',data.bmp))).join(',');
+                        }''', {'asset': snapshot['assets'][0]['id'], 'algorithm': algorithm})
+                        output_hashes.append(result)
+                    assert len(set(output_hashes)) == len(output_hashes), 'Algorithm choices unexpectedly produced identical outputs'
                     await page.get_by_role('button', name='Close dialog').click()
                     await page.screenshot(path=str(artifacts / 'library-desktop.png'), full_page=True)
                     await page.get_by_role('link', name='Settings', exact=True).click()
@@ -143,8 +178,13 @@ async def main():
                     await page.get_by_role('button', name='Close dialog').click()
                     await page.get_by_label('Name', exact=True).fill('Studio frame')
                     await page.get_by_label('Update interval (seconds)').fill('120')
+                    await page.get_by_label('Mounting orientation').select_option('landscape')
                     await page.get_by_role('button', name='Save settings', exact=True).click()
                     await page.get_by_role('heading', name='Studio frame', exact=True).wait_for()
+                    assert await page.get_by_label('Mounting orientation').input_value() == 'landscape'
+                    await page.get_by_text('Refresh the frame and apply settings', exact=True).click()
+                    await page.get_by_text('press the large reset button twice', exact=False).wait_for()
+                    await page.get_by_text('Refresh the frame and apply settings', exact=True).click()
                     url = await page.locator('#image-url').input_value()
                     settings_url = await page.locator('#settings-url').input_value()
                     # Simulate the official HTTPS flasher origin with browser LNA
@@ -166,6 +206,9 @@ async def main():
                         assert response.content_type == 'image/bmp'
                         validate_bmp(await response.read())
                     await page.get_by_role('button', name='Refresh status').click()
+                    await page.locator('.device-cover img').wait_for()
+                    await page.locator('.device-cover img').evaluate('(img)=>img.decode()')
+                    assert await page.locator('.device-cover img').evaluate('(img)=>img.naturalWidth>img.naturalHeight')
                     await page.screenshot(path=str(artifacts / 'device-desktop.png'), full_page=True)
                     for width in (390, 720):
                         await page.set_viewport_size({'width': width, 'height': 844})
@@ -176,7 +219,7 @@ async def main():
                     assert await page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                     assert not errors, errors
                     await browser.close()
-            print('Browser smoke passed: upload, full-resolution optimization, variant persistence, device setup/settings, original/BMP delivery at one fixed URL, and responsive layouts.')
+            print('Browser smoke passed: upload, full-resolution dithering methods, calibrated palette, recipe editing/revisions, device orientation/help, fixed-URL original/BMP delivery, CORS, and responsive layouts.')
             print(f'Screenshots: {artifacts}')
         finally:
             process.terminate()

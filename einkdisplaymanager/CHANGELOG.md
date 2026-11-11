@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.2
+
+- Add per-device mounting orientation and previews derived from native output.
+- Show explicit conversion targets and dimensions; prepare variants for a registered device.
+- Reopen saved recipes from originals and save new revisions without changing existing assignments.
+- Add Stucki, Jarvis, Burkes, Sierra-3, ordered Bayer, and experimental blue-noise style dithering, with question-mark help.
+- Offer the optimizer's calibrated Spectra 6 palettes and RGB/perceptual color matching for comparison on the real frame.
+- Explain crops, multiple-device variants, physical reset-button refresh, JSON application, and browser-only CORS.
+- Return all supported runtime JSON fields and invalidate validators when generated JSON content changes across updates.
+- Extend backend/browser checks for orientation, immutable revisions, profile compatibility, all offered methods, and JSON caching.
+
 ## 0.1.1
 
 - Prefill a suggested LAN base URL and detect the add-on's mapped host port through limited Supervisor endpoints.

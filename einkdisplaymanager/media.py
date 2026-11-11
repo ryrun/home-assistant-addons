@@ -180,6 +180,25 @@ def landscape_thumbnail(data):
         return out.getvalue()
 
 
+def device_thumbnail(data, landscape=False, prepared=False):
+    """Preview native pixels in mounting orientation; original delivery is approximate."""
+    with Image.open(io.BytesIO(data)) as source:
+        image = source.convert('RGB')
+        if not prepared:
+            # Firmware fits without upscaling, with a white background. Its color
+            # reduction and JPEG/EXIF handling may differ from this approximation.
+            image.thumbnail((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
+            native = Image.new('RGB', (WIDTH, HEIGHT), 'white')
+            native.paste(image, ((WIDTH-image.width)//2, (HEIGHT-image.height)//2))
+            image = native
+        if landscape:
+            image = image.transpose(Image.Transpose.ROTATE_270)
+        image.thumbnail((640, 640), Image.Resampling.LANCZOS)
+        output = io.BytesIO()
+        image.save(output, 'JPEG', quality=85)
+        return output.getvalue()
+
+
 def placeholder():
     header = bytearray(118)
     header[:2] = b'BM'

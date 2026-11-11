@@ -20,6 +20,7 @@ from urllib.parse import unquote, urlsplit
 from aiohttp import web
 from media import (
     MAX_UPLOAD,
+    device_thumbnail,
     digest,
     inspect_image,
     landscape_thumbnail,
@@ -29,9 +30,10 @@ from media import (
 )
 from network import discover_network, network_defaults
 from playback import advance, completed, initial_state, reconcile, select_for_request
+from profiles import PROFILES, device_orientation, orientation
 from storage import Store, new_id
 
-VERSION = '0.1.1'
+VERSION = '0.1.2'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -127,6 +129,7 @@ class Manager:
     def public_device(self, device, *, detail=False):
         result = copy.deepcopy(device)
         result.pop('token')
+        result['orientation'] = device_orientation(device)
         if detail:
             result['urls'] = self.urls(device)
             result['settings_json'] = self.firmware_settings(device)
@@ -134,7 +137,8 @@ class Manager:
 
     def firmware_settings(self, device):
         url = self.urls(device)['image']
-        result = {'timeout': device['interval'], **device['settings']}
+        result = {'timeout': device['interval'], 'motionWakeup': False, 'autoRotation': False,
+                  'chargerMode': False, **device['settings'], 'httpAuthUser': '', 'httpAuthPassword': ''}
         if url:
             result['downloadUrl'] = url
         return result
@@ -222,6 +226,7 @@ class Manager:
                                   'devices': [self.public_device(d) for d in devices],
                                   'settings': self.settings, 'version': VERSION, 'csrf': self.csrf,
                                   'network': self.network,
+                                  'profiles': list(PROFILES.values()),
                                   'storage_bytes': self.store.usage(), 'storage_limit': self.store.quota,
                                   'base_url_locked': bool(self.options.get('lan_base_url'))})
 
@@ -265,6 +270,14 @@ class Manager:
         if kind not in ('asset', 'variant') or output not in ('thumbnail', 'file', 'source'):
             raise web.HTTPNotFound()
         item = self.store.get(kind, identifier)
+        if output == 'thumbnail' and request.query.get('orientation'):
+            mounting = orientation(request.query['orientation'])
+            if kind == 'variant' and mounting == item.get('recipe', {}).get('orientation', 'portrait'):
+                return web.FileResponse(self.store.path(item['thumbnail']), headers={'Content-Type': 'image/jpeg'})
+            async with self.workers:
+                data = await asyncio.to_thread(self.store.path(item['file']).read_bytes)
+                data = await asyncio.to_thread(device_thumbnail, data, mounting == 'landscape', kind == 'variant')
+            return web.Response(body=data, content_type='image/jpeg')
         if output == 'source':
             async with self.workers:
                 data = await asyncio.to_thread(self.store.path(item['file']).read_bytes)
@@ -284,6 +297,11 @@ class Manager:
             recipe = json.loads(request.headers.get('X-Recipe', '{}'))
             if not isinstance(recipe, dict) or len(json.dumps(recipe)) > 8192:
                 raise ValueError('Invalid processing recipe.')
+            if recipe.get('profile', 'openpaper_l') not in PROFILES:
+                raise ValueError('Unsupported conversion target profile.')
+            parent_id = request.headers.get('X-Parent-Variant')
+            if parent_id and self.store.get('variant', parent_id)['asset_id'] != asset_id:
+                raise ValueError('The edited variant belongs to a different original.')
             orientation = recipe.get('orientation', 'portrait')
             if orientation not in ('portrait', 'landscape'):
                 raise ValueError('Choose portrait or landscape for the variant orientation.')
@@ -296,7 +314,8 @@ class Manager:
             file = await asyncio.to_thread(self.store.put_file, data, '.bmp')
             thumbnail = await asyncio.to_thread(self.store.put_file, thumb, '.jpg')
             doc = dict(metadata, id=new_id(), asset_id=asset_id, name=name, recipe=recipe,
-                       profile='openpaper_l', optimizer='epdoptimize@1.2.0', created_at=time.time(), file=file, thumbnail=thumbnail)
+                       parent_variant_id=parent_id, profile=recipe.get('profile', 'openpaper_l'),
+                       optimizer='epdoptimize@1.2.0', created_at=time.time(), file=file, thumbnail=thumbnail)
             self.store.save('variant', doc)
             return web.json_response({'id': doc['id']}, status=201)
 
@@ -317,6 +336,7 @@ class Manager:
 
     def new_device(self, name):
         return {'id': new_id(), 'name': title(name), 'profile': 'openpaper_l',
+                'orientation': 'portrait',
                 'token': secrets.token_urlsafe(24), 'interval': 3600, 'shuffle': False,
                 'paused': False, 'enabled': True, 'settings': {'motionWakeup': False, 'autoRotation': False},
                 'entries': [], 'state': initial_state(), 'modified': time.time()}
@@ -330,6 +350,7 @@ class Manager:
             source = self.store.get('device', data['copy_from'])
             for key in ('interval', 'shuffle', 'settings', 'entries'):
                 device[key] = copy.deepcopy(source[key])
+            device['orientation'] = device_orientation(source)
             for entry in device['entries']:
                 entry['id'] = new_id()
             reconcile(device)
@@ -352,6 +373,8 @@ class Manager:
                 device['name'] = title(data['name'])
             if 'profile' in data and data['profile'] != 'openpaper_l':
                 raise ValueError('Only OpenPaper L is supported.')
+            if 'orientation' in data:
+                device['orientation'] = orientation(data['orientation'])
             for key in ('shuffle', 'paused', 'enabled'):
                 if key in data:
                     device[key] = boolean(data[key])
@@ -381,6 +404,8 @@ class Manager:
                         variant = self.store.get('variant', variant_id)
                         if variant['asset_id'] != asset['id']:
                             raise ValueError('Variant does not belong to this original.')
+                        if variant.get('profile') != device['profile']:
+                            raise ValueError('Choose a variant prepared for this device model and resolution.')
                     elif mode != 'original' or not asset['original_supported']:
                         raise ValueError(asset['original_note'])
                     entry_id = item.get('id') or new_id()
@@ -430,6 +455,10 @@ class Manager:
         identifier = request.match_info['device']
         async with self.locks[identifier]:
             self.store.delete('device', identifier)
+            try:
+                self.store.delete('settings_response', identifier)
+            except KeyError:
+                pass
         return web.json_response({'deleted': True})
 
     async def settings_json(self, request):
@@ -443,12 +472,20 @@ class Manager:
             if not self.settings['base_url']:
                 raise web.HTTPServiceUnavailable(reason='Configure the LAN base URL in the manager.')
             data = json.dumps(self.firmware_settings(device), sort_keys=True, separators=(',', ':')).encode()
-            headers = {'ETag': '"' + digest(data) + '"', 'Last-Modified': formatdate(device['modified'], usegmt=True),
+            content_hash = digest(data)
+            try:
+                validator = self.store.get('settings_response', identifier)
+            except KeyError:
+                validator = {'id': identifier, 'hash': None, 'modified': device['modified']}
+            if validator['hash'] != content_hash:
+                validator.update(hash=content_hash, modified=max(time.time(), validator['modified'] + 1))
+                self.store.save('settings_response', validator)
+            headers = {'ETag': '"' + content_hash + '"', 'Last-Modified': formatdate(validator['modified'], usegmt=True),
                        'Cache-Control': 'private, no-cache'}
             unchanged = request.headers.get('If-None-Match') == headers['ETag']
             if not request.headers.get('If-None-Match') and request.headers.get('If-Modified-Since'):
                 try:
-                    unchanged = int(device['modified']) <= parsedate_to_datetime(request.headers['If-Modified-Since']).timestamp()
+                    unchanged = int(validator['modified']) <= parsedate_to_datetime(request.headers['If-Modified-Since']).timestamp()
                 except (ValueError, TypeError, OverflowError):
                     pass
             if request.method == 'GET' and not browser_request(request):

@@ -128,6 +128,38 @@ position. Check physical orientation and sensor rotation on the device. This
 retains the firmware's direct 4-bit BMP path instead of sending a differently sized
 bitmap that the frame would convert again. Existing portrait variants are unchanged.
 
+Set **Mounting orientation** in the device settings as well. This controls the
+device card, frame preview, and list thumbnails. Prepared previews are derived
+from native file pixels in that mounting orientation; original-mode previews only
+approximate the firmware's fitting and color behavior. Changing a device's mounting
+does not recrop or overwrite its assigned variants. It is distinct from the
+firmware's sensor-driven `autoRotation` and is not an unsupported JSON field.
+
+### Targets and crop recipes
+
+Choose **Target display** before setting the crop: either the supported model or
+a registered device, which supplies its profile and mounting orientation. A saved
+variant records the model, native and viewing dimensions, orientation, normalized
+crop position, and processing settings. The same original can have multiple
+variants for different aspect ratios and models. Matching devices can share one
+variant; incompatible model/resolution assignments are rejected rather than
+silently scaling already dithered pixels. Only OpenPaper L is offered today;
+other display sizes require separate tested profiles and encoders.
+
+**Contain** preserves the whole image with white margins. **Cover** fills the
+selected viewing area while cropping edges; horizontal/vertical crop positions
+move the visible area within those edges. Neither mode stretches the source.
+
+### Editing a saved variant
+
+Use **Edit** beside a saved variant. This restores its orientation, crop, palette,
+algorithm, and adjustment controls, then processes the unchanged original again.
+**Save new revision** creates a separate variant linked to its parent. Existing
+assignments continue to use the previous variant until deliberately changed.
+The recipe is self-contained, so deleting an unused parent does not prevent
+editing a child. **Prepare for this device** in the device image picker starts
+with the appropriate target and mounting.
+
 Optimization uses the vendored `epdoptimize@1.2.0` in an isolated browser worker,
 not the HA backend's event loop. A current browser with OffscreenCanvas support
 is needed. The server normalizes editor input orientation, embedded ICC profiles
@@ -135,8 +167,8 @@ to sRGB, and transparency, and
 validates every finished BMP before saving. Automatic and manual settings are
 recorded in the variant's recipe. Manual brightness/contrast/saturation adjustments
 override automatic tone adjustment when nonzero. Vivid and black/white presets,
-Floyd–Steinberg/Atkinson/nearest-color processing, contain/cover with crop position, and rotation are
-available. Updating the preview processes the full output resolution; its saved
+Floyd–Steinberg/Atkinson and the methods below, contain/cover with crop position,
+and rotation are available. Updating the preview processes full output resolution; its saved
 bytes are the authoritative result, not an enlarged reduced-resolution preview.
 Physical e-paper colors depend on the display and lighting; the preview is not a
 calibrated physical display simulation.
@@ -147,6 +179,34 @@ Deleting an original or variant is blocked while referenced. Delete its variants
 before deleting an original. Bulk deletion keeps referenced assets and reports
 failures. Originals and variants are shared across devices without duplicate
 original storage.
+
+### Dithering and Spectra 6 color choices
+
+The **?** beside Dithering opens explanations in the editor without discarding
+your work. A short recommendation also follows the selected method.
+
+| Method | Useful starting point | Tradeoff |
+|---|---|---|
+| Floyd–Steinberg | Photos and mixed content | Fine grain; may show directional patterns |
+| Atkinson | High-contrast art, line work, text | Clear contrast; may discard subtle tones |
+| Stucki | Skies, skin, photographic gradients | Smoother transitions; can soften details |
+| Jarvis–Judice–Ninke | Smooth photographic gradients | Wider diffusion; more blur/work |
+| Burkes | A lighter Stucki alternative | Less computation, different texture |
+| Sierra-3 | Another photo/detail balance | Compare against Stucki on the actual panel |
+| Ordered Bayer 4 × 4 | Graphics and consistent patterned texture | Visible regular grid |
+| Blue-noise style (experimental) | Less directional texture | Uses the fixed 64 × 64 tile in the pinned 1.2.0 build |
+| None | Native-color art, icons, text | No intermediate-shade simulation; photos may band |
+
+All use the display's supported pixel codes. The library's calibrated Spectra 6
+and alternative calibrated palettes match against ink-like colors before mapping
+to native output codes. RGB and perceptual LAB matching can also be compared.
+Try the calibrated Spectra 6 palette with Floyd–Steinberg or Stucki for photos,
+then judge on the actual L; these are library calibrations, not measurements of
+your specific panel. There is no universal best algorithm or guaranteed image
+improvement. Existing variants are never silently reprocessed with new defaults.
+
+See the [optimizer documentation](https://github.com/paperlesspaper/epdoptimize)
+for palettes and methods; this add-on retains the vendored 1.2.0 implementation.
 
 ## Playback rules
 
@@ -162,7 +222,8 @@ original storage.
   ETag cannot freeze the slideshow. Identical-byte entries still count as separate
   entries even when no display refresh is needed.
 - HEAD and settings requests never advance playback. The frame supports settings
-  `Last-Modified`; this value changes only when device configuration/base URL changes.
+  `Last-Modified`; this value changes when generated JSON bytes change, including
+  a base URL change or a changed JSON contract after an add-on update.
 - Pause retains the selection. Next, previous, and show-next change selection
   immediately on the server, without waking the frame. Previous moves back within
   the current effective queue and stops at its beginning. Manually choosing an
@@ -184,6 +245,33 @@ Intervals range from 60 seconds to 30 days through JSON `timeout`. The add-on
 does not emit `X-OpenPaper-Sleep-Seconds`: its smaller one-day limit and precedence
 have not yet been validated on hardware. Motion wake-ups may fetch earlier;
 low battery can suppress fetches. “Last contact” is not real-time online status.
+
+### Refresh a physical OpenPaper L
+
+The same instructions are available under **Refresh the frame and apply settings**
+on each device page:
+
+- Press the large reset button **once**: about 30 seconds of Bluetooth setup,
+  followed by the normal settings/image check when no connection is made.
+- Press it **twice**, each press within 3 seconds: skip setup and force an image
+  download/refresh even when its cached validator says unchanged.
+- Save changed settings here and wake the frame to apply them. Firmware checks
+  the remote JSON before the image on every wake. Double reset forces the image,
+  not an unconditional JSON reload; a `304` for unchanged settings is expected.
+- Choose Next image/Show next here before waking the frame if you want another
+  list entry. The add-on cannot remotely wake a sleeping device.
+
+Do not press reset five times: that is a factory reset. Offline firmware must be
+in WiFi URL-download mode. Check batteries if updates are suppressed.
+
+The JSON supplies all supported runtime fields: `downloadUrl`, `timeout`,
+`motionWakeup`, `autoRotation`, `chargerMode`, `httpAuthUser`, `httpAuthPassword`.
+Basic Auth is explicitly empty because image/settings URL tokens provide access.
+Charging defaults off unless explicitly enabled with NiMH confirmation. WiFi and
+the initial Settings-JSON-URL are configured locally on the frame. Lists, shuffle,
+mounting orientation, crop, and dithering remain add-on concerns, not invented
+firmware JSON keys. CORS is only for the browser's Check/Prüfen preview and does
+not affect the frame's own HTTP fetch.
 
 ## Data, backup, and recovery
 
@@ -234,9 +322,13 @@ exercise upload, the real full-resolution optimizer, saving a variant, device
 settings, original/BMP switching at one URL, and mobile layout. The rotated
 black/white crop with manual contrast and Atkinson processing is also checked
 against actual saved BMP pixel codes. Landscape native pixels are rotated back
-and compared exactly with the preview. Current local result: 22 Python tests and
+and compared exactly with the preview. Current local result: 25 Python tests and
 the Chromium workflow pass. Hash-verified Linux ARM64 and AMD64 runtime wheels
 are available for the pinned Python 3.13/Debian base; this is not a container build.
+
+Browser coverage also restores an edited recipe, saves a linked revision,
+operates the question-mark help, exercises all offered dithering methods at full
+resolution, and checks the actual dimensions of a device's mounting-aware preview.
 
 Before a stable release: build both Linux architectures, install on Green, verify
 actual HA Ingress and backup/restore, measure Green resource use, and test image
