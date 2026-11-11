@@ -6,6 +6,7 @@ import hashlib
 import ipaddress
 import json
 import logging
+import math
 import re
 import ssl
 import time
@@ -20,8 +21,8 @@ from storage import new_id
 LOGGER = logging.getLogger(__name__)
 DEFAULTS = {'enabled': False, 'broker': '', 'port': 1883, 'username': '', 'password': '',
             'tls': False, 'discovery': True, 'discovery_prefix': 'homeassistant',
-            'discovery_retain': True, 'grace_seconds': 120}
-FRAME_STATES = ['waiting', 'on_schedule', 'overdue', 'paused', 'disabled', 'no_images']
+            'discovery_retain': True, 'grace_seconds': 120, 'battery_decay_seconds': 0}
+FRAME_STATES = ['waiting', 'on_schedule', 'late', 'overdue', 'paused', 'disabled', 'no_images']
 ENTITIES = {
     'battery_estimate': ('sensor', 'Estimated battery', {'device_class': 'battery', 'unit_of_measurement': '%'}),
     'update_overdue': ('binary_sensor', 'Image update overdue', {'device_class': 'problem', 'payload_on': 'ON', 'payload_off': 'OFF'}),
@@ -50,10 +51,12 @@ def validate_config(data, old):
         if key in ('enabled', 'tls', 'discovery', 'discovery_retain', 'clear_password'):
             if type(value) is not bool:
                 raise ValueError('MQTT switches must be true or false.')
-        elif key in ('port', 'grace_seconds'):
-            bounds = (1, 65535) if key == 'port' else (30, 3600)
+        elif key in ('port', 'grace_seconds', 'battery_decay_seconds'):
+            bounds = {'port': (1, 65535), 'grace_seconds': (30, 3600), 'battery_decay_seconds': (0, 2592000)}[key]
             if type(value) is not int or not bounds[0] <= value <= bounds[1]:
-                raise ValueError('Use a valid MQTT port and a grace period between 30 and 3600 seconds.')
+                label = {'port': 'MQTT port', 'grace_seconds': 'Image-fetch grace period',
+                         'battery_decay_seconds': 'Activity battery decline period'}[key]
+                raise ValueError(f'{label} must be a whole number between {bounds[0]} and {bounds[1]}.')
         elif not isinstance(value, str) or len(value) > (512 if key == 'password' else 253) or any(ord(c) < 32 for c in value):
             raise ValueError('Invalid MQTT connection setting.')
         if key != 'clear_password':
@@ -84,12 +87,13 @@ def iso(timestamp):
     return datetime.fromtimestamp(timestamp, UTC).isoformat() if timestamp else None
 
 
-def fetch_health(device, watch, now, grace):
+def fetch_health(device, watch, now, grace, decay=0):
     state = device['state']
     active = device['enabled'] and not device['paused'] and any(e['enabled'] for e in device['entries'])
     if not active:
         status = 'disabled' if not device['enabled'] else 'paused' if device['paused'] else 'no_images'
-        return {'frame_status': status, 'battery_estimate': None, 'update_overdue': False, 'expected_at': None, 'overdue_at': None}
+        return {'frame_status': status, 'battery_estimate': None, 'update_overdue': False,
+                'expected_at': None, 'decline_starts_at': None, 'overdue_at': None}
     served = state.get('last_served_at')
     anchor = max(watch['started_at'], served or 0)
     expected = anchor + device['interval']
@@ -98,11 +102,20 @@ def fetch_health(device, watch, now, grace):
     elif scheduling.active(device):
         expected = state.get('expected_image_at') if served and served >= watch['started_at'] else None
         expected = expected or scheduling.next_due(device, anchor)
-    overdue_at = expected + grace
-    overdue = now > overdue_at
-    return {'frame_status': 'overdue' if overdue else 'on_schedule' if served else 'waiting',
-            'battery_estimate': 0 if overdue else 100 if served else None,
-            'update_overdue': overdue, 'expected_at': expected, 'overdue_at': overdue_at}
+    decline_starts_at = expected + grace
+    overdue_at = decline_starts_at + decay
+    late = now > decline_starts_at
+    overdue = late and (decay == 0 or now >= overdue_at)
+    estimate = 100 if served is not None else None
+    if overdue:
+        estimate = 0
+    elif late and served is not None:
+        # Keep at least 1% until the full period has elapsed. Derive from the
+        # original deadline so config changes and restarts never reset the clock.
+        estimate = max(1, min(100, math.ceil(100 * (overdue_at - now) / decay)))
+    return {'frame_status': 'overdue' if overdue else 'late' if late else 'on_schedule' if served is not None else 'waiting',
+            'battery_estimate': estimate, 'update_overdue': overdue, 'expected_at': expected,
+            'decline_starts_at': decline_starts_at, 'overdue_at': overdue_at}
 
 
 class MQTTBridge:
@@ -147,8 +160,15 @@ class MQTTBridge:
         registrations = self.store.all('mqtt_registration')
         if updated['enabled'] and len(registrations) >= 8 and destination(updated) not in {r['id'] for r in registrations}:
             raise ValueError('Old MQTT registrations need cleanup before adding another broker.')
+        connection_changed = any(updated[key] != self.config[key]
+                                 for key in DEFAULTS if key not in ('grace_seconds', 'battery_decay_seconds'))
         self.config = updated
         self.store.save('mqtt', {'id': 'config', 'instance': self.instance, **updated})
+        if not connection_changed:
+            # Re-evaluate and publish health without a broker reconnect or an
+            # artificial offline/online availability transition.
+            self.wake.set()
+            return
         self.generation += 1
         self.status = 'connecting' if updated['enabled'] else 'disabled'
         self.error = None
@@ -166,7 +186,7 @@ class MQTTBridge:
         if watch['active'] != active:
             watch.update(active=active, started_at=now)
             self.store.save('mqtt_watch', watch)
-        return fetch_health(device, watch, now, self.config['grace_seconds'])
+        return fetch_health(device, watch, now, self.config['grace_seconds'], self.config['battery_decay_seconds'])
 
     def payload(self, device):
         health = self.health(device)
@@ -189,8 +209,10 @@ class MQTTBridge:
             'selected_image': image_name, 'image_count': sum(e['enabled'] for e in device['entries']),
             'update_interval': device['interval'], 'transfer_status': self.manager.diagnostics.transfer(device['id'])['status'],
             'battery_attributes': {'estimated': True, 'source': 'image_fetch_watchdog',
-                                   'meaning': '100 means recent successful HTTP image delivery; 0 means overdue, not measured empty.',
-                                   'grace_seconds': self.config['grace_seconds'], 'overdue_at': iso(health['overdue_at'])},
+                                   'meaning': 'Activity estimate: falls toward 0 after a missed image fetch; 0 means overdue, not measured empty.',
+                                   'grace_seconds': self.config['grace_seconds'],
+                                   'battery_decay_seconds': self.config['battery_decay_seconds'],
+                                   'decline_starts_at': iso(health['decline_starts_at']), 'overdue_at': iso(health['overdue_at'])},
             'transfer_attributes': {'last_error': state.get('last_error'), 'physical_refresh_confirmed': False}}
 
     def base(self, config):

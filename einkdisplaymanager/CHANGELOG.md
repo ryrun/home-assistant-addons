@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.4
+
+- Add a global Activity battery decline period in seconds (0–2592000; default 0) after the existing image-fetch grace period. Support five-minute (300) and 24-hour (86400) declines.
+- Reduce the simulated activity battery linearly from 100% to 0%; keep at least 1% until the period finishes and raise Image update overdue only at 0%. Show late during the decline.
+- Recalculate existing estimates from their original deadlines when settings change, including raising previously empty indicators and clearing delayed alarms. Preserve timing across restarts.
+- Apply watchdog-only setting changes without reconnecting MQTT or publishing artificial offline/online availability changes. Publish decline start, duration, and alarm timestamps as diagnostic attributes.
+- Keep saved MQTT/watchdog values visible when navigating away from Settings and returning, without reloading the page.
+- Keep new-frame estimates unknown until a successful image fetch or the full alarm deadline; inactive frames remain unknown. Successful HTTP 200/304 image delivery restores 100%; settings-only requests and voltage estimates remain independent.
+
 ## 0.5.3
 
 - Group related select options with native optgroup labels: display models and registered devices, device families, palettes, dithering methods, original images and saved variants, and battery chemistries. Omit empty groups and preserve option values and defaults.

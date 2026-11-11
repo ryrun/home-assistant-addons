@@ -75,8 +75,8 @@ pending transfer retries, and explicit manual selections can still be delivered.
 Missed slots do not consume playlist entries: after a long absence the frame gets
 one next image. The image watchdog uses the last successful delivery and its
 issued sleep duration, or the permitted schedule target when no JSON duration is
-known, plus the normal grace period. A planned night pause therefore does not
-create an empty-battery signal. A newly supplied shorter sleep can bring the outstanding image deadline forward.
+known, plus the grace period and optional decline period before an overdue alarm.
+A planned night pause therefore does not create an empty-battery signal. A newly supplied shorter sleep can bring the outstanding image deadline forward.
 Settings-only requests can never postpone it or restore an overdue activity indicator.
 
 **Device cards** show last image/settings contact and **Next expected connection**.
@@ -127,8 +127,9 @@ nonlinear discharge curve. No report means unknown; a retained old report keeps
 its receipt timestamp visible. Capacity in mAh alone cannot infer charge from voltage.
 
 This **Estimated charge from voltage** is separate from **Estimated battery ·
-activity only**, which remains the explicit 100/0% image-fetch watchdog. Configuring
-cells never changes charging, invents voltage, queries sleeping hardware, or resets
+activity only**, which remains an explicitly simulated image-fetch watchdog with
+an optional gradual decline. Configuring cells never changes charging, invents
+voltage, queries sleeping hardware, or resets
 fetch health. Raw voltage and receipt time remain available if estimation is off.
 MQTT discovers a separate charge sensor while estimation is enabled, with estimated
 source/time/chemistry attributes. Voltage/timestamp sensors are discovered for
@@ -404,9 +405,9 @@ are excluded from published state and configuration. Backups contain MQTT creden
 
 | Entity | Meaning |
 |---|---|
-| Estimated battery | Synthetic 100/0% activity indicator, explicitly marked estimated |
-| Image update overdue | Separate problem binary sensor for a missed image-fetch deadline |
-| Image fetch status | `waiting`, `on_schedule`, `overdue`, `paused`, `disabled`, or `no_images` |
+| Estimated battery | Simulated activity percentage with an optional gradual decline after missed image fetches |
+| Image update overdue | Problem binary sensor; turns on after the grace and decline periods finish |
+| Image fetch status | `waiting`, `on_schedule`, `late`, `overdue`, `paused`, `disabled`, or `no_images` |
 | Last contact | Latest authenticated frame image/settings GET, not browser previews |
 | Last image delivery | Most recent successful HTTP image response, including 304 |
 | Next expected image fetch | Expected image request based on the last delivery and supplied sleep; a schedule target is used if no JSON duration is known |
@@ -428,12 +429,28 @@ There is no numeric state class creating long-term battery statistics.
 - After a completed image HTTP response, the estimate is **100%**. A successful
   **304** counts; a settings-only request, HEAD, browser preview, failed token, or
   interrupted image transfer does not reset the image watchdog.
-- If no successful image fetch occurs by **expected image fetch + grace**, it becomes **0%**
-  and **Image update overdue** turns on. The default grace is **120 seconds**,
-  adjustable globally from 30 to 3600 seconds. MQTT updates within approximately
-  five seconds of a deadline or HTTP state change while connected.
-- A new frame starts **unknown**. Missing its first expected-fetch-plus-grace deadline
-  changes it to 0%; its first successful image response changes it to 100%.
+- **Image-fetch grace period (seconds)** is the existing tolerance after the expected
+  fetch: default **120 seconds**, adjustable globally from 30 to 3600 seconds.
+- **Activity battery decline period (seconds)** adds a linear decline after that
+  tolerance: default **0** for the existing immediate switch, configurable from
+  **0 to 2592000 seconds** (30 days). Use **300** for five minutes or **86400** for
+  24 hours. The setting is under **Settings → MQTT & Home Assistant** and applies
+  to every device, including when MQTT is disabled.
+- During a configured decline, **Image fetch status** is **late** and the estimate
+  decreases from 100% toward 0%. Keep at least 1% until the full duration finishes.
+  **Image update overdue** remains off until **expected image fetch + grace + decline
+  period**, when the estimate becomes **0%** and status becomes **overdue**. With a
+  24-hour decline, halfway through the decline the estimate is 50%.
+- Changes recalculate estimates immediately from their original deadlines. For
+  example, if the grace period ended ten minutes ago, a zero-duration estimate is
+  0%; setting the decline to 1200 seconds raises it to 50% and clears the overdue
+  problem without any image fetch. Shortening the duration can lower it again.
+  Saving does not restart the decline clock. MQTT updates within approximately
+  five seconds while connected; changing only these watchdog settings does not
+  reconnect the broker. Device status uses the same calculation.
+- A new frame starts **unknown**, including during its first decline period.
+  Missing the full alarm deadline changes it to 0%; its first successful image
+  response changes it to 100%.
 - Paused/disabled frames and lists without enabled entries have an unknown
   estimate and no overdue problem. Resuming monitoring starts a fresh deadline.
 - Each device has independent timing. The watch start and successful delivery
@@ -441,12 +458,18 @@ There is no numeric state class creating long-term battery statistics.
 
 A 0% value is a signal that the frame may need attention: depleted batteries,
 WiFi/network loss, a powered-off frame, or firmware/configuration issues can all
-produce it. Settings may be requested without a successful image transfer. A 100%
-value says nothing about actual remaining charge and HTTP success does not confirm
+produce it. Settings may be requested without a successful image transfer. Any percentage
+says nothing about actual remaining charge and HTTP success does not confirm
 panel refresh. Desired interval changes may not have been applied on a sleeping
 frame yet. Voltage is separately supported when firmware reports it (currently the Inkplate
 ESPHome example); current OpenPaper firmware still requires an upstream change.
 The activity indicator does not derive charge from HTTP success.
+
+The MQTT battery attributes include `grace_seconds`, `battery_decay_seconds`,
+`decline_starts_at`, and `overdue_at` so automations can inspect the tolerance,
+decline duration, and alarm deadline. The default zero decline keeps the previous
+behavior for existing installations; stored broker credentials and grace values
+remain unchanged.
 
 ### Availability, retained messages, and cleanup
 

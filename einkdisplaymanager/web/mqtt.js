@@ -14,8 +14,9 @@ export function mqttSettingsHTML(config){
     <label class="check"><input name="discovery" type="checkbox" ${config.discovery?'checked':''}>Home Assistant discovery</label>
     <label class="field">Discovery prefix<input name="discovery_prefix" aria-label="Discovery prefix" value="${escape(config.discovery_prefix)}" maxlength="128" required><small>Usually homeassistant. Home Assistant must use the same broker and discovery prefix.</small></label>
     <label class="check"><input name="discovery_retain" type="checkbox" ${config.discovery_retain?'checked':''}>Retain discovery messages</label>
-    <label class="field">Image-fetch grace period (seconds)<input name="grace_seconds" aria-label="Image-fetch grace period (seconds)" type="number" min="30" max="3600" value="${config.grace_seconds}" required><small>After the device interval plus this tolerance, Estimated battery falls to 0%. A completed image response, including 304, restores 100%. This is an activity estimate, not a battery measurement. WiFi loss or a powered-off frame can cause the same result.</small></label>
-    <p class="help">New frames have an unknown estimate until their first completed image fetch or the first deadline is missed. Paused, disabled, and empty image lists do not trigger overdue alerts. Availability tracks this add-on's MQTT connection; the estimate remains visible when a frame is overdue.</p>
+    <label class="field">Image-fetch grace period (seconds)<input name="grace_seconds" aria-label="Image-fetch grace period (seconds)" type="number" min="30" max="3600" step="1" value="${config.grace_seconds}" required><small>Tolerance after the expected image fetch before the simulated battery starts to decline.</small></label>
+    <label class="field">Activity battery decline period (seconds)<input name="battery_decay_seconds" aria-label="Activity battery decline period (seconds)" type="number" min="0" max="2592000" step="1" value="${config.battery_decay_seconds}" required><small>0 (default) switches directly to 0% after the grace period. Otherwise, the estimate falls gradually from 100% to 0% over this many seconds. Examples: 300 = 5 minutes; 86400 = 24 hours. Image update overdue turns on only at 0%; the fetch status is late during the decline. Changes immediately recalculate existing estimates and can raise them again.</small></label>
+    <p class="help">These timing settings apply to all devices, including when MQTT is disabled. A completed image response, including 304, restores 100%. This is an activity estimate, not a battery measurement. WiFi loss or a powered-off frame can cause the same result. New frames stay unknown until their first completed image fetch or the full alarm deadline is missed. Paused, disabled, and empty image lists do not trigger overdue alerts. Availability tracks this add-on's MQTT connection; the estimate remains visible when a frame is overdue.</p>
     <button class="primary" id="save-mqtt">Save MQTT settings</button><p id="mqtt-save-status" class="save-status help" role="status" aria-live="polite"></p>
   </form><p id="mqtt-connection-status" class="help" role="status" aria-live="polite"></p></section>`;
 }
@@ -25,7 +26,7 @@ function paintStatus(config){
   node.textContent=`MQTT: ${config.status}.${config.error?' '+config.error:''}${config.pending_cleanup?` Retained-topic cleanup pending for ${config.pending_cleanup} previous broker connection(s).`:''}`;
 }
 
-export function bindMQTTForm(api,config){
+export function bindMQTTForm(api,config,onSaved=()=>{}){
   const form=$('#mqtt-form');if(!form)return;
   paintStatus(config);
   form.elements.tls.onchange=()=>{const port=form.elements.port;if(form.elements.tls.checked&&port.value==='1883')port.value='8883';else if(!form.elements.tls.checked&&port.value==='8883')port.value='1883';};
@@ -33,11 +34,11 @@ export function bindMQTTForm(api,config){
     event.preventDefault();const button=$('#save-mqtt'),status=$('#mqtt-save-status');
     const data=Object.fromEntries(['enabled','tls','discovery','discovery_retain','clear_password'].map(key=>[key,form.elements[key].checked]));
     for(const key of ['broker','username','discovery_prefix'])data[key]=form.elements[key].value;
-    for(const key of ['port','grace_seconds'])data[key]=Number(form.elements[key].value);
+    for(const key of ['port','grace_seconds','battery_decay_seconds'])data[key]=Number(form.elements[key].value);
     if(form.elements.password.value)data.password=form.elements.password.value;
     const controls=[...form.elements],disabled=controls.map(node=>node.disabled);
     controls.forEach(node=>{node.disabled=true;});button.textContent='Saving…';status.textContent='Saving MQTT settings…';status.dataset.result='saving';
-    try{const saved=await api('mqtt',{method:'PUT',data});if(!form.isConnected)return;
+    try{const saved=await api('mqtt',{method:'PUT',data});onSaved(saved);if(!form.isConnected)return;
       status.textContent='MQTT settings saved. Connection status updates below.';status.dataset.result='success';
       form.elements.password.value='';form.elements.clear_password.checked=false;
       form.elements.password.placeholder=saved.password_set?'Saved password · leave blank to keep':'Optional';paintStatus(saved);

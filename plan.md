@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.5.3**; locally tested, with Green,
+Status: experimental implementation **0.5.4**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -899,3 +899,30 @@ generation intervals to device polls.
 - Verification: 132 Python tests, 14 JavaScript tests, and the full Chromium
   smoke test passed, including the live two-to-nine queue transition and grouped
   selection defaults. Physical-device behavior remains a separate acceptance step.
+
+
+## 17. Gradual activity battery decline (0.5.4)
+
+- Add global battery_decay_seconds to the persisted MQTT/watchdog settings:
+  integer seconds from 0 to 2592000, default 0. Existing image-fetch tolerance
+  stays separate; support 300 seconds for five minutes and 86400 for 24 hours.
+- After expected image time plus grace, decrease the synthetic activity estimate
+  linearly from 100 to 0. Keep at least 1 until the full period ends. Report late
+  during decline; turn the overdue problem on only at zero. Measured voltage and
+  calibrated voltage-based charge stay separate.
+- Compute from the original persisted delivery/watch deadline on every read; do
+  not store a decrementing percentage or reset the clock on settings changes.
+  Increasing the duration can restore a formerly zero estimate and clear an
+  alarm. Restarting preserves the same result. New frames stay unknown through
+  their first decline; paused/disabled/empty frames do not raise an alarm.
+- Wake MQTT publication immediately after settings changes without reconnecting
+  for watchdog-only changes. Publish the duration, decline start, and final
+  alarm deadline as diagnostic attributes. UI and MQTT use the same calculation.
+- Test linear five-minute/24-hour progress, zero/end boundaries, rounding without
+  premature zero, retroactive increases/decreases, persistence, validation, real
+  retained MQTT updates without availability changes, HTTP 304 recovery, and the
+  browser setting's default, validation, persistence, and draft preservation.
+- Verification: 152 Python tests, 14 JavaScript tests, and the complete Chromium
+  smoke test passed. MQTT integration used a temporary real Mosquitto broker;
+  changing decline duration updated retained percentages and problem status
+  without reconnecting or changing availability.

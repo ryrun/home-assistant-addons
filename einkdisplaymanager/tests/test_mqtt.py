@@ -27,13 +27,84 @@ def test_watchdog_unknown_first_deadline_success_and_overdue_boundary():
     assert fetch_health(d, watch, 1350.1, 120)['battery_estimate'] == 0
 
 
+@pytest.mark.parametrize('decay', [300, 86400])
+def test_activity_battery_declines_linearly_and_only_alarms_at_zero(decay):
+    d, watch = frame(), {'started_at': 1000}
+    d['state']['last_served_at'] = 1000
+    start = 1180  # 60-second interval plus the existing 120-second tolerance.
+    assert fetch_health(d, watch, start, 120, decay)['battery_estimate'] == 100
+    for fraction, percent in ((.25, 75), (.5, 50), (.75, 25)):
+        result = fetch_health(d, watch, start + decay * fraction, 120, decay)
+        assert result['battery_estimate'] == percent
+        assert result['frame_status'] == 'late' and not result['update_overdue']
+        assert result['decline_starts_at'] == start
+        assert result['overdue_at'] == start + decay
+    almost = fetch_health(d, watch, start + decay - .01, 120, decay)
+    assert almost['battery_estimate'] == 1 and not almost['update_overdue']
+    for now in (start + decay, start + decay * 2):
+        result = fetch_health(d, watch, now, 120, decay)
+        assert result['battery_estimate'] == 0
+        assert result['frame_status'] == 'overdue' and result['update_overdue']
+
+
+def test_new_frame_remains_unknown_during_decline_until_full_alarm_deadline():
+    d, watch = frame(), {'started_at': 1000}
+    result = fetch_health(d, watch, 1330, 120, 300)
+    assert result['frame_status'] == 'late'
+    assert result['battery_estimate'] is None and not result['update_overdue']
+    assert fetch_health(d, watch, 1480, 120, 300)['battery_estimate'] == 0
+
+
+def test_increasing_decline_recalculates_existing_zero_and_survives_restart(tmp_path):
+    manager = Manager(tmp_path, dev=True)
+    d = frame() | {'id': 'decline-test'}
+    d['state']['last_served_at'] = 1000
+    manager.mqtt.health(d, now=1000)  # Persist the original monitoring anchor.
+    assert manager.mqtt.config['battery_decay_seconds'] == 0
+    assert manager.mqtt.health(d, now=1780)['battery_estimate'] == 0
+    manager.mqtt.configure({'battery_decay_seconds': 1200})
+    result = manager.mqtt.health(d, now=1780)
+    assert result['battery_estimate'] == 50 and not result['update_overdue']
+    manager.store.close()
+    restored = Manager(tmp_path, dev=True)
+    assert restored.mqtt.config['battery_decay_seconds'] == 1200
+    assert restored.mqtt.health(d, now=1780) == result
+    assert restored.mqtt.health(d, now=2080)['battery_estimate'] == 25
+    restored.mqtt.configure({'battery_decay_seconds': 300})
+    assert restored.mqtt.health(d, now=1780)['update_overdue']
+    restored.mqtt.configure({'battery_decay_seconds': 0})
+    assert restored.mqtt.health(d, now=1780)['battery_estimate'] == 0
+    restored.store.close()
+
+
+@pytest.mark.parametrize('bad', [-1, 2592001, True, '300', 1.5, None])
+def test_decline_period_requires_bounded_whole_seconds(bad):
+    with pytest.raises(ValueError, match='Activity battery decline period'):
+        validate_config({'battery_decay_seconds': bad}, DEFAULTS)
+
+
 @pytest.mark.parametrize('change,expected', [({'enabled': False}, 'disabled'), ({'paused': True}, 'paused'),
                                             ({'entries': []}, 'no_images'), ({'entries': [{'enabled': False}]}, 'no_images')])
-def test_inactive_frames_have_no_fake_empty_battery_alarm(change, expected):
+@pytest.mark.parametrize('decay', [0, 300, 86400])
+def test_inactive_frames_have_no_fake_empty_battery_alarm(change, expected, decay):
     d = frame() | change
-    result = fetch_health(d, {'started_at': 1000}, 999999, 120)
+    result = fetch_health(d, {'started_at': 1000}, 999999, 120, decay)
     assert result['frame_status'] == expected
     assert result['battery_estimate'] is None and not result['update_overdue']
+
+
+def test_legacy_watchdog_config_defaults_to_immediate_decline(tmp_path):
+    manager = Manager(tmp_path, dev=True)
+    manager.mqtt.configure({'grace_seconds': 300, 'password': 'legacy-secret'})
+    saved = manager.store.get('mqtt', 'config')
+    saved.pop('battery_decay_seconds')
+    manager.store.save('mqtt', saved)
+    manager.store.close()
+    restored = Manager(tmp_path, dev=True)
+    assert restored.mqtt.config['battery_decay_seconds'] == 0
+    assert restored.mqtt.config['grace_seconds'] == 300
+    assert restored.mqtt.config['password'] == 'legacy-secret'
+    restored.store.close()
 
 
 def test_mqtt_validation_and_private_persistent_password(tmp_path):
@@ -228,6 +299,54 @@ async def test_real_broker_discovery_activity_estimate_birth_and_graceful_offlin
         await manager.mqtt.stop()
         await observed.until(lambda: observed.latest.get(base + '/availability') == b'offline')
         # Lifecycle cleanup is idempotent.
+
+
+async def test_real_broker_decline_changes_restore_estimate_without_reconnect(system, broker):
+    manager, admin, frames = system
+    d = await device(admin, [await upload(admin)])
+    async with Observe(broker.port) as observed:
+        base = await enable(manager, admin, broker)
+        topic = f"{base}/{d['id']}/state"
+        await observed.until(lambda: observed.latest.get(base + '/availability') == b'online')
+        response = await frames.get(path(d['urls']['image']))
+        await response.read()
+        etag = response.headers['ETag']
+        persisted = manager.store.get('device', d['id'])
+        persisted['state']['last_served_at'] = time.time() - 1000
+        persisted['state']['last_settings_timeout'] = 60
+        persisted['state']['expected_image_at'] = persisted['state']['last_served_at'] + 60
+        manager.store.save('device', persisted)
+        watch = manager.store.get('mqtt_watch', d['id'])
+        watch['started_at'] = persisted['state']['last_served_at']
+        manager.store.save('mqtt_watch', watch)
+        manager.mqtt.wake.set()
+        await observed.until(lambda: json.loads(observed.latest[topic])['battery_estimate'] == 0)
+        connected_at = manager.mqtt.connected_at
+        before = len(observed.history)
+        response = await admin.put('/api/mqtt', json={'battery_decay_seconds': 3600})
+        assert response.status == 200
+        await observed.until(lambda: 70 < json.loads(observed.latest[topic])['battery_estimate'] < 90)
+        payload = json.loads(observed.latest[topic])
+        assert payload['frame_status'] == 'late' and not payload['update_overdue']
+        assert payload['battery_attributes']['battery_decay_seconds'] == 3600
+        assert payload['battery_attributes']['decline_starts_at']
+        status = await (await admin.get('/api/devices/' + d['id'] + '/status')).json()
+        assert status['health']['battery_estimate'] == payload['battery_estimate']
+        assert manager.mqtt.connected_at == connected_at
+        assert not any(t == base + '/availability' for t, _p in observed.history[before:])
+        response = await admin.put('/api/mqtt', json={'battery_decay_seconds': 300})
+        assert response.status == 200
+        await observed.until(lambda: json.loads(observed.latest[topic])['battery_estimate'] == 0)
+        assert json.loads(observed.latest[topic])['update_overdue']
+        await admin.put('/api/mqtt', json={'battery_decay_seconds': 86400})
+        await observed.until(lambda: json.loads(observed.latest[topic])['frame_status'] == 'late')
+        # Settings checks cannot repair image health, but an unchanged image can.
+        await frames.get(path(d['urls']['settings']))
+        assert manager.mqtt.health(manager.store.get('device', d['id']))['frame_status'] == 'late'
+        assert (await frames.get(path(d['urls']['image']), headers={'If-None-Match': etag})).status == 304
+        manager.mqtt.wake.set()
+        await observed.until(lambda: json.loads(observed.latest[topic])['battery_estimate'] == 100
+                             and json.loads(observed.latest[topic])['frame_status'] == 'on_schedule')
 
 
 async def test_retained_cleanup_prefix_change_discovery_toggle_and_device_deletion(system, broker):

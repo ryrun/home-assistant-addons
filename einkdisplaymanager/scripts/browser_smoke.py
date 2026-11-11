@@ -231,6 +231,11 @@ async def main():
                     await page.get_by_role('link', name='Settings', exact=True).click()
                     assert await page.locator('#base-url').input_value() == 'http://homeassistant.local:8098'
                     await page.get_by_text('Editing the URL alone does not change the port mapping.', exact=False).wait_for()
+                    assert await page.get_by_label('Activity battery decline period (seconds)',exact=True).input_value() == '0'
+                    await page.get_by_label('Activity battery decline period (seconds)',exact=True).fill('-1')
+                    assert not await page.locator('#mqtt-form').evaluate('(form)=>form.checkValidity()')
+                    await page.get_by_label('Activity battery decline period (seconds)',exact=True).fill('86400')
+                    assert await page.locator('#mqtt-form').evaluate('(form)=>form.checkValidity()')
                     await page.get_by_label('Broker',exact=True).fill('127.0.0.1')
                     await page.get_by_label('MQTT username',exact=True).fill('browser-test-user')
                     await page.get_by_label('MQTT password',exact=True).fill('browser-test-secret')
@@ -243,13 +248,22 @@ async def main():
                     assert 'Saved password' in await page.get_by_label('MQTT password',exact=True).get_attribute('placeholder')
                     mqtt_data = await page.evaluate('fetch("api/mqtt").then(r=>r.json())')
                     assert mqtt_data['password_set'] and 'password' not in mqtt_data
+                    assert mqtt_data['battery_decay_seconds'] == 86400
+                    await page.get_by_role('link',name='Media Library',exact=False).click()
+                    await page.get_by_role('link',name='Settings',exact=True).click()
+                    assert await page.get_by_label('Activity battery decline period (seconds)',exact=True).input_value() == '86400'
+                    assert await page.get_by_label('MQTT username',exact=True).input_value() == 'browser-test-user'
                     assert 'browser-test-secret' not in await page.evaluate('fetch("api/state").then(r=>r.text())')
                     await page.get_by_label('MQTT username',exact=True).fill('unsaved draft')
+                    await page.get_by_label('Activity battery decline period (seconds)',exact=True).fill('300')
                     await page.wait_for_timeout(5500)
                     assert await page.get_by_label('MQTT username',exact=True).input_value() == 'unsaved draft'
+                    assert await page.get_by_label('Activity battery decline period (seconds)',exact=True).input_value() == '300'
                     await page.reload()
                     await page.get_by_role('heading',name='MQTT & Home Assistant',exact=True).wait_for()
                     assert await page.get_by_label('MQTT username',exact=True).input_value() == 'browser-test-user'
+                    assert await page.get_by_label('Activity battery decline period (seconds)',exact=True).input_value() == '86400'
+                    await page.get_by_label('Activity battery decline period (seconds)',exact=True).fill('0')
                     await page.get_by_role('button',name='Save MQTT settings',exact=True).click()
                     await page.locator('#mqtt-save-status').filter(has_text='MQTT settings saved.').wait_for()
                     assert (await page.evaluate('fetch("api/mqtt").then(r=>r.json())'))['password_set']
@@ -689,7 +703,7 @@ async def main():
                     assert await page.locator('#device-playback-queue').is_visible()
                     assert not errors, errors
                     await browser.close()
-            print('Browser smoke passed: native select groups/defaults, live two-to-nine queue transition without draft loss, upload, full-resolution dithering methods, calibrated palette, variant overwrite, worker startup recovery/cancellation, automatic on/off pixels and manual tone preservation, matching descriptions, visible modal notifications, MQTT settings/secret handling and watchdog display, all three models, Inkplate grayscale/monochrome PNG and exact tone inversion, portrait pixels/editing/voltage, schedule/battery forms, explicit comparison buttons/keyboard/touch controls without hover switching, complete-image geometry, next connection, assigned-image filtering, native 800×480 BMP delivery/rotation, device orientation/help, fixed-URL original/BMP delivery, CORS, and responsive layouts.')
+            print('Browser smoke passed: activity battery decline input/default/validation/persistence/drafts, native select groups/defaults, live two-to-nine queue transition without draft loss, upload, full-resolution dithering methods, calibrated palette, variant overwrite, worker startup recovery/cancellation, automatic on/off pixels and manual tone preservation, matching descriptions, visible modal notifications, MQTT settings/secret handling and watchdog display, all three models, Inkplate grayscale/monochrome PNG and exact tone inversion, portrait pixels/editing/voltage, schedule/battery forms, explicit comparison buttons/keyboard/touch controls without hover switching, complete-image geometry, next connection, assigned-image filtering, native 800×480 BMP delivery/rotation, device orientation/help, fixed-URL original/BMP delivery, CORS, and responsive layouts.')
             print(f'Screenshots: {artifacts}')
         finally:
             process.terminate()
