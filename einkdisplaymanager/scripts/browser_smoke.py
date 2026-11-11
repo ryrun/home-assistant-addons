@@ -16,7 +16,7 @@ from pathlib import Path
 
 import aiohttp
 from PIL import Image, ImageChops, ImageDraw
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, expect
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -345,9 +345,100 @@ async def main():
                     await page.get_by_role('button', name='Open Mountain evening', exact=True).wait_for()
                     await page.screenshot(path=str(artifacts / 'library-mobile.png'), full_page=True)
                     assert await page.evaluate('document.documentElement.scrollWidth <= innerWidth')
+                    # OpenPaper 7 has a landscape native raster and a separate recipe.
+                    await page.set_viewport_size({'width':1440,'height':1100})
+                    await page.get_by_role('link',name='Devices',exact=False).click()
+                    await page.locator('#add-device').click()
+                    await page.get_by_label('Device type').select_option('openpaper_7')
+                    await page.get_by_label('Device name').fill('Office 7')
+                    await page.locator('#new-device').get_by_role('button',name='Add device',exact=True).click()
+                    await page.get_by_role('heading',name='Office 7',exact=True).wait_for()
+                    assert await page.get_by_label('Mounting orientation').input_value() == 'landscape'
+                    assert await page.get_by_label('Mounting orientation').locator('option:checked').inner_text() == 'Landscape · 800 × 480'
+                    small_url = await page.locator('#image-url').input_value()
+                    await page.get_by_role('button',name='Add images',exact=False).click()
+                    assert await page.get_by_label('Image version for Mountain evening').locator('option').count() == 1
+                    await page.locator('[data-prepare-asset]').first.click()
+                    assert (await page.locator('#target-profile').input_value()).startswith('device:')
+                    assert '800 × 480' in await page.locator('#output-dimensions').inner_text()
+                    await page.locator('#dither').select_option('stucki')
+                    await page.locator('#matching').select_option('lab')
+                    await page.get_by_role('button',name='Update full-resolution preview').click()
+                    await page.locator('#save-variant:not([disabled])').wait_for(timeout=90000)
+                    assert await page.locator('#image-preview').evaluate('(img)=>[img.naturalWidth,img.naturalHeight]') == [800,480]
+                    await page.get_by_role('button',name='Save as new variant',exact=True).click()
+                    await page.locator('#notice').filter(has_text='Saved a new variant.').wait_for()
+                    assert await page.locator('#orientation').input_value() == 'landscape'
+                    assert '800 × 480' in await page.locator('#output-dimensions').inner_text()
+                    async with session.get(origin+'/api/state') as response:
+                        small_state = await response.json()
+                    small_device = next(d for d in small_state['devices'] if d['name']=='Office 7')
+                    small_variant = next(v for v in small_state['variants'] if v['profile']=='openpaper_7')
+                    await page.get_by_role('button',name='Close dialog').click()
+                    await page.get_by_role('button',name='Add images',exact=False).click()
+                    versions = await page.get_by_label('Image version for Mountain evening').locator('option').evaluate_all('(items)=>items.map(o=>o.value)')
+                    assert set(versions) == {'original',small_variant['id']}
+                    await page.get_by_label('Image version for Mountain evening').select_option(small_variant['id'])
+                    await page.get_by_role('button',name='Add to device',exact=True).click()
+                    await page.get_by_role('button',name='Close dialog').click()
+                    async with session.get(small_url) as response:
+                        initial_small = await response.read()
+                        small_etag = response.headers['ETag']
+                    validate_bmp(initial_small,'openpaper_7')
+                    assert len(initial_small)==192118
+                    await page.get_by_label('Mounting orientation').select_option('portrait')
+                    await page.get_by_label('Mounted upside down',exact=False).check()
+                    await page.get_by_role('button',name='Save settings',exact=True).click()
+                    await page.locator('#device-save-status').filter(has_text='Settings saved.').wait_for()
+                    await page.get_by_role('link',name='Media Library',exact=False).click()
+                    await page.get_by_role('button',name='Open Mountain evening',exact=True).click()
+                    await page.locator(f'[data-edit-variant="{small_variant["id"]}"]').click()
+                    assert await page.locator('#target-profile').input_value() == 'profile:openpaper_7'
+                    assert await page.locator('#dither').input_value() == 'stucki'
+                    await page.locator('#orientation').select_option('portrait')
+                    await page.get_by_role('button',name='Update full-resolution preview').click()
+                    await page.locator('#save-variant:not([disabled])').wait_for(timeout=90000)
+                    small_preview = base64.b64decode(await page.locator('#image-preview').evaluate('(img)=>{const c=document.createElement("canvas");c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext("2d").drawImage(img,0,0);return c.toDataURL("image/png").split(",")[1];}'))
+                    assert Image.open(io.BytesIO(small_preview)).size == (480,800)
+                    await page.get_by_role('button',name='Save changes',exact=True).click()
+                    await page.locator('#notice').filter(has_text='Variant updated.').wait_for()
+                    async with session.get(origin+f"/api/media/variant/{small_variant['id']}/file") as response:
+                        small_native = await response.read()
+                    validate_bmp(small_native,'openpaper_7')
+                    physical = Image.open(io.BytesIO(small_native)).convert('RGB').transpose(Image.Transpose.ROTATE_270)
+                    assert ImageChops.difference(physical,Image.open(io.BytesIO(small_preview)).convert('RGB')).getbbox() is None
+                    async with session.get(small_url,headers={'If-None-Match':small_etag}) as response:
+                        assert response.status==200
+                        assert await response.read()==rotate_delivery(small_native,'image/bmp')
+                    await page.get_by_role('button',name='Close dialog').click()
+                    await page.goto(origin+f"/#devices/{small_device['id']}")
+                    await page.get_by_role('heading',name='Office 7',exact=True).wait_for()
+                    assert await page.get_by_label('Mounting orientation').input_value() == 'portrait'
+                    await page.locator('#device-frame-preview img').evaluate('(img)=>img.decode()')
+                    await expect(page.locator('#device-frame-preview img')).to_have_js_property('naturalWidth',384)
+                    await expect(page.locator('#device-frame-preview img')).to_have_js_property('naturalHeight',640)
+                    dimensions = await page.locator('#device-frame-preview img').evaluate('(img)=>[img.naturalWidth,img.naturalHeight]')
+                    assert dimensions == [384,640], (dimensions,await page.get_by_label('Mounting orientation').input_value(),await page.locator('#device-frame-preview img').get_attribute('src'))
+                    assert await page.locator('#image-url').input_value() == small_url
+                    await page.screenshot(path=str(artifacts/'openpaper7-desktop.png'),full_page=True)
+                    await page.set_viewport_size({'width':390,'height':844})
+                    await page.screenshot(path=str(artifacts/'openpaper7-mobile.png'),full_page=True)
+                    assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+                    # A pre-dithered 7-inch original cannot be assigned to the L model.
+                    async with session.post(origin+'/api/assets',data=small_native,headers={'X-Eink-CSRF':small_state['csrf'],'X-File-Name':'Native Seven.bmp'}) as response:
+                        assert response.status==201
+                        native_asset=(await response.json())['id']
+                    large_device=next(d for d in small_state['devices'] if d['profile']=='openpaper_l')
+                    await page.goto(origin+f"/#devices/{large_device['id']}")
+                    await page.reload()  # The native-BMP fixture was uploaded through the external HTTP client.
+                    await page.get_by_role('heading',name='Studio frame',exact=True).wait_for()
+                    await page.get_by_role('button',name='Add images',exact=False).click()
+                    assert await page.get_by_label('Image version for Native Seven.bmp').locator('option[value="original"]').is_disabled()
+                    assert await page.locator(f'[data-add-asset="{native_asset}"]').is_disabled()
+                    await page.get_by_role('button',name='Close dialog').click()
                     assert not errors, errors
                     await browser.close()
-            print('Browser smoke passed: upload, full-resolution dithering methods, calibrated palette, variant overwrite, worker startup recovery/cancellation, automatic on/off pixels and manual tone preservation, matching descriptions, visible modal notifications, MQTT settings/secret handling and watchdog display, device orientation/help, fixed-URL original/BMP delivery, CORS, and responsive layouts.')
+            print('Browser smoke passed: upload, full-resolution dithering methods, calibrated palette, variant overwrite, worker startup recovery/cancellation, automatic on/off pixels and manual tone preservation, matching descriptions, visible modal notifications, MQTT settings/secret handling and watchdog display, both models and mountings, native 800×480 BMP delivery/rotation, device orientation/help, fixed-URL original/BMP delivery, CORS, and responsive layouts.')
             print(f'Screenshots: {artifacts}')
         finally:
             process.terminate()

@@ -1,12 +1,12 @@
 import {ditherImage, suggestCanvasProcessingOptions, spectra6OriginalPalette, spectra6Palette, aitjcizeSpectra6Palette} from './vendor/epdoptimize-1.2.0.mjs';
 import {processingOptions} from './optimizer-options.js';
+import {viewSize,transportRotated} from './profiles.js';
 
 // Processing runs in a dedicated worker, always from the full normalized source.
-const W = 1200, H = 1600;
 const codes = {black:0, blue:1, green:2, red:3, yellow:5, white:6};
 const deviceRGB = [[0,0,0],[0,0,255],[0,255,0],[255,0,0],null,[255,255,0],[255,255,255]];
 
-function bmp(pixels, indices) {
+function bmp(indices,W,H) {
   const output = new Uint8Array(118 + W * H / 2);
   const v = new DataView(output.buffer);
   output[0]=66; output[1]=77;
@@ -31,9 +31,15 @@ self.onmessage = async ({data}) => {
   try {
     if(typeof createImageBitmap!=='function'||typeof OffscreenCanvas!=='function')throw new Error('This browser does not support image processing in a worker. Update your browser and try again.');
     const {source, recipe}=data;
-    if(recipe.profile && recipe.profile!=='openpaper_l')throw new Error('This output profile is not supported yet.');
-    const landscape=recipe.orientation==='landscape';
-    const viewW=landscape?H:W, viewH=landscape?W:H;
+    stage='loading the display profile';
+    const response=await fetch(new URL('./profiles.json',import.meta.url),{cache:'no-store'});
+    if(!response.ok)throw new Error('Could not load supported display models. Reload the add-on page and try again.');
+    const profile=(await response.json()).find(p=>p.id===(recipe.profile||'openpaper_l'));
+    if(!profile)throw new Error('Choose a supported display model.');
+    const W=profile.width,H=profile.height,mounting=recipe.orientation||profile.native_orientation;
+    if(!['portrait','landscape'].includes(mounting))throw new Error('Choose portrait or landscape.');
+    const [viewW,viewH]=viewSize(profile,mounting),rotateTransport=transportRotated(profile,mounting);
+    stage='decoding the source image';
     self.postMessage({progress:'Decoding source image…'});
     image=await createImageBitmap(source);
     const canvas=new OffscreenCanvas(viewW,viewH), ctx=canvas.getContext('2d',{willReadFrequently:true});
@@ -75,18 +81,18 @@ self.onmessage = async ({data}) => {
       const rgb=deviceRGB[best.code]; pixels.data[p]=rgb[0];pixels.data[p+1]=rgb[1];pixels.data[p+2]=rgb[2];pixels.data[p+3]=255;
     }
     ctx.putImageData(pixels,0,0);
-    // A landscape preview is rotated counter-clockwise into the native portrait
-    // buffer. Only pixel positions change: never run dithering a second time.
+    // A view mounted clockwise from native needs counter-clockwise transport.
+    // Only pixel positions change: never run dithering a second time.
     let native=indices;
-    if(landscape){
+    if(rotateTransport){
       native=new Uint8Array(W*H);
       for(let y=0;y<viewH;y++)for(let x=0;x<viewW;x++)native[(H-1-x)*W+y]=indices[y*viewW+x];
     }
     stage='encoding the output';
     self.postMessage({progress:'Encoding display output…'});
-    const output=bmp(pixels,native);
+    const output=bmp(native,W,H);
     const preview=await canvas.convertToBlob({type:'image/png'});
-    self.postMessage({bmp:output.buffer,preview,recipe:{...recipe,intent,automaticAnalysis:analysis,orientation:landscape?'landscape':'portrait',nativeRotation:landscape?270:0,nativeWidth:W,nativeHeight:H,viewWidth:viewW,viewHeight:viewH,resolvedOptions:options,optimizer:'epdoptimize@1.2.0',profile:'openpaper_l',encoder:4}},[output.buffer]);
+    self.postMessage({bmp:output.buffer,preview,recipe:{...recipe,intent,automaticAnalysis:analysis,orientation:mounting,nativeRotation:rotateTransport?270:0,nativeWidth:W,nativeHeight:H,viewWidth:viewW,viewHeight:viewH,resolvedOptions:options,optimizer:'epdoptimize@1.2.0',profile:profile.id,encoder:5}},[output.buffer]);
   } catch(error) { self.postMessage({error:`Image optimization failed while ${stage}. ${error.message||'Close other image editors and try again.'}`}); }
   finally { image?.close(); }
 };

@@ -12,6 +12,7 @@ import time
 from datetime import UTC, datetime
 
 import aiomqtt
+from profiles import display_profile
 from storage import new_id
 
 LOGGER = logging.getLogger(__name__)
@@ -190,7 +191,7 @@ class MQTTBridge:
                              'state_topic': state_topic, 'value_template': '{{ value_json.' + key + ' }}',
                              'availability_topic': f'{base}/availability', 'qos': 1,
                              'device': {'identifiers': [f'einkdisplaymanager_{self.instance}_{identifier}'],
-                                        'name': device['name'], 'manufacturer': 'paperlesspaper', 'model': 'OpenPaper L'},
+                                        'name': device['name'], 'manufacturer': 'paperlesspaper', 'model': display_profile(device['profile'])['name']},
                              'origin': {'name': 'E-Ink Display Manager', 'sw_version': self.version,
                                         'support_url': 'https://github.com/ryrun/home-assistant-addons'}, **extra}
                 if key != 'selected_image':

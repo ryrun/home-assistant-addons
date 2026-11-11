@@ -1,4 +1,4 @@
-"""Validated immutable image storage and OpenPaper L output checks."""
+"""Validated immutable image storage and model-specific OpenPaper output checks."""
 
 import hashlib
 import io
@@ -8,6 +8,7 @@ import warnings
 from pathlib import Path
 
 from PIL import Image, ImageCms, ImageOps
+from profiles import PROFILES, display_profile
 
 WIDTH, HEIGHT = 1200, 1600
 MAX_UPLOAD = 20 * 1024 * 1024
@@ -95,22 +96,34 @@ def original_support(data, fmt, mode):
             if bits in (24, 32):
                 return True, 'Uncompressed BMP; the frame fits and dithers this original.'
             if bits == 4:
-                try:
-                    validate_bmp(data)
-                    return True, 'Display-ready BMP; no additional dithering.'
-                except ValueError:
-                    pass
+                native = native_bmp_profile(data)
+                if native:
+                    return True, f'Display-ready {PROFILES[native]["name"]} BMP; no additional dithering on matching devices.'
     return False, 'Create a variant: original delivery requires a compatible baseline RGB JPEG, 24/32-bit BMP, or display-ready BMP. PNG, progressive JPEG, incompatible Huffman tables, and other indexed BMPs cannot be sent unchanged.'
 
 
-def validate_bmp(data):
+def native_bmp_profile(data):
+    for identifier, profile in PROFILES.items():
+        if len(data) != 118 + profile['width'] * profile['height'] // 2:
+            continue
+        try:
+            validate_bmp(data, identifier)
+            return identifier
+        except ValueError:
+            pass
+    return None
+
+
+def validate_bmp(data, profile_id='openpaper_l'):
     """Require the direct display path: top-down, uncompressed 4-bit device indices."""
-    if len(data) != 118 + WIDTH * HEIGHT // 2 or data[:2] != b'BM':
-        raise ValueError('Expected a full-resolution OpenPaper L 4-bit BMP.')
+    profile = display_profile(profile_id)
+    width, height = profile['width'], profile['height']
+    if len(data) != 118 + width * height // 2 or data[:2] != b'BM':
+        raise ValueError(f'Expected a full-resolution {profile["name"]} 4-bit BMP.')
     size, offset = struct.unpack_from('<I4xI', data, 2)
     dib, w, h, planes, bits, compression = struct.unpack_from('<IiiHHI', data, 14)
-    if (size, offset, dib, w, h, planes, bits, compression) != (len(data), 118, 40, WIDTH, -HEIGHT, 1, 4, 0):
-        raise ValueError('BMP header does not match the OpenPaper L display profile.')
+    if (size, offset, dib, w, h, planes, bits, compression) != (len(data), 118, 40, width, -height, 1, 4, 0):
+        raise ValueError(f'BMP header does not match the {profile["name"]} display profile.')
     for index, (r, g, b) in COLORS.items():
         if data[54 + index * 4:57 + index * 4] != bytes((b, g, r)):
             raise ValueError('BMP palette does not match device color codes.')
@@ -141,7 +154,8 @@ def inspect_image(data):
             raise ValueError('The image is damaged, unsupported, or too large to decode safely.') from exc
     return {'mime': {'JPEG': 'image/jpeg', 'PNG': 'image/png', 'BMP': 'image/bmp'}[fmt],
             'width': width, 'height': height, 'bytes': len(data), 'hash': digest(data),
-            'original_supported': supported, 'original_note': reason}, out.getvalue()
+            'original_supported': supported, 'original_note': reason,
+            'native_profile': native_bmp_profile(data) if fmt == 'BMP' else None}, out.getvalue()
 
 
 def editor_image(image):
@@ -170,30 +184,26 @@ def source_png(data):
         return out.getvalue()
 
 
-def landscape_thumbnail(data):
-    """Undo the transport rotation for a saved landscape variant's library preview."""
-    with Image.open(io.BytesIO(data)) as image:
-        image = image.convert('RGB').transpose(Image.Transpose.ROTATE_270)
-        image.thumbnail((640, 480), Image.Resampling.LANCZOS)
-        out = io.BytesIO()
-        image.save(out, 'JPEG', quality=85)
-        return out.getvalue()
+def variant_thumbnail(data, profile_id, mounting):
+    return device_thumbnail(data, mounting == 'landscape', prepared=True, profile_id=profile_id)
 
 
-def device_thumbnail(data, landscape=False, prepared=False, upside_down=False):
+def device_thumbnail(data, landscape=False, prepared=False, upside_down=False, profile_id='openpaper_l'):
     """Preview native pixels in mounting orientation; original delivery is approximate."""
     with Image.open(io.BytesIO(data)) as source:
+        profile = display_profile(profile_id)
+        width, height = profile['width'], profile['height']
         image = source.convert('RGB')
         if not prepared:
             # Firmware fits without upscaling, with a white background. Its color
             # reduction and JPEG/EXIF handling may differ from this approximation.
-            image.thumbnail((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
-            native = Image.new('RGB', (WIDTH, HEIGHT), 'white')
-            native.paste(image, ((WIDTH-image.width)//2, (HEIGHT-image.height)//2))
+            image.thumbnail((width, height), Image.Resampling.LANCZOS)
+            native = Image.new('RGB', (width, height), 'white')
+            native.paste(image, ((width-image.width)//2, (height-image.height)//2))
             image = native
         if upside_down:
             image = image.transpose(Image.Transpose.ROTATE_180)
-        if landscape:
+        if landscape != (profile['native_orientation'] == 'landscape'):
             image = image.transpose(Image.Transpose.ROTATE_270)
         image.thumbnail((640, 640), Image.Resampling.LANCZOS)
         output = io.BytesIO()
@@ -201,14 +211,16 @@ def device_thumbnail(data, landscape=False, prepared=False, upside_down=False):
         return output.getvalue()
 
 
-def placeholder():
+def placeholder(profile_id='openpaper_l'):
+    profile = display_profile(profile_id)
+    width, height = profile['width'], profile['height']
     header = bytearray(118)
     header[:2] = b'BM'
-    struct.pack_into('<I', header, 2, 118 + WIDTH * HEIGHT // 2)
+    struct.pack_into('<I', header, 2, 118 + width * height // 2)
     struct.pack_into('<I', header, 10, 118)
-    struct.pack_into('<IiiHHIIiiII', header, 14, 40, WIDTH, -HEIGHT, 1, 4, 0,
-                     WIDTH * HEIGHT // 2, 2835, 2835, 16, 16)
+    struct.pack_into('<IiiHHIIiiII', header, 14, 40, width, -height, 1, 4, 0,
+                     width * height // 2, 2835, 2835, 16, 16)
     for index, (r, g, b) in COLORS.items():
         header[54 + index * 4:58 + index * 4] = bytes((b, g, r, 0))
     # A quiet white frame is preferable to a repeatedly refreshed error screen.
-    return bytes(header) + b'\x66' * (WIDTH * HEIGHT // 2)
+    return bytes(header) + b'\x66' * (width * height // 2)

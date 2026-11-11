@@ -25,18 +25,25 @@ from media import (
     device_thumbnail,
     digest,
     inspect_image,
-    landscape_thumbnail,
     placeholder,
     source_png,
     validate_bmp,
+    variant_thumbnail,
 )
 from mqtt_bridge import MQTTBridge
 from network import discover_network, network_defaults
 from playback import advance, completed, initial_state, reconcile, select_for_request
-from profiles import PROFILES, device_orientation, device_rotation, orientation
+from profiles import (
+    PROFILES,
+    device_orientation,
+    device_rotation,
+    display_profile,
+    orientation,
+    original_compatible,
+)
 from storage import Store, new_id
 
-VERSION = '0.2.0'
+VERSION = '0.3.0'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -112,7 +119,8 @@ class Manager:
         self.transfers = asyncio.Semaphore(4)
         self.delivery_cache = OrderedDict()
         self.delivery_cache_bytes = 0
-        self.blank = placeholder()
+        self.blanks = {identifier: placeholder(identifier) for identifier in PROFILES}
+        self.blank = self.blanks['openpaper_l']
         self.csrf = secrets.token_urlsafe(32)
         try:
             self.settings = self.store.get('settings', 'global')
@@ -277,6 +285,13 @@ class Manager:
             # Writes precede metadata publication; startup removes interrupted leftovers.
             existing = next((a for a in self.store.all('asset') if a['hash'] == metadata['hash']), None)
             if existing:
+                # Re-uploading a previously unsupported prepared BMP can now
+                # enable Original delivery for a newly supported model. Keep its
+                # identity/name/files and assignments; refresh only validated capabilities.
+                capabilities = {key: metadata[key] for key in ('original_supported', 'original_note', 'native_profile')}
+                if any(existing.get(key) != value for key, value in capabilities.items()):
+                    existing.update(capabilities)
+                    self.store.save('asset', existing)
                 return web.json_response({'id': existing['id'], 'duplicate': True})
             if len(self.store.all('asset')) >= 2000:
                 raise ValueError('The library limit of 2000 originals has been reached.')
@@ -305,18 +320,21 @@ class Manager:
         item = self.store.get(kind, identifier)
         if output == 'thumbnail' and request.query.get('device'):
             device = self.store.get('device', request.query['device'])
-            data, _mime, _hash = await self.delivery(item, device_rotation(device))
+            if kind == 'variant' and item['profile'] != device['profile']:
+                raise ValueError('Choose a variant prepared for this device model.')
+            data, _mime, _hash = await self.delivery(item, device_rotation(device), device['profile'])
             async with self.workers:
                 data = await asyncio.to_thread(device_thumbnail, data, device_orientation(device) == 'landscape',
-                                               kind == 'variant', bool(device_rotation(device)))
+                                               kind == 'variant', bool(device_rotation(device)), device['profile'])
             return web.Response(body=data, content_type='image/jpeg')
         if output == 'thumbnail' and request.query.get('orientation'):
             mounting = orientation(request.query['orientation'])
-            if kind == 'variant' and mounting == item.get('recipe', {}).get('orientation', 'portrait'):
+            profile_id = item.get('profile', item.get('native_profile') or 'openpaper_l')
+            if kind == 'variant' and mounting == item.get('recipe', {}).get('orientation', display_profile(profile_id)['native_orientation']):
                 return web.FileResponse(self.store.path(item['thumbnail']), headers={'Content-Type': 'image/jpeg'})
             async with self.workers:
                 data = await asyncio.to_thread(self.store.path(item['file']).read_bytes)
-                data = await asyncio.to_thread(device_thumbnail, data, mounting == 'landscape', kind == 'variant')
+                data = await asyncio.to_thread(device_thumbnail, data, mounting == 'landscape', kind == 'variant', False, profile_id)
             return web.Response(body=data, content_type='image/jpeg')
         if output == 'source':
             async with self.workers:
@@ -337,24 +355,24 @@ class Manager:
                 if request.headers.get('X-Variant-Version') != str(previous.get('revision', 0)):
                     raise web.HTTPConflict(reason='This variant changed in another window. Reopen it before saving.')
             data = await request.read()
-            async with self.workers:
-                await asyncio.to_thread(validate_bmp, data)
-                metadata, thumb = await asyncio.to_thread(inspect_image, data)
             recipe = json.loads(request.headers.get('X-Recipe', '{}'))
             if not isinstance(recipe, dict) or len(json.dumps(recipe)) > 8192:
                 raise ValueError('Invalid processing recipe.')
-            if recipe.get('profile', 'openpaper_l') not in PROFILES:
-                raise ValueError('Unsupported conversion target profile.')
+            profile = display_profile(recipe.get('profile', 'openpaper_l'))
+            recipe.setdefault('profile', profile['id'])
+            recipe.setdefault('orientation', profile['native_orientation'])
+            async with self.workers:
+                await asyncio.to_thread(validate_bmp, data, profile['id'])
+                metadata, thumb = await asyncio.to_thread(inspect_image, data)
             parent_id = request.headers.get('X-Parent-Variant')
             if parent_id and self.store.get('variant', parent_id)['asset_id'] != asset_id:
                 raise ValueError('The edited variant belongs to a different original.')
             orientation = recipe.get('orientation', 'portrait')
             if orientation not in ('portrait', 'landscape'):
                 raise ValueError('Choose portrait or landscape for the variant orientation.')
-            if orientation == 'landscape':
-                async with self.workers:
-                    thumb = await asyncio.to_thread(landscape_thumbnail, data)
-            name = title(unquote(request.headers.get('X-Variant-Name', 'Optimized for OpenPaper L')))
+            async with self.workers:
+                thumb = await asyncio.to_thread(variant_thumbnail, data, profile['id'], orientation)
+            name = title(unquote(request.headers.get('X-Variant-Name', 'Optimized for ' + profile['name'])))
             if previous is None and len(self.store.all('variant')) >= 4000:
                 raise ValueError('The library limit of 4000 saved variants has been reached.')
             file = await asyncio.to_thread(self.store.put_file, data, '.bmp')
@@ -406,9 +424,10 @@ class Manager:
             self.store.cleanup()
         return web.json_response({'deleted': True})
 
-    def new_device(self, name):
-        return {'id': new_id(), 'name': title(name), 'profile': 'openpaper_l',
-                'orientation': 'portrait', 'upside_down': False,
+    def new_device(self, name, profile_id='openpaper_l'):
+        profile = display_profile(profile_id)
+        return {'id': new_id(), 'name': title(name), 'profile': profile['id'],
+                'orientation': profile['native_orientation'], 'upside_down': False,
                 'token': secrets.token_urlsafe(24), 'interval': 3600, 'shuffle': False,
                 'paused': False, 'enabled': True, 'settings': {'motionWakeup': False, 'autoRotation': False},
                 'entries': [], 'state': initial_state(), 'modified': time.time()}
@@ -418,9 +437,12 @@ class Manager:
         async with self.media_lock:
             if len(self.store.all('device')) >= 32:
                 raise ValueError('The limit of 32 devices has been reached.')
-            device = self.new_device(data.get('name'))
+            source = self.store.get('device', data['copy_from']) if data.get('copy_from') else None
+            profile_id = data.get('profile', source['profile'] if source else 'openpaper_l')
+            device = self.new_device(data.get('name'), profile_id)
+            if source and source['profile'] != profile_id:
+                raise ValueError('Duplicate a device using the same model, or create a new device without copied assignments.')
             if data.get('copy_from'):
-                source = self.store.get('device', data['copy_from'])
                 for key in ('interval', 'shuffle', 'settings', 'entries'):
                     device[key] = copy.deepcopy(source[key])
                 device['orientation'] = device_orientation(source)
@@ -446,8 +468,8 @@ class Manager:
                 raise web.HTTPConflict(reason='This device changed in another window. Refresh before editing.')
             if 'name' in data:
                 device['name'] = title(data['name'])
-            if 'profile' in data and data['profile'] != 'openpaper_l':
-                raise ValueError('Only OpenPaper L is supported.')
+            if 'profile' in data and data['profile'] != device['profile']:
+                raise ValueError('Device type cannot be changed. Create a new device for another model.')
             if 'orientation' in data:
                 device['orientation'] = orientation(data['orientation'])
             old_rotation = device_rotation(device)
@@ -493,6 +515,8 @@ class Manager:
                             raise ValueError('Choose a variant prepared for this device model and resolution.')
                     elif mode != 'original' or not asset['original_supported']:
                         raise ValueError(asset['original_note'])
+                    elif not original_compatible(asset, device['profile']):
+                        raise ValueError('This display-ready original belongs to another model. Prepare a matching variant from the source image.')
                     entry_id = item.get('id') or new_id()
                     if item.get('id') and entry_id not in old:
                         raise ValueError('Unknown image list entry. Reload the device.')
@@ -606,9 +630,10 @@ class Manager:
             return None
         return self.store.get('variant', entry['variant_id']) if entry['mode'] == 'variant' else self.store.get('asset', entry['asset_id'])
 
-    async def delivery(self, item, rotation=0):
+    async def delivery(self, item, rotation=0, profile_id='openpaper_l'):
         if item is None:
-            return self.blank, 'image/bmp', digest(self.blank)
+            blank = self.blanks[profile_id]
+            return blank, 'image/bmp', digest(blank)
         path = self.store.path(item['file'])
         key = (item['hash'], rotation, 1)
         if rotation and key in self.delivery_cache:
@@ -646,12 +671,13 @@ class Manager:
                 self.store.save('device', device)
             try:
                 item = self.representation(device)
+                blank = self.blanks[device['profile']]
                 if frame_fetch:
-                    self.diagnostics.start(identifier, item['bytes'] if item else len(self.blank),
+                    self.diagnostics.start(identifier, item['bytes'] if item else len(blank),
                                            device['state']['selected'],
                                            item.get('asset_id', item['id']) if item else None,
                                            item['mime'] if item else 'image/bmp')
-                data, mime, output_hash = await self.delivery(item, device_rotation(device))
+                data, mime, output_hash = await self.delivery(item, device_rotation(device), device['profile'])
             except (KeyError, OSError):
                 if frame_fetch:
                     if not self.diagnostics.running(identifier):

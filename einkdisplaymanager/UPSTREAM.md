@@ -51,3 +51,17 @@ license files remain in the image. Both MQTT dependencies ship platform-independ
 Python wheels; no additional broker or native MQTT build is needed in the container.
 Regenerate locks with pip-tools and verify Linux `aarch64`/`amd64` wheels before
 release. Test dependencies are separately locked in `requirements-dev.txt`.
+
+## OpenPaper 7 model addition
+
+- Product: https://paperlesspaper.de/en/buy-7-inch-epaper-picture-frame
+- Manufacturer model/dimensions: https://docs.paperlesspaper.de/manufacturing/bill-of-materials
+- Native raster source: `src/epaper_display.h`, file blob
+  `d4b5f35da0871dcc50677489e22bb26e87ba4dac` (checked 2026-11-11).
+- Decoder source: `src/main.cpp`, file blob
+  `c96c94eab76fa42dd7e1d8ffa9320a5c6a37c6ec`.
+- Independently encoded model facts: OpenPaper 7 Spectra 6, 800 × 480 native
+  landscape, six device codes, 192,118-byte BMP; OpenPaper L stays 1200 × 1600
+  native portrait, 960,118-byte BMP. No firmware/driver implementation is copied.
+- Both geometries and pixel rotations have software/browser validation only;
+  physical OpenPaper 7 acceptance remains pending.

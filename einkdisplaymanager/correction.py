@@ -2,7 +2,7 @@
 
 import io
 
-from media import HEIGHT, MAX_UPLOAD, WIDTH, jpeg_compatible, validate_bmp
+from media import MAX_UPLOAD, jpeg_compatible, native_bmp_profile
 from PIL import Image, JpegImagePlugin
 
 SWAP_NIBBLES = bytes(((value & 15) << 4) | (value >> 4) for value in range(256))
@@ -10,8 +10,9 @@ SWAP_NIBBLES = bytes(((value & 15) << 4) | (value >> 4) for value in range(256))
 
 def rotate_delivery(data, mime):
     """Rotate 180 degrees. Prepared BMP pixel indices are rearranged exactly."""
-    if mime == 'image/bmp' and len(data) == 118 + WIDTH * HEIGHT // 2 and data[28:30] == b'\x04\x00':
-        validate_bmp(data)
+    if mime == 'image/bmp' and data[28:30] == b'\x04\x00':
+        if not native_bmp_profile(data):
+            raise ValueError('The display-ready BMP is invalid or does not match a supported model.')
         return data[:118] + data[118:][::-1].translate(SWAP_NIBBLES)
     with Image.open(io.BytesIO(data)) as source:
         rotated = source.transpose(Image.Transpose.ROTATE_180)

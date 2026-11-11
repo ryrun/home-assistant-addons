@@ -1,7 +1,7 @@
 # E-Ink Display Manager
 
-A local photo library and slideshow manager for **OpenPaper L** frames running
-the paperlesspaper offline firmware. Runs as a Home Assistant add-on with an
+A local photo library and slideshow manager for **OpenPaper L** and **OpenPaper 7**
+frames running the paperlesspaper offline firmware. Runs as a Home Assistant add-on with an
 English management interface through HA Ingress.
 
 - Upload JPEG, PNG, and BMP originals once; share them across devices.
@@ -14,11 +14,13 @@ English management interface through HA Ingress.
 - Correct upside-down mounting per device without editing shared variants.
 - Play in order, optionally shuffling after each completed cycle. A sleeping frame
   does not cause images to be skipped in the background.
-- Choose compatible original delivery or a prepared 1200 × 1600 4-bit BMP per entry.
+- Choose compatible original delivery or a prepared model-specific 4-bit BMP per entry
+  (OpenPaper L: 1200 × 1600; OpenPaper 7: 800 × 480).
 
-**Experimental 0.2.0.** Automated and browser testing are separate from real-device
+**Experimental 0.3.0.** Automated and browser testing are separate from real-device
 acceptance. Installation on Home Assistant Green and display quality on a physical
-OpenPaper L still need verification. Other OpenPaper models are not supported yet.
+frame still need verification. The new OpenPaper 7 profile is validated in software;
+physical acceptance on its 7.3-inch Spectra 6 hardware remains pending.
 
 See [DOCS.md](DOCS.md) for installation, networking, firmware setup, and development.
 No manufacturer-cloud account or custom Home Assistant integration is required.

@@ -13,7 +13,7 @@
    device port. Do not use a changing Ingress URL or the external HA URL.
 4. Upload images in **Media Library**. Open an image, adjust it, update the
    full-resolution preview, and save a variant if desired.
-5. In **Devices**, add an OpenPaper L. Open **Add images** and select an original
+5. In **Devices**, add an OpenPaper L or OpenPaper 7 with the matching device type. Open **Add images** and select an original
    or a saved variant for each assignment. Repeat images are allowed as separate
    entries; drag entries or use their arrow buttons to arrange the base order.
 6. Copy the device's **Settings JSON URL**. In the upstream
@@ -26,6 +26,47 @@
 **Save settings** displays progress and confirmation beside the button. “Settings
 saved” confirms storage in the add-on; the frame applies them on its next wake-up.
 Save failures remain visible beside the form, with the entered values retained.
+
+## Supported display models
+
+| Device type | Native transport BMP | Native mounting | Portrait view | Landscape view | Firmware target |
+|---|---|---|---|---|---|
+| OpenPaper L · 13.3-inch Spectra 6 | 1200 × 1600 | Portrait | 1200 × 1600 | 1600 × 1200 | `epd13` |
+| OpenPaper 7 · 7.3-inch Spectra 6 | 800 × 480 | Landscape | 480 × 800 | 800 × 480 | `epd7` |
+
+OpenPaper 7 is the smaller current Spectra 6 model, not a generic profile for older
+AcEP/7-color hardware. Select the device type when registering a frame and choose
+the matching display/firmware in the upstream flasher. A registered device's model
+is fixed; create another device for another model. Duplicating keeps the original
+model and assignments. Old records and recipes without explicit model settings
+retain their OpenPaper L defaults.
+
+The authoritative catalog is `web/profiles.json`, shared by Python and the browser
+worker. Each model has its own strict top-down uncompressed 4-bit BMP contract,
+valid pixel codes, native size, placeholder, preview dimensions, and mounting
+conversion. OpenPaper L output is 960,118 bytes; OpenPaper 7 output is 192,118 bytes.
+The 118-byte header/palette and native pixel indices remain unchanged by the
+lossless 180° position correction.
+
+Variants and already prepared 4-bit BMP originals must match the device model;
+they are not silently resized and dithered again. This also applies to old saved
+originals without `native_profile` metadata, identified from their validated
+native dimensions and file size. A shared source JPEG/24-/32-bit BMP can still be
+processed on either frame, or independently prepared into variants for both models.
+If an older upload of a Seven BMP was marked unsupported before this model existed,
+re-upload the same file once: validated Original compatibility is refreshed while
+its ID, chosen name, files, and assignments are retained.
+Selecting a target device in the editor sets that model and mounting. Saving keeps
+the target context; editing a Seven recipe restores the Seven model and settings.
+Changing an assigned variant to a different model is rejected to protect its devices.
+
+Sources checked 2026-11-11: [OpenPaper 7 specification](https://paperlesspaper.de/en/buy-7-inch-epaper-picture-frame),
+[manufacturer parts list](https://docs.paperlesspaper.de/manufacturing/bill-of-materials),
+and the firmware's [native image raster](https://github.com/paperlesspaper/paperlesspaper-firmware-offline/blob/main/src/epaper_display.h)
+(file blob `d4b5f35da0871dcc50677489e22bb26e87ba4dac`) and BMP decoder. The physical
+13.3-inch driver uses 1600 × 1200 internally, while its stored/transport raster is
+1200 × 1600; the 7.3-inch native raster is 800 × 480. Software checks cover both
+contracts, but no new physical OpenPaper 7 or HA Ingress acceptance is claimed.
 
 ## Live transfer status and device log
 
@@ -123,8 +164,8 @@ contact. For automatic reporting during normal wake-ups, firmware would need to
 include voltage/USB/charging data, for example in authenticated image-request
 headers; no extra WiFi connection would then be necessary. That is a proposed
 firmware extension, not an implemented capability. Voltage is not a reliable
-universal battery percentage: OpenPaper L supports four AA cells with different
-chemistries, including NiMH. Any future telemetry should show the measured voltage,
+universal battery percentage: OpenPaper L uses four AA cells, OpenPaper 7 four AAA
+cells, with different supported chemistries including NiMH. Any future telemetry should show the measured voltage,
 source, and timestamp before attempting chemistry-dependent estimates.
 
 Verified against the current [offline firmware](https://github.com/paperlesspaper/paperlesspaper-firmware-offline/blob/main/src/main.cpp)
@@ -325,20 +366,22 @@ Huffman tables, CMYK JPEGs, PNGs, and arbitrary indexed BMPs require a variant.
 Some optimized-Huffman JPEGs are compatible; others are rejected. Original mode
 does not promise browser-style EXIF orientation or color management on the frame.
 
-**Variant** means a saved 1200 × 1600 top-down, uncompressed
+**Variant** means a saved model-sized top-down, uncompressed
 4-bit BMP with valid Spectra 6 pixel codes. The firmware can take its direct-output
 path instead of dithering again. A compatible original in that same format is
 also accepted. The fixed image URL needs no extension: firmware detects the file
 signature, and the server sends the corresponding content type and content ETag.
 
-The editor's **Display orientation** chooses portrait (1200 × 1600) or landscape
-(1600 × 1200) composition independently of source-image rotation. Landscape output
-is rotated counter-clockwise into the native 1200 × 1600 transport BMP, without
-another dithering pass; its saved thumbnail and editor preview remain landscape.
-The preview corresponds to mounting the frame clockwise from its native portrait
-position. Check physical orientation and sensor rotation on the device. This
-retains the firmware's direct 4-bit BMP path instead of sending a differently sized
-bitmap that the frame would convert again. Existing portrait variants are unchanged.
+The editor's **Display orientation** chooses portrait/landscape composition
+independently of source-image rotation. Dimensions follow the model table above.
+When composition differs from the native mounting (L landscape or Seven portrait),
+the output is rotated counter-clockwise into that model's native transport raster,
+without another dithering pass. Saved thumbnails and editor previews stay in the
+chosen viewing orientation. The mounted preview corresponds to turning the frame
+clockwise from its native position. Check physical orientation and sensor rotation
+on the device. This retains the direct 4-bit firmware path instead of sending a
+wrong-sized bitmap that the frame would convert again. Existing L portrait and
+landscape recipes retain their dimensions and native rotation behavior.
 
 Set **Mounting orientation** in the device settings as well. This controls the
 device card, frame preview, and list thumbnails. Prepared previews are derived
@@ -372,14 +415,14 @@ cached only in RAM, limited to eight entries and 32 MiB, and rebuilt after resta
 
 ### Targets and crop recipes
 
-Choose **Target display** before setting the crop: either the supported model or
+Choose **Target display** before setting the crop: either a supported model or
 a registered device, which supplies its profile and mounting orientation. A saved
 variant records the model, native and viewing dimensions, orientation, normalized
 crop position, and processing settings. The same original can have multiple
 variants for different aspect ratios and models. Matching devices can share one
 variant; incompatible model/resolution assignments are rejected rather than
-silently scaling already dithered pixels. Only OpenPaper L is offered today;
-other display sizes require separate tested profiles and encoders.
+silently scaling already dithered pixels. OpenPaper L and OpenPaper 7 have separate
+profiles/encoders; other display models need their own validated native contracts.
 
 **Contain** preserves the whole image with white margins. **Cover** fills the
 selected viewing area while cropping edges; horizontal/vertical crop positions
@@ -553,7 +596,7 @@ does not emit `X-OpenPaper-Sleep-Seconds`: its smaller one-day limit and precede
 have not yet been validated on hardware. Motion wake-ups may fetch earlier;
 low battery can suppress fetches. “Last contact” is not real-time online status.
 
-### Refresh a physical OpenPaper L
+### Refresh a physical OpenPaper frame
 
 The same instructions are available under **Refresh the frame and apply settings**
 on each device page:
@@ -604,7 +647,7 @@ From `einkdisplaymanager/`:
 python3 -m venv /tmp/eink-venv
 /tmp/eink-venv/bin/pip install --require-hashes -r requirements-dev.txt
 /tmp/eink-venv/bin/python -m pytest -q
-node --test scripts/test_optimizer_options.mjs
+node --test scripts/test_optimizer_options.mjs scripts/test_display_profiles.mjs
 /tmp/eink-venv/bin/python server.py --dev --data /tmp/eink-data
 ```
 
@@ -630,7 +673,7 @@ exercise upload, the real full-resolution optimizer, saving a variant, device
 settings, original/BMP switching at one URL, and mobile layout. The rotated
 black/white crop with manual contrast and Atkinson processing is also checked
 against actual saved BMP pixel codes. Landscape native pixels are rotated back
-and compared exactly with the preview. Current local result: 58 Python tests, six JavaScript optimizer-option checks,
+and compared exactly with the preview. Current local result: 68 Python tests, eleven JavaScript optimizer/geometry checks,
 and the Chromium workflow pass. Hash-verified Linux ARM64 and AMD64 runtime wheels
 are available for the pinned Python 3.13/Debian base; this is not a container build.
 
@@ -670,3 +713,12 @@ claim that real HA discovery has been accepted on a running Home Assistant insta
 Chromium also checks MQTT form persistence, password preservation/clear behavior,
 responsive settings layout, and the device activity estimate. Existing transfer
 smoke checks continue to cover pending HTTP responses and interruption/retry.
+
+OpenPaper 7 browser checks register the model through the real UI, prepare and
+save its 800 × 480 output, edit a portrait 480 × 800 recipe under the same variant
+ID, compare decoded native pixels exactly with the preview, serve its fixed URL
+with device-specific 180° correction, and check the 384 × 640 mounted preview on
+desktop/mobile. The picker excludes L variants from Seven devices and disables a
+prepared Seven original on an L device. Python tests also exercise per-model
+placeholders, legacy-original compatibility, duplication, strict BMP validation,
+original/variant assignment rules, firmware JSON, and MQTT model metadata.

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0
+
+- Add OpenPaper 7 (7.3-inch Spectra 6, native 800 × 480 landscape) alongside OpenPaper L (native 1200 × 1600 portrait).
+- Share one model catalog between backend and optimizer; derive native output, viewing dimensions, thumbnails, placeholders, and orientation controls from the selected model.
+- Support portrait/landscape composition and exact 180° delivery correction on both models, retaining existing OpenPaper L recipes and outputs.
+- Keep variants and pre-dithered original BMPs model-specific, including existing originals without new metadata; compatible JPEG/24-/32-bit BMP originals remain shareable.
+- Version management thumbnails by content and mounting so browsers refresh previews after edits; fixed device image URLs stay unchanged.
+- Preserve the model when duplicating devices and the target when saving/editing variants; include the correct model in MQTT discovery and firmware setup hints.
+- Add model-contract and browser checks for OpenPaper 7 optimization, native encoding, portrait pixel equivalence, edited assignments, fixed-URL delivery, rotation, filtering, and mobile previews.
+
 ## 0.2.0
 
 - Add MQTT broker settings with username/password, port, verified TLS, discovery prefix/retention, inline save feedback, and connection status.

@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.2.0**; locally tested, with Green,
+Status: experimental implementation **0.3.0**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -78,10 +78,11 @@ for this add-on must be in **English**, consistent with the other add-ons.
 ## 1. Scope and agreed product behavior
 
 - Run locally on Home Assistant Green without the manufacturer's cloud.
-- Manage multiple frames, initially supporting **OpenPaper L only**: the 13.3-inch,
-  1200 × 1600 portrait Spectra 6 model. The owner's device is available for testing.
-- Keep display dimensions, palette, and encoder behavior in a device profile so
-  the smaller OpenPaper can be added later after separate validation.
+- Manage multiple frames with **OpenPaper L** (13.3-inch, native 1200 × 1600 portrait)
+  and **OpenPaper 7** (7.3-inch, native 800 × 480 landscape), both Spectra 6.
+  The owner's L is available for testing; Seven has software validation only.
+- Keep native dimensions, mounting, palette, and encoder behavior in explicit
+  model profiles shared by the backend and browser.
 - Provide a shared **Media Library** for originals and explicitly saved variants.
 - Provide **Devices**, where each registered frame has its own settings, ordered
   image list, playback state, stable image URL, and stable settings JSON URL.
@@ -114,8 +115,8 @@ requirements. An add-on does not automatically provide HA entities.
   simulation. Label simulated physical colors as an approximation.
 - Offer **Optimize**, automatic optimization, brightness, contrast, saturation,
   color/palette presets, dithering, rotation, contain/cover, and crop/focal point.
-- Save edits as a new, named variant, retaining the original and processing recipe.
-  Creating a variant must not silently update existing device assignments.
+- Save changes to a variant under the same ID, retaining its device assignments.
+  Create separate named variants for independent outputs; keep originals unchanged.
 - Show which devices and image-list entries reference each original or variant.
 - Require confirmation for deletion. Block deletion of referenced originals or
   variants until the user explicitly removes/replaces those references.
@@ -123,7 +124,7 @@ requirements. An add-on does not automatically provide HA entities.
 ### Devices
 
 - Add, rename, configure, disable, duplicate configuration, and remove a device.
-- Select a device type; only OpenPaper L is offered as supported in v1.
+- Select OpenPaper L or OpenPaper 7; keep existing model identities fixed.
 - Fill its image list from the Media Library without copying originals.
 - Each entry shows its selected source/variant, output mode, enabled state, and
   position. Offer drag-and-drop and accessible move-up/move-down controls.
@@ -151,7 +152,7 @@ images to a device; image lists belong directly to devices in v1.
 
 | Per-entry mode | Served bytes | Processing responsibility |
 |---|---|---|
-| Optimized variant | Saved, validated 4-bit BMP at 1200 × 1600 with the correct device color codes | Add-on prepares output; frame does not re-dither this compatible output |
+| Optimized variant | Saved, validated model-native 4-bit BMP (L 1200 × 1600; Seven 800 × 480) with the correct device color codes | Add-on prepares output; frame does not re-dither this compatible output |
 | Original | Original uploaded file, byte-for-byte, if supported | Firmware decodes, fits, and dithers as required by that input format |
 
 Selecting an original must not force the user to optimize it first. Conversely,
@@ -560,3 +561,19 @@ Mosquitto tests include authentication and reconnect/cleanup; browser checks cov
 secret handling, retained form drafts, responsive UI, and activity display. Physical
 Home Assistant integration acceptance remains pending. Actual measured battery
 voltage reporting still requires the separately proposed firmware HTTP telemetry.
+
+Version 0.3.0 adds OpenPaper 7 (7.3-inch Spectra 6) with native 800 × 480 landscape
+transport alongside L's 1200 × 1600 portrait contract. A shared explicit catalog
+feeds backend validation, browser output, model labels, orientation dimensions,
+preview sizing, blank images, and MQTT metadata. Seven portrait composition is
+480 × 800 and rotates into native raster without re-dithering. Per-device 180°
+correction preserves exact 4-bit pixel indices on both models. Model-specific
+variants/prepared originals cannot cross-assign, including legacy validated BMP
+metadata; general compatible originals can be shared. Device duplication retains
+its model; editing a Seven variant retains assignments and target settings.
+Software validation now covers both native formats, defaults, previews, JSON,
+original compatibility, MQTT model names, and the full Seven browser workflow.
+Sources are recorded in UPSTREAM.md; physical Seven acceptance remains pending.
+
+Management thumbnail URLs include content/mounting revisions to refresh stale
+browser images after edits. Device image/settings URLs remain fixed.
