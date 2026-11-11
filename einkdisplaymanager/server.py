@@ -22,14 +22,17 @@ from media import (
     MAX_UPLOAD,
     digest,
     inspect_image,
+    landscape_thumbnail,
     placeholder,
     source_png,
     validate_bmp,
 )
+from network import discover_network, network_defaults
 from playback import advance, completed, initial_state, reconcile, select_for_request
 from storage import Store, new_id
 
-VERSION = '0.1.0'
+VERSION = '0.1.1'
+FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
 DEFAULT_NETWORKS = ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '::1/128', 'fc00::/7']
@@ -66,6 +69,10 @@ def base_url(value):
     return value
 
 
+def browser_request(request):
+    return any(request.headers.get(key) for key in ('Origin', 'Sec-Fetch-Mode', 'Sec-Fetch-Dest'))
+
+
 @web.middleware
 async def errors(request, handler):
     try:
@@ -88,6 +95,7 @@ class Manager:
     def __init__(self, root, options=None, *, dev=False):
         self.options = options or {}
         self.dev = dev
+        self.network = network_defaults()
         self.store = Store(root, integer(self.options.get('storage_limit_mb', 1024), 64, 32768))
         self.networks = [ipaddress.ip_network(n, strict=False) for n in self.options.get('allowed_networks', DEFAULT_NETWORKS)]
         if not self.networks:
@@ -160,6 +168,8 @@ class Manager:
             return web.json_response({'status': 'ok', 'version': VERSION})
         if not any(address in network for network in self.networks):
             raise web.HTTPForbidden(reason='Device network is not allowed.')
+        if request.headers.get('Origin') not in (None, FLASHER_ORIGIN):
+            raise web.HTTPForbidden(reason='This browser origin is not allowed. Use the official offline firmware Web UI.')
         identifier = request.match_info.get('device')
         try:
             device = self.store.get('device', identifier)
@@ -171,6 +181,23 @@ class Manager:
         if not device['enabled']:
             raise web.HTTPGone(reason='Device is disabled.')
         return await handler(request)
+
+    async def cors_headers(self, request, response):
+        if request.headers.get('Origin') == FLASHER_ORIGIN:
+            response.headers.update({'Access-Control-Allow-Origin': FLASHER_ORIGIN,
+                                     'Access-Control-Expose-Headers': 'ETag, Last-Modified',
+                                     'Vary': 'Origin'})
+
+    async def device_preflight(self, request):
+        allowed = {'cache-control', 'pragma', 'if-none-match', 'if-modified-since'}
+        headers = {h.strip().lower() for h in request.headers.get('Access-Control-Request-Headers', '').split(',') if h.strip()}
+        if (request.headers.get('Origin') != FLASHER_ORIGIN or
+                request.headers.get('Access-Control-Request-Method') not in ('GET', 'HEAD') or headers - allowed):
+            raise web.HTTPForbidden(reason='Only read-only Web UI requests are allowed.')
+        return web.Response(status=204, headers={
+            'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+            'Access-Control-Allow-Headers': ', '.join(sorted(allowed)),
+            'Access-Control-Max-Age': '600'})
 
     async def json(self, request):
         if request.content_type != 'application/json':
@@ -194,6 +221,7 @@ class Manager:
         return web.json_response({'assets': assets, 'variants': variants,
                                   'devices': [self.public_device(d) for d in devices],
                                   'settings': self.settings, 'version': VERSION, 'csrf': self.csrf,
+                                  'network': self.network,
                                   'storage_bytes': self.store.usage(), 'storage_limit': self.store.quota,
                                   'base_url_locked': bool(self.options.get('lan_base_url'))})
 
@@ -256,6 +284,12 @@ class Manager:
             recipe = json.loads(request.headers.get('X-Recipe', '{}'))
             if not isinstance(recipe, dict) or len(json.dumps(recipe)) > 8192:
                 raise ValueError('Invalid processing recipe.')
+            orientation = recipe.get('orientation', 'portrait')
+            if orientation not in ('portrait', 'landscape'):
+                raise ValueError('Choose portrait or landscape for the variant orientation.')
+            if orientation == 'landscape':
+                async with self.workers:
+                    thumb = await asyncio.to_thread(landscape_thumbnail, data)
             name = title(unquote(request.headers.get('X-Variant-Name', 'Optimized for OpenPaper L')))
             if len(self.store.all('variant')) >= 4000:
                 raise ValueError('The library limit of 4000 saved variants has been reached.')
@@ -417,7 +451,7 @@ class Manager:
                     unchanged = int(device['modified']) <= parsedate_to_datetime(request.headers['If-Modified-Since']).timestamp()
                 except (ValueError, TypeError, OverflowError):
                     pass
-            if request.method == 'GET':
+            if request.method == 'GET' and not browser_request(request):
                 device['state']['last_settings_request'] = time.time()
                 self.store.save('device', device)
             return web.Response(status=304 if unchanged else 200, body=None if unchanged else data,
@@ -439,7 +473,8 @@ class Manager:
                 raise web.HTTPUnauthorized()
             if not device['enabled']:
                 raise web.HTTPGone(reason='Device is disabled.')
-            if request.method == 'GET':
+            frame_fetch = request.method == 'GET' and not browser_request(request)
+            if frame_fetch:
                 select_for_request(device, time.time())
                 device['state']['last_image_request'] = time.time()
                 self.store.save('device', device)
@@ -456,7 +491,7 @@ class Manager:
                        'X-Content-Type-Options': 'nosniff'}
             unchanged = etag in [v.strip() for v in request.headers.get('If-None-Match', '').split(',')]
             if unchanged:
-                if request.method == 'GET':
+                if frame_fetch:
                     completed(device, output_hash, time.time())
                     self.store.save('device', device)
                 return web.Response(status=304, headers=headers)
@@ -472,12 +507,13 @@ class Manager:
             try:
                 await asyncio.wait_for(transmit(), timeout=60)
             except (ConnectionError, TimeoutError, asyncio.CancelledError):
-                device['state']['last_error'] = 'Image transfer interrupted; the selected image will be retried.'
-                self.store.save('device', device)
+                if frame_fetch:
+                    device['state']['last_error'] = 'Image transfer interrupted; the selected image will be retried.'
+                    self.store.save('device', device)
                 if request.transport:
                     request.transport.close()
                 raise
-            if request.method == 'GET':
+            if frame_fetch:
                 completed(device, output_hash, time.time())
                 self.store.save('device', device)
             return response
@@ -500,11 +536,14 @@ class Manager:
         admin.router.add_get('/', index)
         admin.router.add_static('/static/', WEB, show_index=False, follow_symlinks=False)
         frames = web.Application(middlewares=[errors, self.device_auth], client_max_size=1024)
+        frames.on_response_prepare.append(self.cors_headers)
         async def health(request):
             return web.json_response({'status': 'ok'})
         frames.router.add_get('/health', health)
         frames.router.add_get('/d/{device}/image', self.frame_image)
         frames.router.add_get('/d/{device}/settings.json', self.settings_json)
+        frames.router.add_options('/d/{device}/image', self.device_preflight)
+        frames.router.add_options('/d/{device}/settings.json', self.device_preflight)
         return admin, frames
 
 
@@ -512,6 +551,7 @@ async def serve(args):
     options_path = Path(args.options)
     options = json.loads(options_path.read_text()) if options_path.exists() else {}
     manager = Manager(args.data, options, dev=args.dev)
+    manager.network = await discover_network()
     runners = []
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()

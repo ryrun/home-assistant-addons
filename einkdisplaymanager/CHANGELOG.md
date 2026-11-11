@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.1
+
+- Prefill a suggested LAN base URL and detect the add-on's mapped host port through limited Supervisor endpoints.
+- Explain how to change the exposed port in Home Assistant and keep it consistent with generated URLs.
+- Add token-protected CORS/preflight support for the official offline-firmware Web UI; browser image checks do not advance playback.
+- Add portrait/landscape composition and preview while retaining native, pre-dithered OpenPaper L output.
+- Keep library DOM stable during polling, fix preview layout dimensions, and remove scrolling backdrop blur.
+- Extend regression coverage for port discovery, CORS, scrolling, and exact landscape preview/output agreement.
+
 ## 0.1.0
 
 - Initial experimental Home Assistant add-on for OpenPaper L offline firmware.

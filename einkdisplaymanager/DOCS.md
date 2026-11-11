@@ -7,8 +7,9 @@
    on a separately published container image.
 2. Keep device port `8098/tcp` enabled and start the add-on. Port `8099` is internal
    management traffic for HA Ingress and must not be mapped to the host.
-3. Open **Web UI**. In **Settings**, set the LAN base URL, for example
-   `http://192.168.1.10:8098`. Use the HA host's fixed LAN address and the mapped
+3. Open **Web UI**. In **Settings**, check and save the prefilled LAN base URL, for
+   example `http://homeassistant.local:8098` or `http://192.168.1.10:8098`.
+   Use the HA host's fixed LAN address and the mapped
    device port. Do not use a changing Ingress URL or the external HA URL.
 4. Upload images in **Media Library**. Open an image, adjust it, update the
    full-resolution preview, and save a variant if desired.
@@ -39,6 +40,18 @@ Changing the base URL changes both device URLs: reconfigure frames with their ne
 settings URL. Complete URLs are checked against the firmware's 128-character
 limit; use a shorter hostname if needed. Never shorten tokens to make URLs fit.
 
+The suggestion uses a private IPv4/`.local` host from the browser when available,
+otherwise the Supervisor host name or `homeassistant.local`. At startup the add-on
+reads only `/info` and `/addons/self/info`, without additional Supervisor privileges,
+to discover its mapped host port (default 8098). Discovery failure falls back to a
+clearly labeled default; existing saved URLs are never silently replaced.
+
+**The device port is configurable.** In Home Assistant, open the add-on's
+**Configuration → Network**, change the host port mapped to `8098/tcp`, and restart
+the add-on. For example, if mapped to 8129, save `http://<ha-lan-host>:8129` in the
+manager afterward. Editing a URL alone does not change the host's port mapping.
+The container still listens internally on 8098. Do not expose management port 8099.
+
 The frame must be able to reach this host/port, including across VLANs. Configure
 firewall rules accordingly. Avoid internet port forwarding. The allowlist checks
 the actual TCP peer address, not untrusted forwarding headers. A reverse proxy
@@ -49,6 +62,28 @@ token-authenticated image and settings GET/HEAD endpoints. It has no library,
 upload, or management API. Production management accepts only the Supervisor's
 Ingress peer; proxy/user headers alone cannot grant access. Assets, previews, and
 other downloads do not advance playback.
+
+### Web UI JSON preview and CORS
+
+The device endpoints allow read-only browser requests from the official flasher
+origin, `https://paperlesspaper.github.io`, including OPTIONS preflight requests.
+Tokens and the network allowlist still apply. Management APIs receive no cross-origin
+permission. Flasher image previews do not consume a queue entry or count as a
+completed frame delivery. A cache-busting `nocache` query parameter is supported.
+
+If **Prüfen** reports “Failed to fetch”:
+
+1. Confirm that the copied URL opens in the same browser, including its port/token.
+2. In Chrome/Edge, allow local network access for the Web UI site when prompted,
+   or in the browser's site permissions. CORS alone cannot grant this permission.
+3. Some browsers block HTTPS-page requests to local HTTP endpoints. Use a browser
+   supporting permission-gated local requests or a trusted HTTPS LAN endpoint.
+4. A failed browser preview does not mean the frame cannot load the JSON. Save
+   the settings URL to the frame through the Web UI's device settings; the frame's
+   own HTTP client is not subject to browser CORS/mixed-content restrictions.
+
+Do not expose the device listener to the internet to make the preview work.
+See [Chrome local-network access guidance](https://developer.chrome.com/blog/local-network-access).
 
 Both per-device URLs contain the same random 192-bit capability token. Keep URLs
 private. Tokens are deliberately stored recoverably in the private SQLite data
@@ -83,6 +118,15 @@ does not promise browser-style EXIF orientation or color management on the frame
 path instead of dithering again. A compatible original in that same format is
 also accepted. The fixed image URL needs no extension: firmware detects the file
 signature, and the server sends the corresponding content type and content ETag.
+
+The editor's **Display orientation** chooses portrait (1200 × 1600) or landscape
+(1600 × 1200) composition independently of source-image rotation. Landscape output
+is rotated counter-clockwise into the native 1200 × 1600 transport BMP, without
+another dithering pass; its saved thumbnail and editor preview remain landscape.
+The preview corresponds to mounting the frame clockwise from its native portrait
+position. Check physical orientation and sensor rotation on the device. This
+retains the firmware's direct 4-bit BMP path instead of sending a differently sized
+bitmap that the frame would convert again. Existing portrait variants are unchanged.
 
 Optimization uses the vendored `epdoptimize@1.2.0` in an isolated browser worker,
 not the HA backend's event loop. A current browser with OffscreenCanvas support
@@ -189,7 +233,8 @@ isolation, token rotation, charging confirmation, and stale edits. Browser check
 exercise upload, the real full-resolution optimizer, saving a variant, device
 settings, original/BMP switching at one URL, and mobile layout. The rotated
 black/white crop with manual contrast and Atkinson processing is also checked
-against actual saved BMP pixel codes. Current local result: 18 Python tests and
+against actual saved BMP pixel codes. Landscape native pixels are rotated back
+and compared exactly with the preview. Current local result: 22 Python tests and
 the Chromium workflow pass. Hash-verified Linux ARM64 and AMD64 runtime wheels
 are available for the pinned Python 3.13/Debian base; this is not a container build.
 

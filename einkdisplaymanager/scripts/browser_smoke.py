@@ -5,6 +5,7 @@ Screenshots are written outside the repository; no real frame or credentials use
 """
 
 import asyncio
+import base64
 import io
 import os
 import socket
@@ -13,7 +14,7 @@ import tempfile
 from pathlib import Path
 
 import aiohttp
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 from playwright.async_api import async_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -71,14 +72,29 @@ async def main():
                     await page.get_by_text('A home for your images').wait_for()
                     await page.locator('#upload-input').set_input_files({'name': 'Blue mountain.jpg', 'mimeType': 'image/jpeg', 'buffer': sample_image()})
                     await page.get_by_role('button', name='Open Blue mountain.jpg', exact=True).wait_for()
+                    gallery = await page.locator('#gallery').element_handle()
+                    await page.clock.install()
+                    await page.clock.fast_forward(16000)
+                    assert await gallery.evaluate('(node)=>node.isConnected'), 'Polling rebuilt the library'
+                    await page.clock.resume()
                     await page.get_by_role('button', name='Open Blue mountain.jpg', exact=True).click()
+                    preview_box = await page.locator('.preview-stage').bounding_box()
                     await page.get_by_role('button', name='Update full-resolution preview').click()
                     await page.get_by_role('button', name='Save as new variant').wait_for(state='visible')
                     await page.locator('#save-variant:not([disabled])').wait_for(timeout=90000)
+                    updated_box = await page.locator('.preview-stage').bounding_box()
+                    assert preview_box['height'] == updated_box['height'] and preview_box['width'] == updated_box['width']
+                    await page.set_viewport_size({'width': 1440, 'height': 750})
+                    await page.locator('.dialog-body').evaluate('(node)=>{node.scrollTop=150;}')
+                    await page.wait_for_timeout(100)
+                    assert await page.locator('.dialog-body').evaluate('(node)=>node.scrollTop') > 0
+                    await page.locator('.dialog-body').evaluate('(node)=>{node.scrollTop=0;}')
+                    await page.set_viewport_size({'width': 1440, 'height': 1100})
                     await page.screenshot(path=str(artifacts / 'optimizer-desktop.png'), full_page=True)
                     await page.get_by_role('button', name='Save as new variant').click()
                     await page.get_by_text('Saved a new variant.', exact=False).wait_for()
                     # Exercise a second processing path and validate its actual pixel codes.
+                    await page.locator('#orientation').select_option('landscape')
                     await page.locator('#fit').select_option('cover')
                     await page.locator('#rotation').select_option('90')
                     await page.locator('#palette').select_option('grayscale')
@@ -88,6 +104,9 @@ async def main():
                     await page.locator('#variant-name').fill('Monochrome crop')
                     await page.get_by_role('button', name='Update full-resolution preview').click()
                     await page.locator('#save-variant:not([disabled])').wait_for(timeout=90000)
+                    assert await page.locator('#image-preview').evaluate('(img)=>[img.naturalWidth,img.naturalHeight]') == [1600, 1200]
+                    preview_bytes = base64.b64decode(await page.locator('#image-preview').evaluate('(img)=>{const canvas=document.createElement("canvas");canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;canvas.getContext("2d").drawImage(img,0,0);return canvas.toDataURL("image/png").split(",")[1];}'))
+                    await page.screenshot(path=str(artifacts / 'optimizer-landscape.png'), full_page=True)
                     await page.get_by_role('button', name='Save as new variant').click()
                     await page.get_by_text('Monochrome crop', exact=True).wait_for()
                     async with session.get(origin + '/api/state') as response:
@@ -97,9 +116,14 @@ async def main():
                         mono_data = await response.read()
                         validate_bmp(mono_data)
                         assert {n for b in mono_data[118:] for n in (b >> 4, b & 15)} <= {0, 6}
+                        native = Image.open(io.BytesIO(mono_data)).convert('RGB').transpose(Image.Transpose.ROTATE_270)
+                        preview = Image.open(io.BytesIO(preview_bytes)).convert('RGB')
+                        assert ImageChops.difference(native, preview).getbbox() is None, 'Landscape preview differs from transmitted pixels'
                     await page.get_by_role('button', name='Close dialog').click()
                     await page.screenshot(path=str(artifacts / 'library-desktop.png'), full_page=True)
                     await page.get_by_role('link', name='Settings', exact=True).click()
+                    assert await page.locator('#base-url').input_value() == 'http://homeassistant.local:8098'
+                    await page.get_by_text('Editing the URL alone does not change the port mapping.', exact=False).wait_for()
                     await page.locator('#base-url').fill(f'http://127.0.0.1:{device_port}')
                     await page.get_by_role('button', name='Save LAN base URL').click()
                     await page.get_by_text('LAN base URL saved.', exact=False).wait_for()
@@ -122,6 +146,16 @@ async def main():
                     await page.get_by_role('button', name='Save settings', exact=True).click()
                     await page.get_by_role('heading', name='Studio frame', exact=True).wait_for()
                     url = await page.locator('#image-url').input_value()
+                    settings_url = await page.locator('#settings-url').input_value()
+                    # Simulate the official HTTPS flasher origin with browser LNA
+                    # permission granted, without contacting its hosted service.
+                    flasher = await browser.new_page()
+                    await flasher.context.grant_permissions(['local-network-access'], origin='https://paperlesspaper.github.io')
+                    await flasher.route('https://paperlesspaper.github.io/eink-test', lambda route: route.fulfill(content_type='text/html', body='<title>Flasher-origin CORS test</title>'))
+                    await flasher.goto('https://paperlesspaper.github.io/eink-test')
+                    fetched = await flasher.evaluate('(url)=>fetch(url,{cache:"no-store"}).then(async r=>({status:r.status,json:await r.json()}))', settings_url + '&nocache=123')
+                    assert fetched['status'] == 200 and fetched['json']['downloadUrl'] == url
+                    await flasher.close()
                     async with session.get(url) as response:
                         assert response.content_type == 'image/jpeg'
                         assert await response.read() == sample_image()

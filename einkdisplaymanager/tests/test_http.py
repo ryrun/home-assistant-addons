@@ -9,7 +9,7 @@ from aiohttp import ClientError
 from aiohttp.test_utils import TestClient, TestServer
 from media import placeholder
 from PIL import Image
-from server import Manager
+from server import FLASHER_ORIGIN, Manager
 
 
 def picture(fmt='JPEG', color='blue'):
@@ -210,3 +210,59 @@ async def test_device_independence_and_storage_quota(system):
     manager.store.quota = manager.store.usage()
     assert (await admin.post('/api/assets', data=picture(color='green'))).status == 400
     assert len(manager.store.all('asset')) == 2
+
+
+async def test_flasher_cors_preserves_auth_and_does_not_advance_images(system):
+    manager, admin, frames = system
+    a = await upload(admin)
+    b = await upload(admin, picture(color='red'))
+    d = await device(admin, [a, b])
+    image, settings = path(d['urls']['image']), path(d['urls']['settings'])
+    headers = {'Origin': FLASHER_ORIGIN}
+    response = await frames.get(settings + '&nocache=123', headers=headers)
+    assert response.status == 200
+    assert response.headers['Access-Control-Allow-Origin'] == FLASHER_ORIGIN
+    assert (await response.json())['downloadUrl'] == d['urls']['image']
+    conditional = await frames.get(settings, headers={**headers, 'If-Modified-Since': response.headers['Last-Modified']})
+    assert conditional.status == 304
+    assert conditional.headers['Access-Control-Allow-Origin'] == FLASHER_ORIGIN
+    preflight = await frames.options(settings, headers={**headers, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'cache-control'})
+    assert preflight.status == 204
+    assert preflight.headers['Access-Control-Allow-Origin'] == FLASHER_ORIGIN
+    assert (await frames.options(settings, headers={**headers, 'Access-Control-Request-Method': 'POST'})).status == 403
+    invalid = await frames.get(settings + 'bad', headers=headers)
+    assert invalid.status == 401
+    assert invalid.headers['Access-Control-Allow-Origin'] == FLASHER_ORIGIN
+    evil = await frames.get(settings, headers={'Origin': 'https://example.com'})
+    assert evil.status == 403
+    assert 'Access-Control-Allow-Origin' not in evil.headers
+    # First serve image A as the frame, then make B due. Web-Flasher checks must
+    # preview A without consuming B or claiming a new frame delivery.
+    await (await frames.get(image)).read()
+    saved = manager.store.get('device', d['id'])
+    saved['state']['deadline'] = 1
+    manager.store.save('device', saved)
+    before = manager.store.get('device', d['id'])['state']
+    preview = await frames.get(image, headers=headers)
+    assert preview.status == 200 and await preview.read() == picture()
+    assert preview.headers['Access-Control-Allow-Origin'] == FLASHER_ORIGIN
+    assert manager.store.get('device', d['id'])['state'] == before
+    browser_image = await frames.get(image, headers={'Sec-Fetch-Mode': 'no-cors', 'Sec-Fetch-Dest': 'image'})
+    assert await browser_image.read() == picture()
+    assert manager.store.get('device', d['id'])['state'] == before
+    response = await frames.get(image)
+    assert await response.read() == picture(color='red')
+
+
+async def test_landscape_variant_keeps_native_bmp_with_landscape_thumbnail(system):
+    _manager, admin, _frames = system
+    identifier = await upload(admin)
+    result = await admin.post(f'/api/assets/{identifier}/variants', data=placeholder(), headers={
+        'X-Recipe': '{"orientation":"landscape"}'})
+    assert result.status == 201
+    variant = (await result.json())['id']
+    response = await admin.get(f'/api/media/variant/{variant}/thumbnail')
+    thumb = Image.open(io.BytesIO(await response.read()))
+    assert thumb.size == (640, 480)
+    response = await admin.get(f'/api/media/variant/{variant}/file')
+    assert Image.open(io.BytesIO(await response.read())).size == (1200, 1600)

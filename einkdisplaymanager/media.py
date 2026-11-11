@@ -170,6 +170,16 @@ def source_png(data):
         return out.getvalue()
 
 
+def landscape_thumbnail(data):
+    """Undo the transport rotation for a saved landscape variant's library preview."""
+    with Image.open(io.BytesIO(data)) as image:
+        image = image.convert('RGB').transpose(Image.Transpose.ROTATE_270)
+        image.thumbnail((640, 480), Image.Resampling.LANCZOS)
+        out = io.BytesIO()
+        image.save(out, 'JPEG', quality=85)
+        return out.getvalue()
+
+
 def placeholder():
     header = bytearray(118)
     header[:2] = b'BM'

@@ -28,23 +28,25 @@ self.onmessage = async ({data}) => {
   let image;
   try {
     const {source, recipe}=data;
+    const landscape=recipe.orientation==='landscape';
+    const viewW=landscape?H:W, viewH=landscape?W:H;
     image=await createImageBitmap(source);
-    const canvas=new OffscreenCanvas(W,H), ctx=canvas.getContext('2d',{willReadFrequently:true});
-    ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
+    const canvas=new OffscreenCanvas(viewW,viewH), ctx=canvas.getContext('2d',{willReadFrequently:true});
+    ctx.fillStyle='#fff'; ctx.fillRect(0,0,viewW,viewH);
     const rotated=recipe.rotation===90||recipe.rotation===270;
     const vw=rotated?image.height:image.width, vh=rotated?image.width:image.height;
-    const scale=(recipe.fit==='cover'?Math.max:Math.min)(W/vw,H/vh);
-    const fx=recipe.fit==='cover'?(W-vw*scale)*((recipe.focusX??50)/100-.5):0;
-    const fy=recipe.fit==='cover'?(H-vh*scale)*((recipe.focusY??50)/100-.5):0;
-    ctx.save(); ctx.translate(W/2+fx,H/2+fy); ctx.rotate(recipe.rotation*Math.PI/180);
+    const scale=(recipe.fit==='cover'?Math.max:Math.min)(viewW/vw,viewH/vh);
+    const fx=recipe.fit==='cover'?(viewW-vw*scale)*((recipe.focusX??50)/100-.5):0;
+    const fy=recipe.fit==='cover'?(viewH-vh*scale)*((recipe.focusY??50)/100-.5):0;
+    ctx.save(); ctx.translate(viewW/2+fx,viewH/2+fy); ctx.rotate(recipe.rotation*Math.PI/180);
     ctx.drawImage(image,-image.width*scale/2,-image.height*scale/2,image.width*scale,image.height*scale); ctx.restore();
     let palette=spectra6OriginalPalette.map(p=>({...p}));
     if(recipe.palette==='grayscale') palette=palette.filter(p=>p.name==='black'||p.name==='white');
     const intent=recipe.palette==='vivid'?'vivid':'natural';
     let options={};
     if(recipe.automatic) {
-      const sample=new OffscreenCanvas(300,400);
-      sample.getContext('2d').drawImage(canvas,0,0,300,400);
+      const sample=new OffscreenCanvas(viewW/4,viewH/4);
+      sample.getContext('2d').drawImage(canvas,0,0,sample.width,sample.height);
       const suggestion=suggestCanvasProcessingOptions(sample,palette,{intent});
       options={...(suggestion.ditherOptions.processingPreset?getProcessingPresetOptions(suggestion.ditherOptions.processingPreset):{}),...suggestion.ditherOptions};
       delete options.processingPreset;
@@ -56,7 +58,7 @@ self.onmessage = async ({data}) => {
       ditheringType:recipe.dither==='none'?'quantizationOnly':'errorDiffusion',
       errorDiffusionMatrix:recipe.dither==='atkinson'?'atkinson':'floydSteinberg',serpentine:true});
     await ditherImage(canvas,canvas,options);
-    const pixels=ctx.getImageData(0,0,W,H), indices=new Uint8Array(W*H);
+    const pixels=ctx.getImageData(0,0,viewW,viewH), indices=new Uint8Array(W*H);
     const colors=palette.map(p=>({code:codes[p.name],rgb:p.color.match(/[a-f0-9]{2}/gi).map(x=>parseInt(x,16))}));
     for(let i=0;i<indices.length;i++) {
       const p=i*4; let best=colors[0], distance=Infinity;
@@ -68,9 +70,16 @@ self.onmessage = async ({data}) => {
       const rgb=deviceRGB[best.code]; pixels.data[p]=rgb[0];pixels.data[p+1]=rgb[1];pixels.data[p+2]=rgb[2];pixels.data[p+3]=255;
     }
     ctx.putImageData(pixels,0,0);
-    const output=bmp(pixels,indices);
+    // A landscape preview is rotated counter-clockwise into the native portrait
+    // buffer. Only pixel positions change: never run dithering a second time.
+    let native=indices;
+    if(landscape){
+      native=new Uint8Array(W*H);
+      for(let y=0;y<viewH;y++)for(let x=0;x<viewW;x++)native[(H-1-x)*W+y]=indices[y*viewW+x];
+    }
+    const output=bmp(pixels,native);
     const preview=await canvas.convertToBlob({type:'image/png'});
-    self.postMessage({bmp:output.buffer,preview,recipe:{...recipe,resolvedOptions:options,optimizer:'epdoptimize@1.2.0',profile:'openpaper_l',encoder:1}},[output.buffer]);
+    self.postMessage({bmp:output.buffer,preview,recipe:{...recipe,orientation:landscape?'landscape':'portrait',nativeRotation:landscape?270:0,resolvedOptions:options,optimizer:'epdoptimize@1.2.0',profile:'openpaper_l',encoder:2}},[output.buffer]);
   } catch(error) { self.postMessage({error:error.message||'Image optimization failed.'}); }
   finally { image?.close(); }
 };

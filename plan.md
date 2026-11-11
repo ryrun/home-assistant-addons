@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.1.0**; locally tested, with Green,
+Status: experimental implementation **0.1.1**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -479,7 +479,7 @@ choices made for the initial implementation are recorded here and in the English
    device transfers with a 60-second delivery timeout, and a configurable disk
    budget. Cold backups are requested to stop the service during Supervisor backups.
 
-Local evidence: **18 passing Python tests** cover image/profile validation, HTTP/auth,
+Local evidence: **22 passing Python tests** cover image/profile validation, HTTP/auth,
 queues, persistence, retries, concurrency, and device independence. Chromium smoke
 checks exercise upload, full-resolution optimization, saved variants, device setup,
 settings, original/BMP delivery through one URL, and desktop/mobile layouts.
@@ -492,5 +492,7 @@ Run instructions are in the add-on docs. Source compatibility baseline:
 
 Still required externally: Linux container builds, actual HA Ingress installation,
 Green memory/CPU behavior, Supervisor backup/restore, and physical OpenPaper L
-image/caching/interval acceptance. The implementation is experimental and has not
-been published. No stable release or physical-device validation is implied.
+image/caching/interval acceptance. The implementation is experimental. Version
+0.1.0 was pushed to the repository; the 0.1.1 follow-up adds LAN/port suggestions,
+flasher CORS, a stable editor layout, and landscape composition with native BMP
+delivery. No stable release or physical-device validation is implied.
