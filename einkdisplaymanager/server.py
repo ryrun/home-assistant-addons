@@ -30,12 +30,13 @@ from media import (
     source_png,
     validate_bmp,
 )
+from mqtt_bridge import MQTTBridge
 from network import discover_network, network_defaults
 from playback import advance, completed, initial_state, reconcile, select_for_request
 from profiles import PROFILES, device_orientation, device_rotation, orientation
 from storage import Store, new_id
 
-VERSION = '0.1.7'
+VERSION = '0.2.0'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -119,6 +120,7 @@ class Manager:
             self.settings = {'id': 'global', 'base_url': ''}
         if self.options.get('lan_base_url'):
             self.settings['base_url'] = base_url(self.options['lan_base_url'])
+        self.mqtt = MQTTBridge(self, VERSION)
 
     def urls(self, device, base=None):
         origin = self.settings['base_url'] if base is None else base
@@ -137,6 +139,7 @@ class Manager:
         result['orientation'] = device_orientation(device)
         result['upside_down'] = bool(device_rotation(device))
         result['transfer'] = self.diagnostics.transfer(device['id'])
+        result['health'] = self.mqtt.health(device)
         if detail:
             result['events'] = self.diagnostics.record(device['id'])['events']
             result['urls'] = self.urls(device)
@@ -236,6 +239,7 @@ class Manager:
         return web.json_response({'assets': assets, 'variants': variants,
                                   'devices': [self.public_device(d) for d in devices],
                                   'settings': self.settings, 'version': VERSION, 'csrf': self.csrf,
+                                  'mqtt': self.mqtt.public(),
                                   'network': self.network,
                                   'profiles': list(PROFILES.values()),
                                   'storage_bytes': self.store.usage(), 'storage_limit': self.store.quota,
@@ -258,6 +262,11 @@ class Manager:
                 self.store.save('device', device)
                 self.diagnostics.event(device['id'], 'connection_settings_saved', 'LAN connection settings changed.')
         return web.json_response(self.settings)
+
+    async def mqtt_settings(self, request):
+        if request.method == 'PUT':
+            self.mqtt.configure(await self.json(request))
+        return web.json_response(self.mqtt.public())
 
     async def upload(self, request):
         async with self.media_lock:
@@ -539,6 +548,7 @@ class Manager:
         identifier = request.match_info['device']
         device = self.store.get('device', identifier)
         return web.json_response({'id': identifier, 'state': device['state'], 'paused': device['paused'],
+                                  'health': self.mqtt.health(device),
                                   **self.diagnostics.view(identifier)})
 
     async def remove_device(self, request):
@@ -546,7 +556,7 @@ class Manager:
         async with self.media_lock, self.locks[identifier]:
             self.store.delete('device', identifier)
             self.diagnostics.remove(identifier)
-            for kind in ('settings_response', 'image_response'):
+            for kind in ('settings_response', 'image_response', 'mqtt_watch'):
                 try:
                     self.store.delete(kind, identifier)
                 except KeyError:
@@ -735,8 +745,15 @@ class Manager:
 
     def apps(self):
         admin = web.Application(middlewares=[errors, self.ingress], client_max_size=MAX_UPLOAD)
+        async def mqtt_lifecycle(_app):
+            self.mqtt.start()
+            yield
+            await self.mqtt.stop()
+        admin.cleanup_ctx.append(mqtt_lifecycle)
         admin.router.add_get('/api/state', self.snapshot)
         admin.router.add_put('/api/settings', self.global_settings)
+        admin.router.add_get('/api/mqtt', self.mqtt_settings)
+        admin.router.add_put('/api/mqtt', self.mqtt_settings)
         admin.router.add_post('/api/assets', self.upload)
         admin.router.add_patch('/api/assets/{asset}', self.rename_asset)
         admin.router.add_post('/api/assets/{asset}/variants', self.create_variant)

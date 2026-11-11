@@ -223,6 +223,37 @@ async def main():
                     await page.get_by_role('link', name='Settings', exact=True).click()
                     assert await page.locator('#base-url').input_value() == 'http://homeassistant.local:8098'
                     await page.get_by_text('Editing the URL alone does not change the port mapping.', exact=False).wait_for()
+                    await page.get_by_label('Broker',exact=True).fill('127.0.0.1')
+                    await page.get_by_label('MQTT username',exact=True).fill('browser-test-user')
+                    await page.get_by_label('MQTT password',exact=True).fill('browser-test-secret')
+                    await page.get_by_label('Use TLS with certificate verification').check()
+                    assert await page.get_by_label('MQTT port',exact=True).input_value() == '8883'
+                    await page.get_by_label('Use TLS with certificate verification').uncheck()
+                    await page.get_by_role('button',name='Save MQTT settings',exact=True).click()
+                    await page.locator('#mqtt-save-status').filter(has_text='MQTT settings saved.').wait_for()
+                    assert await page.get_by_label('MQTT password',exact=True).input_value() == ''
+                    assert 'Saved password' in await page.get_by_label('MQTT password',exact=True).get_attribute('placeholder')
+                    mqtt_data = await page.evaluate('fetch("api/mqtt").then(r=>r.json())')
+                    assert mqtt_data['password_set'] and 'password' not in mqtt_data
+                    assert 'browser-test-secret' not in await page.evaluate('fetch("api/state").then(r=>r.text())')
+                    await page.get_by_label('MQTT username',exact=True).fill('unsaved draft')
+                    await page.wait_for_timeout(5500)
+                    assert await page.get_by_label('MQTT username',exact=True).input_value() == 'unsaved draft'
+                    await page.reload()
+                    await page.get_by_role('heading',name='MQTT & Home Assistant',exact=True).wait_for()
+                    assert await page.get_by_label('MQTT username',exact=True).input_value() == 'browser-test-user'
+                    await page.get_by_role('button',name='Save MQTT settings',exact=True).click()
+                    await page.locator('#mqtt-save-status').filter(has_text='MQTT settings saved.').wait_for()
+                    assert (await page.evaluate('fetch("api/mqtt").then(r=>r.json())'))['password_set']
+                    await page.get_by_label('Clear saved MQTT password',exact=True).check()
+                    await page.get_by_role('button',name='Save MQTT settings',exact=True).click()
+                    await page.locator('#mqtt-save-status').filter(has_text='MQTT settings saved.').wait_for()
+                    assert not (await page.evaluate('fetch("api/mqtt").then(r=>r.json())'))['password_set']
+                    await page.screenshot(path=str(artifacts / 'mqtt-settings-desktop.png'),full_page=True)
+                    await page.set_viewport_size({'width':390,'height':844})
+                    await page.screenshot(path=str(artifacts / 'mqtt-settings-mobile.png'),full_page=True)
+                    assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+                    await page.set_viewport_size({'width':1440,'height':1100})
                     await page.locator('#base-url').fill(f'http://127.0.0.1:{device_port}')
                     await page.get_by_role('button', name='Save LAN base URL').click()
                     await page.get_by_text('LAN base URL saved.', exact=False).wait_for()
@@ -286,6 +317,7 @@ async def main():
                     async with session.get(url) as response:
                         assert response.content_type == 'image/jpeg'
                         assert await response.read() == rotate_delivery(sample_image(), 'image/jpeg')
+                    await page.locator('#device-battery-estimate').filter(has_text='100%').wait_for()
                     await page.get_by_role('button', name='Next image', exact=True).click()
                     await page.get_by_text('Selection updated.', exact=False).wait_for()
                     assert await page.locator('#image-url').input_value() == url
@@ -315,7 +347,7 @@ async def main():
                     assert await page.evaluate('document.documentElement.scrollWidth <= innerWidth')
                     assert not errors, errors
                     await browser.close()
-            print('Browser smoke passed: upload, full-resolution dithering methods, calibrated palette, variant overwrite, worker startup recovery/cancellation, automatic on/off pixels and manual tone preservation, matching descriptions, visible modal notifications, device orientation/help, fixed-URL original/BMP delivery, CORS, and responsive layouts.')
+            print('Browser smoke passed: upload, full-resolution dithering methods, calibrated palette, variant overwrite, worker startup recovery/cancellation, automatic on/off pixels and manual tone preservation, matching descriptions, visible modal notifications, MQTT settings/secret handling and watchdog display, device orientation/help, fixed-URL original/BMP delivery, CORS, and responsive layouts.')
             print(f'Screenshots: {artifacts}')
         finally:
             process.terminate()

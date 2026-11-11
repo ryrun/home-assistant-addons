@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0
+
+- Add MQTT broker settings with username/password, port, verified TLS, discovery prefix/retention, inline save feedback, and connection status.
+- Publish ten Home Assistant entities per frame through one add-on MQTT connection, with stable device IDs, retained state, bridge birth/LWT availability, automatic reconnect, and discovery/state replay after Home Assistant restarts.
+- Add an explicitly synthetic Estimated battery sensor: 100% after successful image delivery, 0% after the expected interval plus configurable grace. This is not a charge measurement; WiFi loss can produce the same signal.
+- Keep new-frame estimates unknown until a successful fetch or missed deadline; paused, disabled, and empty image lists do not raise overdue alarms. Settings/browser/HEAD requests do not reset the image watchdog; a successful 304 does.
+- Publish separate overdue, contact/delivery/expected timestamps, image-fetch status, selected image, enabled image count, interval, and transfer status entities.
+- Store MQTT passwords privately without returning them to the UI or publishing them; keep typed form drafts during status polling.
+- Persist owned-topic manifests and remove old retained configs/state after deletion, discovery/prefix changes, broker switches, disablement, or an offline restart.
+- Add real Mosquitto broker checks for authentication, discovery, reconnect, cleanup, HA birth replay, activity estimation, and secret handling.
+
 ## 0.1.7
 
 - Fix automatic preset resolution: load actual preset settings instead of spreading UI menu entries into processing options.

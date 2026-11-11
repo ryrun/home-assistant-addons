@@ -4,7 +4,6 @@ import time
 from contextlib import suppress
 from urllib.parse import urlsplit
 
-import pytest
 from aiohttp import ClientError
 from aiohttp.test_utils import TestClient, TestServer
 from media import placeholder
@@ -16,18 +15,6 @@ def picture(fmt='JPEG', color='blue'):
     out = io.BytesIO()
     Image.new('RGB', (30, 40), color).save(out, fmt)
     return out.getvalue()
-
-
-@pytest.fixture
-async def system(tmp_path):
-    manager = Manager(tmp_path, dev=True)
-    admin_app, device_app = manager.apps()
-    async with TestClient(TestServer(admin_app)) as admin, TestClient(TestServer(device_app)) as frames:
-        csrf = (await (await admin.get('/api/state')).json())['csrf']
-        admin.session.headers['X-Eink-CSRF'] = csrf
-        await admin.put('/api/settings', json={'base_url': 'http://192.168.1.10:8098'})
-        yield manager, admin, frames
-    manager.store.close()
 
 
 async def upload(admin, data=None, name='Photo'):

@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.1.7**; locally tested, with Green,
+Status: experimental implementation **0.2.0**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -543,3 +543,20 @@ Battery research: offline firmware reports millivolts, USB, and charging over BL
 system info, but not on normal HTTP image/settings fetches. Future automatic battery
 reporting requires firmware telemetry (e.g. request headers); store voltage and
 measurement time and avoid unsupported chemistry-independent percentages.
+
+Version 0.2.0 adds optional MQTT broker credentials/port/TLS settings and one
+add-on connection publishing Home Assistant discovery/state for each registered
+frame. Ten entities cover the explicit Estimated battery activity proxy (100/0%),
+image overdue problem, fetch state, contact/delivery/expected timestamps, selected
+image, enabled image count, interval, and transfer status. A successful image GET
+or 304 restores 100%; interval plus configurable grace (default 120 s) without
+successful image delivery yields 0%. New/inactive/paused/empty-list rules prevent
+claiming measured charge. Settings/browser/HEAD traffic cannot restore the estimate.
+The bridge has stable identifiers, retained state, discovery retention/prefix,
+birth/LWT, HA birth replay, bounded reconnect, and durable owned-topic cleanup
+including offline deletion and previous broker cleanup. MQTT passwords remain in
+private persistent data and never enter public APIs or MQTT payloads. Real local
+Mosquitto tests include authentication and reconnect/cleanup; browser checks cover
+secret handling, retained form drafts, responsive UI, and activity display. Physical
+Home Assistant integration acceptance remains pending. Actual measured battery
+voltage reporting still requires the separately proposed firmware HTTP telemetry.

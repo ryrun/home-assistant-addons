@@ -43,5 +43,11 @@ Audit bundled dependencies/attributions before upgrading the package.
 `requirements.in` pins direct versions. `requirements.txt` pins all transitive
 dependencies and permitted artifact hashes. Pillow is HPND-licensed; aiohttp and
 its dependencies retain their distribution license notices in the container.
+MQTT uses `aiomqtt==2.5.1` (BSD-3-Clause;
+https://github.com/empicano/aiomqtt) and locked `paho-mqtt==2.2.0`
+(EPL-2.0 OR BSD-3-Clause / Eclipse Distribution License;
+https://github.com/eclipse-paho/paho.mqtt.python). Their installed distribution
+license files remain in the image. Both MQTT dependencies ship platform-independent
+Python wheels; no additional broker or native MQTT build is needed in the container.
 Regenerate locks with pip-tools and verify Linux `aarch64`/`amd64` wheels before
 release. Test dependencies are separately locked in `requirements-dev.txt`.

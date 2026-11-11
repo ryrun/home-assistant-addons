@@ -131,6 +131,108 @@ Verified against the current [offline firmware](https://github.com/paperlesspape
 and its [BLE documentation](https://github.com/paperlesspaper/paperlesspaper-firmware-offline#readme)
 on 2026-11-11. These findings do not describe the separate manufacturer-cloud firmware.
 
+## MQTT and Home Assistant discovery
+
+Open **Settings → MQTT & Home Assistant**, enable MQTT, and enter the broker
+hostname/IP, port, and credentials. Use the same broker as Home Assistant's MQTT
+integration. The default port is `1883`; verified TLS normally uses `8883` and the
+system CA trust store. The TLS checkbox suggests that port without changing a
+custom port. Custom CA/client certificates are not currently configurable here.
+Enter actual credentials in the form; this UI does not resolve ESPHome `!secret`
+YAML references. MQTT is disabled by default and requires no new inbound port or
+Home Assistant API permission.
+
+The add-on makes one outbound MQTT connection and represents registered frames
+through discovery; the sleeping frames themselves keep using HTTP and need no
+MQTT firmware. Default discovery settings are enabled, prefix `homeassistant`,
+and retained configs. After saving, connection status updates in place without
+replacing the settings form or discarding drafts. Saving confirms persistence;
+**connected** confirms broker access. Broker credentials must permit publishing
+owned state/discovery topics and subscribing to Home Assistant status messages.
+A connection/authentication/permission failure does not interrupt HTTP playback.
+
+The password is stored only in the add-on's private persistent SQLite data and is
+never returned by its APIs, prefilled in HTML, placed in device JSON, or included
+in MQTT discovery/state. Leave the password field blank to retain it; check
+**Clear saved MQTT password** to remove it. Device URLs/tokens and broker passwords
+are excluded from published state and configuration. Backups contain MQTT credentials.
+
+### Entities per registered frame
+
+| Entity | Meaning |
+|---|---|
+| Estimated battery | Synthetic 100/0% activity indicator, explicitly marked estimated |
+| Image update overdue | Separate problem binary sensor for a missed image-fetch deadline |
+| Image fetch status | `waiting`, `on_schedule`, `overdue`, `paused`, `disabled`, or `no_images` |
+| Last contact | Latest authenticated frame image/settings GET, not browser previews |
+| Last image delivery | Most recent successful HTTP image response, including 304 |
+| Next expected image fetch | Last successful image delivery plus interval, before grace |
+| Selected image | Name of the currently selected library image; not physical-display acknowledgement |
+| Enabled images | Number of enabled entries in the frame's list |
+| Image interval | Desired image interval in seconds |
+| Image transfer status | Idle/preparing/sending/completed/unchanged/interrupted/failed; latest error is an attribute |
+
+Diagnostic entities use Home Assistant's diagnostic category. The battery entity
+has `%` and the battery device class so existing dashboards can display it, but
+its name and attributes identify an **activity estimate**, not a measured charge.
+There is no numeric state class creating long-term battery statistics.
+
+### Estimated battery and deadline rules
+
+- After a completed image HTTP response, the estimate is **100%**. A successful
+  **304** counts; a settings-only request, HEAD, browser preview, failed token, or
+  interrupted image transfer does not reset the image watchdog.
+- If no successful image fetch occurs by **interval + grace**, it becomes **0%**
+  and **Image update overdue** turns on. The default grace is **120 seconds**,
+  adjustable globally from 30 to 3600 seconds. MQTT updates within approximately
+  five seconds of a deadline or HTTP state change while connected.
+- A new frame starts **unknown**. Missing its first interval-plus-grace deadline
+  changes it to 0%; its first successful image response changes it to 100%.
+- Paused/disabled frames and lists without enabled entries have an unknown
+  estimate and no overdue problem. Resuming monitoring starts a fresh deadline.
+- Each device has independent timing. The watch start and successful delivery
+  timestamp survive add-on restarts, so restarting does not falsely restore 100%.
+
+A 0% value is a signal that the frame may need attention: depleted batteries,
+WiFi/network loss, a powered-off frame, or firmware/configuration issues can all
+produce it. Settings may be requested without a successful image transfer. A 100%
+value says nothing about actual remaining charge and HTTP success does not confirm
+panel refresh. Desired interval changes may not have been applied on a sleeping
+frame yet. Actual voltage/charging data remains a future firmware-telemetry feature;
+this indicator does not pretend to derive that data from HTTP requests.
+
+### Availability, retained messages, and cleanup
+
+State topics use `einkdisplaymanager/<instance>/<broker-id>/<device-id>/state`.
+The private random instance ID and stable device IDs prevent names from changing
+entity identities. Discovery topics use
+`<prefix>/<sensor|binary_sensor>/<instance>_<broker-id>_<device-id>/<entity>/config`.
+All messages use QoS 1; state is retained, and config retention follows the setting.
+The per-connection availability topic has an `online` birth and retained `offline`
+last will. Graceful shutdown also publishes offline. Availability represents the
+**add-on MQTT connection**, not whether a sleeping frame is awake; an overdue
+battery estimate therefore stays visible while the broker connection is healthy.
+
+The bridge reconnects with bounded backoff and republishes discovery/state when
+Home Assistant announces `online` on `homeassistant/status` or `<prefix>/status`.
+If you use another custom HA birth topic, retain configs or align that topic.
+Retained state and configs are reconstructed from persistent add-on data on reconnect.
+
+An owned-topic manifest is stored before publication. Removing a device or changing
+discovery settings clears obsolete retained configs/state. Prefix changes retain
+the same unique IDs. A previous broker's unavailable cleanup is retried separately;
+its credentials and topic manifest remain in private data until cleanup succeeds.
+Up to eight pending broker destinations are retained. **Pending cleanup** is shown
+in settings, and device/prefix deletions on an offline current broker are processed
+when it reconnects. Disable MQTT while the broker is reachable and let cleanup
+finish before uninstalling if you want retained registrations removed. The bridge
+only clears its own recorded topics; it never deletes a wildcard namespace.
+
+Implementation references: [Home Assistant MQTT discovery and availability](https://www.home-assistant.io/integrations/mqtt/),
+[MQTT sensor](https://www.home-assistant.io/integrations/sensor.mqtt/),
+[MQTT binary sensor](https://www.home-assistant.io/integrations/binary_sensor.mqtt/),
+and [aiomqtt](https://aiomqtt.bo3hm.com/).
+
 ## Add-on configuration
 
 | Option | Default | Purpose |
@@ -528,7 +630,7 @@ exercise upload, the real full-resolution optimizer, saving a variant, device
 settings, original/BMP switching at one URL, and mobile layout. The rotated
 black/white crop with manual contrast and Atkinson processing is also checked
 against actual saved BMP pixel codes. Landscape native pixels are rotated back
-and compared exactly with the preview. Current local result: 43 Python tests, six JavaScript optimizer-option checks,
+and compared exactly with the preview. Current local result: 58 Python tests, six JavaScript optimizer-option checks,
 and the Chromium workflow pass. Hash-verified Linux ARM64 and AMD64 runtime wheels
 are available for the pinned Python 3.13/Debian base; this is not a container build.
 
@@ -558,3 +660,13 @@ quality, caching, interval application, retries, and power behavior on a real L.
 - [Home Assistant Ingress](https://contributors.home-assistant.io/apps/guides/ingress/)
 
 See [UPSTREAM.md](UPSTREAM.md) for dependencies, licenses, and reproduction details.
+
+The MQTT tests use a disposable, loopback-only **Mosquitto** broker and
+`mosquitto_passwd` when installed. They verify discovery/state, authentication
+failure/recovery with redacted errors, HA birth replay with nonretained configs,
+retained-topic cleanup, offline deletion across restart, and watchdog boundaries.
+These broker-specific tests are skipped if Mosquitto is absent; they are not a
+claim that real HA discovery has been accepted on a running Home Assistant instance.
+Chromium also checks MQTT form persistence, password preservation/clear behavior,
+responsive settings layout, and the device activity estimate. Existing transfer
+smoke checks continue to cover pending HTTP responses and interruption/retry.
