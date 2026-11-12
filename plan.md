@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.6.4**; locally tested, with Green,
+Status: experimental implementation **0.6.5**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -1050,3 +1050,11 @@ in RAM, including failed-attempt total duration; retain last-good output.
 - Verify ZEHN, FÜNF, and gyp against a fixed baseline with default/uploaded fonts.
 - Stack render timing labels/values and consistently align font ID/Delete
   controls across desktop and mobile, without horizontal scrolling.
+
+## 23. Whole-dashboard responsive audit (0.6.5)
+
+- Exercise five viewport widths in both themes across the entire dashboard,
+  editors and device dialogs with realistic long-content fixtures.
+- Fix long heading/dialog/queue/picker overflow and narrow navigation. Use
+  consistent mobile action placement and concise visible ID labels.
+- Preserve a repeatable Playwright audit with screenshots and overflow findings.

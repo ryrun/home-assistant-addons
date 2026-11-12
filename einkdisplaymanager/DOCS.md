@@ -1295,3 +1295,27 @@ The last attempt replaces timing metadata even on failure; completed target
 measurements remain available, while an interrupted target has no successful
 stage breakdown. The last good image remains available. Measurements live only
 in RAM and reset on restart; no history is written to storage.
+
+### Dashboard layout regression audit (0.6.5)
+
+`scripts/layout_browser_smoke.py` starts an isolated temporary server and seeds
+long image/device/font/variant names, image assignments, diagnostics and dynamic
+render output. It checks the library sections, device overview and all three
+model detail views, global/MQTT settings, static/script editors, add-device dialog
+and image picker at 320, 390, 768, 1024 and 1440 px, in light and dark themes.
+Expanded help, drawing API, resource IDs and render timings are included.
+
+Run with the developer dependencies and Playwright installed:
+
+```sh
+PLAYWRIGHT_BROWSERS_PATH=/tmp/eink-browsers python -m playwright install chromium webkit
+PLAYWRIGHT_BROWSERS_PATH=/tmp/eink-browsers python scripts/layout_browser_smoke.py
+PLAYWRIGHT_BROWSERS_PATH=/tmp/eink-browsers EINK_BROWSER=webkit python scripts/layout_browser_smoke.py
+```
+
+Set `EINK_ARTIFACTS` to an artifact directory and `EINK_SCREENSHOTS=issues` to
+retain screenshots only for failing layouts. The default retains every view.
+The audit checks page/container overflow and out-of-bounds headings and dialogs;
+intentional truncated card titles and internal scroll areas remain supported.
+Use `--report` to collect findings without failing the run. `EINK_BROWSER=firefox`
+is supported when that Playwright browser can start on the test host.

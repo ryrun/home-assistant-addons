@@ -96,3 +96,19 @@ dialog.dynamic-editor{width:min(1450px,96vw);max-width:96vw}
 .timing-target{min-width:0;margin-top:16px}.timing-target h4{margin:0 0 8px;overflow-wrap:anywhere}.timing-target dl{display:grid;gap:7px;margin:0}.timing-target dl>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px}.timing-target dt{overflow-wrap:anywhere}.timing-target dd{margin:0;font-variant-numeric:tabular-nums}
 .font-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,340px);align-items:center}.font-row>div{min-width:0}.font-controls{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end}.font-controls>.copy-field{width:100%;overflow-wrap:anywhere}.font-controls>button{margin:0;align-self:end}
 @media(max-width:720px){.font-row{grid-template-columns:minmax(0,1fr)}.font-controls{width:100%}}
+
+/* Long names must not determine the minimum width of dashboard sections. */
+.page-head>div{min-width:0;flex:1}.page-head h1,.breadcrumbs{overflow-wrap:anywhere}
+.page-head>button,.dialog-head>button{flex-shrink:0}
+.dialog-head h2{min-width:0;overflow-wrap:anywhere}
+.controls,.picker-card,.variant-row>div{min-width:0}
+.picker-card strong,.variant-row strong,.copy-field>span{overflow-wrap:anywhere}
+input,select,textarea{min-width:0}
+@media(max-width:720px){
+  .sidebar nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+  .sidebar nav a{min-width:0;flex-wrap:wrap;justify-content:center;gap:5px;padding:8px 6px;text-align:center}
+  .sidebar nav a small{margin-left:0}
+  .sidebar nav a>span{flex-basis:100%}
+  .page-head>div{flex-basis:100%}
+}
+.queue .entry-text small{overflow-wrap:anywhere}

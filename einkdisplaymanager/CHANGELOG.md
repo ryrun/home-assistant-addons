@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.5
+
+- Fix dashboard and modal overflow caused by long device names, unbroken filenames and variant labels. Preserve access to dialog close buttons and wrap image-picker content.
+- Keep navigation within narrow phone screens, place heading actions below their text on mobile, and allow form controls to shrink within their columns.
+- Use concise visible resource ID labels while retaining full accessible names and select-to-copy behavior.
+- Add a repeatable whole-dashboard layout audit at 320, 390, 768, 1024 and 1440 px in light/dark themes, including all display models, populated logs, saved variants, font uploads, script editors, render timings and image pickers.
+
 ## 0.6.4
 
 - Add optional `screen.text()` font-metric alignment with `verticalMetrics: "font"`: stable ascent/descent frames for top/middle/bottom and fixed multiline spacing. Keep content-bounding-box alignment as the default.
