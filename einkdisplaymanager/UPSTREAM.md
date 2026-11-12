@@ -120,6 +120,10 @@ is descriptive metadata. Hardware timing/charge calibration remains unverified.
   exact-color cache. Reference tests cover RGB/LAB, fractional inputs, ties, alpha
   and cache rollover. Matching, presets and dithering retain reference output;
   the browser optimizer and vendored module are unchanged.
+- Version 0.6.2 adds the trusted `web/optimizer-pixels.js` adapter for Latin-1
+  input transport and bounded palette encoding. It retains ASCII hex return
+  transport to avoid the pinned wrapper's returned-NUL truncation. Reference
+  encoding and all-byte transport tests preserve output compatibility.
 - Browser editor: CodeMirror 6.0.2 with `@codemirror/lang-javascript` 6.2.5,
   bundled locally as `web/vendor/editor-6.mjs`. MIT notices for CodeMirror, Lezer,
   and bundled dependencies are in `web/vendor/CodeMirror-LICENSES.txt`.

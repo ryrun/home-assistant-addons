@@ -20,6 +20,7 @@ VENDOR = (
     + "\nglobalThis.epd={ditherImage:Et,suggest:zn,natural:Mr,spectra6:jr,aitjcize:Pr};"
 )
 NEAREST_ADAPTER = (ROOT / "web" / "optimizer-nearest.js").read_text()
+PIXEL_ADAPTER = (ROOT / "web" / "optimizer-pixels.js").read_text()
 PROCESSING = (ROOT / "web" / "processing.js").read_text().replace("export ", "")
 OPTIONS = (
     (ROOT / "web" / "optimizer-options.js")
@@ -359,8 +360,18 @@ def _optimize(image, recipe, profile, exact=None, exact_mask=None):
         image = image.convert("L").convert("RGB")
     rgba = image.convert("RGBA")
     ctx = context(20, 256)
-    ctx.eval(VENDOR + "\n" + NEAREST_ADAPTER + "\n" + PROCESSING + "\n" + OPTIONS)
-    ctx.set("__hex", rgba.tobytes().hex())
+    ctx.eval(
+        VENDOR
+        + "\n"
+        + NEAREST_ADAPTER
+        + "\n"
+        + PIXEL_ADAPTER
+        + "\n"
+        + PROCESSING
+        + "\n"
+        + OPTIONS
+    )
+    ctx.set("__raw", rgba.tobytes().decode("latin1"))
     ctx.set("__recipe", json.dumps(recipe))
     ctx.set("__width", image.width)
     ctx.set("__height", image.height)
@@ -370,9 +381,8 @@ def _optimize(image, recipe, profile, exact=None, exact_mask=None):
     var palette=__gray?levels.map((v,i)=>({name:'gray'+i,color:'#'+v.toString(16).padStart(2,'0').repeat(3)})):
       (recipe.palette==='spectra6'?epd.spectra6:recipe.palette==='aitjcize'?epd.aitjcize:epd.natural);
     if(recipe.palette==='grayscale')palette=palette.filter(p=>__gray?['gray0','gray7'].includes(p.name):['black','white'].includes(p.name));
-    var pixels={width:__width,height:__height,data:new Uint8ClampedArray(__width*__height*4)};
-    for(var i=0;i<pixels.data.length;i++)pixels.data[i]=parseInt(__hex.slice(i*2,i*2+2),16);
-    __hex=null;
+    var pixels=einkPixels.decodeRGBA(__raw,__width,__height);
+    __raw=null;
     var canvas={width:__width,height:__height,getContext(){return {getImageData(){return pixels},putImageData(p){pixels=p;}}}};
     var suggestion=recipe.automatic?epd.suggest(pixels,palette,{intent:recipe.intent||'natural'}):null;
     var options=processingOptions(recipe,suggestion).options;options.palette=palette;
@@ -383,16 +393,7 @@ def _optimize(image, recipe, profile, exact=None, exact_mask=None):
         pass
     if not ctx.eval("ready"):
         raise ValueError("Image optimization failed.")
-    result = ctx.eval("""(function(){
-      const codes={black:0,blue:1,green:2,red:3,yellow:5,white:6};
-      const colors=palette.map(p=>({code:__gray?levels[Number(p.name.slice(4))]:codes[p.name],rgb:p.color.match(/[a-f0-9]{2}/gi).map(v=>parseInt(v,16))}));
-      let chunks=[],chunk='';
-      for(let i=0;i<pixels.data.length;i+=4){let distance=Infinity,best=colors[0];
-        for(const c of colors){const d=(pixels.data[i]-c.rgb[0])**2+(pixels.data[i+1]-c.rgb[1])**2+(pixels.data[i+2]-c.rgb[2])**2;if(d<distance){distance=d;best=c;}}
-        const code=best.code;chunk+=code.toString(16).padStart(2,'0');
-        if(chunk.length>=8192){chunks.push(chunk);chunk='';}
-      }chunks.push(chunk);return chunks.join('');
-    })()""")
+    result = ctx.eval("einkPixels.encodeIndices(pixels,palette,__gray,levels)")
     indices = Image.frombytes("L", image.size, bytes.fromhex(result))
     if exact is not None:
         indices.paste(exact, (0, 0), exact_mask)

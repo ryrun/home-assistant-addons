@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.6.1**; locally tested, with Green,
+Status: experimental implementation **0.6.2**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -624,7 +624,7 @@ remain separate from automated Linux container and browser verification.
   an already dithered output. Use opaque RGB strings for conversion or `palette.black` and other available
   named entries for exact ink; exact selections survive automatic optimization.
 - Reuse existing uploaded-image IDs; expose stable image and font IDs with
-  **Copy ID** controls. Renaming retains IDs. `screen.image(imageId, options)`
+  selectable ID fields (with optional secure-context Copy buttons). Renaming retains IDs. `screen.image(imageId, options)`
   references an uploaded original for composition before target optimization.
   A missing image ID draws nothing and produces a nonfatal editor warning; do
   not block deletion just because a script references that uploaded image.
@@ -1022,3 +1022,14 @@ generation intervals to device polls.
   into stage-specific script/optimizer CPU-limit messages.
 - Validate exact RGB/LAB parity across diverse palettes and colors, cache rollover,
   the full-size Inkplate draft preview, browser delivery and native Linux builds.
+
+## 20. HTTP copying and performance review (0.6.2)
+
+- Use readonly fields with select-all on focus/click for resource IDs and device
+  URLs. Hide clipboard buttons on insecure HTTP; retain keyboard copying.
+- Lazy-load the script editor, transfer raw RGBA into QuickJS without hex
+  expansion, and use bounded exact-palette encoding caches with parity tests.
+- Keep ASCII hex return values for wrapper compatibility, existing isolation
+  limits, native output formats, and RAM-only generated images.
+- Compute media assignment counts in one pass and reuse existing dynamic hashes
+  when delivery does not rotate the image.

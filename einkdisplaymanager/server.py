@@ -12,7 +12,7 @@ import os
 import secrets
 import signal
 import time
-from collections import OrderedDict, defaultdict
+from collections import Counter, OrderedDict, defaultdict
 from contextlib import AsyncExitStack
 from email.utils import formatdate, parsedate_to_datetime
 from pathlib import Path
@@ -55,7 +55,7 @@ from profiles import (
 )
 from storage import Store, new_id
 
-VERSION = '0.6.1'
+VERSION = '0.6.2'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -256,16 +256,18 @@ class Manager:
         assets, variants = self.store.all('asset'), self.store.all('variant')
         devices = self.store.all('device')
         entries = [entry for d in devices for entry in d['entries']]
+        asset_usage = Counter(e['asset_id'] for e in entries)
+        variant_usage = Counter(e.get('variant_id') for e in entries)
         for item in assets + variants:
             item.pop('file', None)
             item.pop('thumbnail', None)
         for asset in assets:
             asset.setdefault('filename', asset['name'])
-            asset['usage'] = sum(e['asset_id'] == asset['id'] for e in entries)
+            asset['usage'] = asset_usage[asset['id']]
             if asset.get('dynamic'):
                 asset['render_status'] = self.dynamic.status(asset['id'])
         for variant in variants:
-            variant['usage'] = sum(e.get('variant_id') == variant['id'] for e in entries)
+            variant['usage'] = variant_usage[variant['id']]
             if variant.get('dynamic') and variant['id'] in self.dynamic.cache:
                 cached = self.dynamic.cache[variant['id']]
                 variant.update(hash=cached['hash'], bytes=len(cached['output']))
@@ -880,7 +882,7 @@ class Manager:
             data, mime = cached['output'], cached['mime']
             if rotation:
                 data = await asyncio.to_thread(rotate_delivery, data, mime)
-            return data, mime, digest(data)
+            return data, mime, digest(data) if rotation else cached['hash']
         path = self.store.path(item['file'])
         convert = profile_id == 'inkplate_6' and 'asset_id' not in item
         key = (item['hash'], rotation, profile_id, mounting if convert else None, 2)

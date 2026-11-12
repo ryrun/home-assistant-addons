@@ -46,14 +46,36 @@ async def main():
                     browser = await playwright.chromium.launch()
                     page = await browser.new_page(viewport={'width':1440,'height':1100})
                     page.on('pageerror',lambda error:errors.append(str(error)))
-                    await page.goto(origin)
+                    editor_requests=[]
+                    page.on('request',lambda request:editor_requests.append(request.url) if request.url.endswith('/editor-6.mjs') else None)
+                    # A real non-secure HTTP origin, proxied to the loopback-only
+                    # development server without making an external DNS request.
+                    ui_origin='http://eink-http.test'
+                    async def proxy(route):
+                        response=await route.fetch(url=origin+route.request.url[len(ui_origin):])
+                        await route.fulfill(response=response)
+                    await page.route(ui_origin+'/**',proxy)
+                    await page.goto(ui_origin)
+                    assert not await page.evaluate('window.isSecureContext')
+                    image_id=page.get_by_label('Image ID for Backdrop.jpg',exact=True)
+                    await image_id.click()
+                    assert await image_id.input_value()==asset
+                    assert await image_id.evaluate('(input)=>input.selectionStart===0&&input.selectionEnd===input.value.length')
+                    assert await page.locator('[data-copy-value],[data-copy]').count()==0
+                    assert not editor_requests, 'CodeMirror loaded before opening a script'
+
                     await page.get_by_role('link',name='Fonts',exact=True).click()
                     font_bytes=ImageFont.load_default(size=20).font_bytes
                     await page.locator('#font-upload').set_input_files({'name':'Aileron.ttf','mimeType':'font/ttf','buffer':font_bytes})
                     await page.get_by_text('Fonts uploaded.',exact=True).wait_for()
-                    font_id=await page.locator('.font-row code').inner_text()
+                    font_input=page.get_by_label('Font ID for Aileron.ttf',exact=True)
+                    font_id=await font_input.input_value()
+                    await font_input.click()
+                    assert await font_input.evaluate('(input)=>input.readOnly&&input.selectionStart===0&&input.selectionEnd===input.value.length')
+                    assert await page.locator('[data-copy-value]').count()==0
                     await page.get_by_role('link',name='Dynamic images',exact=True).click()
                     await page.locator('#new-dynamic').click()
+                    assert len(editor_requests)==1, 'Script editor did not load on demand'
                     await page.get_by_label('Name',exact=True).fill('Morning canvas')
                     await page.locator('#dynamic-interval').fill('10')
                     await page.locator('#dynamic-profile').select_option('inkplate_6')
@@ -95,6 +117,9 @@ screen.text("Hello World", {{x:400,y:300,font:"{font_id}",fontSize:40,color:pale
                     await page.locator('#new-device button.primary').click()
                     await page.get_by_role('heading',name='Dynamic desk',exact=True).wait_for()
                     url=await page.locator('#image-url').input_value()
+                    await page.locator('#settings-url').click()
+                    assert await page.locator('#settings-url').evaluate('(input)=>input.selectionStart===0&&input.selectionEnd===input.value.length')
+                    assert await page.locator('[data-copy]').count()==0
                     await page.get_by_role('button',name='Add images',exact=False).click()
                     versions=page.get_by_label('Image version for Morning canvas')
                     assert await versions.locator('option[value="original"]').is_disabled()
@@ -126,7 +151,7 @@ screen.text("Hello World", {{x:400,y:300,font:"{font_id}",fontSize:40,color:pale
                     assert len(paths)==3,paths
                     assert not errors,errors
                     await browser.close()
-            print('Dynamic browser smoke passed: library sections, real CodeMirror highlighting/CSP, font upload and IDs, source editing, native preview, saved target rendering, reload/mobile, device picker and PNG/304 delivery, visible errors, last-good output, and RAM-only generated images.')
+            print('Dynamic browser smoke passed: insecure HTTP ID/URL selection without clipboard buttons, lazy editor loading, library sections, real CodeMirror highlighting/CSP, font upload and IDs, source editing, native preview, saved target rendering, reload/mobile, device picker and PNG/304 delivery, visible errors, last-good output, and RAM-only generated images.')
         finally:
             process.terminate()
             try:

@@ -518,3 +518,18 @@ def test_optimizer_timeout_reports_processing_stage(monkeypatch):
             recipe({"profile": "inkplate_6"}),
             PROFILES["inkplate_6"],
         )
+
+
+def test_raw_pixel_transfer_survives_the_pinned_quickjs_string_bridge():
+    import json
+
+    from dynamic_worker import PIXEL_ADAPTER, context
+
+    pixels = bytes(range(256)) * 4
+    ctx = context()
+    ctx.eval(PIXEL_ADAPTER)
+    ctx.set("raw", pixels.decode("latin1"))
+    result = ctx.eval(
+        "JSON.stringify(Array.from(einkPixels.decodeRGBA(raw,16,16).data))"
+    )
+    assert bytes(json.loads(result)) == pixels

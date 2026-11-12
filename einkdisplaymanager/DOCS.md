@@ -1037,7 +1037,7 @@ volatile rendering pipeline.
 ### Create a dynamic image
 
 1. Optionally upload backgrounds or symbols in **Images**, and TTF/OTF fonts in
-   **Fonts**. Use **Copy ID** to reference them. Image/font IDs stay stable when
+   **Fonts**. Click an ID field to select its contents, then press Ctrl+C or Command+C to reference it. Image/font IDs stay stable when
    their display name changes; scripts never use filenames or filesystem paths.
 2. Open **Dynamic images → Create dynamic image**. Enter a name, generation
    interval, and IANA time zone. JavaScript editing includes syntax highlighting,
@@ -1236,3 +1236,19 @@ CPU limit, process memory/CPU cap, and parent wall-clock deadline are unchanged.
 Limit failures now identify script execution or image optimization in plain English.
 The regression suite includes a full-size Inkplate LAB draft preview and native
 container rendering on both supported architectures.
+
+### HTTP copying and rendering efficiency (0.6.2)
+
+Image, dynamic-image, and font IDs are readonly fields that select all text on
+focus or click. Device URL fields behave the same way. Copy buttons appear only
+when the browser offers the secure Clipboard API; ordinary LAN HTTP uses keyboard
+copying. If clipboard permission is denied, the selected text remains available.
+
+The JavaScript editor bundle loads only when a script editor opens. Server-side
+rendering transfers RGBA bytes into QuickJS without expanding them to hexadecimal,
+then uses exact palette lookup and a bounded fallback cache for native encoding.
+The returned indices remain ASCII hex because the pinned Python wrapper truncates
+returned strings containing NUL. Output parity tests cover every input byte,
+palette ties and colors outside the palette. CPU/memory and isolation limits stay
+unchanged. Library assignment counts are computed in one pass, and unrotated
+dynamic delivery reuses the cached content hash.

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.2
+
+- Show selectable readonly ID and device URL fields; hide clipboard buttons on insecure HTTP and retain keyboard copying.
+- Load the code editor on demand instead of fetching its bundle in the regular media library.
+- Reduce server-side pixel transport and native palette encoding work while preserving output bytes and all resource/isolation limits.
+- Count library assignments in one pass and reuse cached hashes for unrotated dynamic image delivery.
+- Add insecure-HTTP browser coverage and pixel transport/encoding parity tests.
+
 ## 0.6.1
 
 - Fix excessive CPU use in dynamic previews, including Inkplate 6 at 800 × 600: reuse the optimizer’s precomputed RGB/LAB selector instead of rebuilding per-pixel palette objects and recalculating palette LAB values.
