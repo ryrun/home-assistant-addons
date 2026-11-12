@@ -601,9 +601,54 @@ Other devices retain independent choices; removal makes the motif available agai
 
 ## 12. Planned dynamic images — agreed design, not implemented
 
-This section records the complete discussion baseline. Version 0.4.0 supports
-uploaded pictures only. Do not enable Home Assistant API privileges or add a script
-runtime as part of the static Inkplate support.
+This section records the agreed design, confirmed on 2026-11-12. Version 0.5.4
+still supports uploaded pictures only; dynamic images are not implemented. The
+earlier static Inkplate support does not enable HA API access or a script runtime.
+
+### Confirmed first-version scope (2026-11-12)
+
+- Keep the UI in English. Separate **Images**, **Dynamic images**, and **Fonts**
+  within Media Library. Author scripts in the add-on with syntax highlighting,
+  saving, preview, useful validation/runtime errors, and a **Render now** action.
+- Use **JavaScript interpreted by QuickJS**. Jinja2 layout templates were compared
+  and not selected: direct drawing commands are preferred. QuickJS-NG remains the
+  implementation candidate, subject to the embedding/isolation gates below.
+- Provide text, lines, rectangles, circles, and images from the existing library.
+  Expose the target variant's pixel dimensions as `screen.width` and
+  `screen.height`; run composition for each required model/orientation target.
+  The display profile defines its actual palette, not just a color count. Support
+  target-specific color, grayscale, and monochrome preparation without resizing
+  an already dithered output. Exact color API syntax still needs specification.
+- Reuse existing uploaded-image IDs; expose stable image and font IDs with
+  **Copy ID** controls. Renaming retains IDs. `screen.image(imageId, options)`
+  references an uploaded original for composition before target optimization.
+  A missing image ID draws nothing and produces a nonfatal editor warning; do
+  not block deletion just because a script references that uploaded image.
+- Upload fonts through Media Library and address them by stable ID in text
+  options. Persist uploaded font files. A missing font ID uses a bundled default
+  font and a nonfatal editor warning rather than failing the render. Validate
+  uploads and the default font's license; scripts never receive filesystem paths.
+- Read HA values with helpers such as `ha.state(entityId)` and
+  `ha.number(entityId)` from a preloaded read-only snapshot. Supply render-time
+  clock data in the configured time zone for conditions such as morning/evening
+  greetings. No live networking or HA credentials are exposed to user code.
+- Give each dynamic item its own generation interval, independent of device
+  fetch intervals. **Render now** uses the same isolated pipeline and resource
+  budgets as scheduled renders. Saved recipes define its target variants.
+- Persist source code, names, intervals, recipes, uploaded originals, and fonts.
+  Keep generated compositions, encoded variants, previews, and delivery
+  transformations in bounded **RAM-only** caches. Reuse/replace cache entries;
+  do not create persistent render histories, image files, or per-render database
+  blobs. Background rendering must not introduce continuous metadata writes.
+- Keep the last successfully rendered output on script failure or unavailable
+  HA data. Show the error and last-success timestamp separately from device
+  transfer status. Restart loses generated images and schedules regeneration.
+  Until a target has a successful output, return a temporary **HTTP 503** for its
+  image request; never replace the physical display with a placeholder/error
+  image. Preserve the pending queue entry so the frame can retry it.
+- Execute without script-accessible file, process, or network facilities, with
+  enforced resource limits and demonstrable OS isolation. The existing security
+  requirements and physical/platform acceptance gates below remain mandatory.
 
 ### Product behavior and independent refresh intervals
 
@@ -635,18 +680,19 @@ runtime as part of the static Inkplate support.
   body. Dynamic frame-fetch timing remains independent of the generation schedule.
 - Keep the last good output when HA is unavailable, a sensor is unknown, a script
   times out, or rendering fails. Show render/snapshot times and stale/error status
-  separately from frame-transfer errors. Define a clear first-render placeholder
-  or retry response when there is no previous good output. Restart regenerates
-  outputs because the cache is intentionally volatile; it must not send empty files.
+  separately from frame-transfer errors. Return temporary HTTP 503 when there is
+  no previous good output. Restart regenerates outputs because the cache is
+  intentionally volatile; it must not send empty files or a replacement error image.
 
 ### Script language and drawing API
 
-- Preferred candidate: **JavaScript interpreted by an embedded QuickJS-NG core**.
+- Selected language: **JavaScript interpreted by QuickJS**; evaluate an embedded
+  QuickJS-NG core for the implementation.
   No direct Python execution, arbitrary shell commands, or on-device business logic.
   Normal arithmetic, strings, arrays, conditions, loops, and helper functions allow
   programmable layouts without assembling widgets by hand.
 - Expose a small documented drawing API such as `screen.text`, `screen.line`,
-  `screen.rectangle`, and registered images, with explicit positions, alignment,
+  `screen.rectangle`, `screen.circle`, and `screen.image`, with explicit positions, alignment,
   colors, and registered font IDs. Provide dimensions and a fixed render-time value
   as input. Define supported syntax/API versions before storing production scripts.
 - Read-only helpers such as `ha.state(entityId)` and `ha.number(entityId)` operate
@@ -660,11 +706,11 @@ runtime as part of the static Inkplate support.
   Never pass Python objects, credentials, file handles, or unrestricted callbacks
   into the JS context. The renderer is trusted code, not another user interpreter.
 - Use real font rendering and text measurement, including glyph fallback, wrapping,
-  clipping, Unicode, alignment, and predictable missing-glyph errors. Proposed shared
-  font location: `/share/einkdisplaymanager/fonts/`; confirm the add-on share mapping
-  and access mode before implementing it. Register validated fonts by ID, bound file
-  sizes/counts, reject symlinks/path traversal, and handle font licensing. Scripts
-  never choose file paths. Font changes invalidate relevant render caches.
+  clipping, Unicode, alignment, and predictable missing-glyph handling. Upload fonts
+  through Media Library and register them by stable ID; no manual shared-directory
+  setup is required. Bound file sizes/counts, reject path traversal, and handle
+  font licensing. Scripts never choose file paths. Font changes invalidate relevant
+  render caches. Missing font IDs use a bundled default font with a warning.
 - The current optimizer runs in a browser worker. Background dynamic rendering
   needs a deliberate **server-side rendering and optimization pipeline**; it cannot
   depend on an open browser or silently assume browser APIs exist in QuickJS.
