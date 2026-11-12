@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.1
+
+- Fix excessive CPU use in dynamic previews, including Inkplate 6 at 800 × 600: reuse the optimizer’s precomputed RGB/LAB selector instead of rebuilding per-pixel palette objects and recalculating palette LAB values.
+- Memoize at most 4096 exact byte-valued colors per palette/matching combination. Keep fractional ordered-dither inputs at their original precision and preserve first-color ties and reference RGB/LAB output.
+- Keep script, optimizer, worker CPU/memory and wall-clock budgets unchanged. Report script and image-optimization CPU limits with readable messages instead of an internal QuickJS stack.
+- Add reference-parity tests, the exact full-size Inkplate draft-preview regression, and native AMD64/ARM64 container coverage for LAB nearest-color rendering.
+
 ## 0.6.0
 
 - Add Images, Dynamic images, and Fonts sections in Media Library with stable resource IDs and Copy ID controls.

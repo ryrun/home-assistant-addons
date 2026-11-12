@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.6.0**; locally tested, with Green,
+Status: experimental implementation **0.6.1**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -1009,3 +1009,16 @@ generation intervals to device polls.
   tests, 14 JavaScript tests, original and dynamic browser smokes, and the live
   stalled-transfer UI test passed. Installed HA/physical panel acceptance remains
   separate; no full ESPHome firmware build or hardware-quality success is claimed.
+
+
+## 19. Dynamic preview nearest-color performance correction (0.6.1)
+
+- A real 800 × 600 Inkplate preview hit QuickJS’s optimizer CPU limit in nearest
+  color matching. The reference path rebuilt palette arrays/LAB values per pixel.
+- Keep the vendored module and browser path unchanged. In the trusted QuickJS
+  adapter, reuse the library’s precomputed RGB/LAB selector, memoize up to 4096
+  exact byte colors, and preserve fractional inputs, ties, alpha and fallback modes.
+- Preserve all execution budgets and OS restrictions. Convert interrupted errors
+  into stage-specific script/optimizer CPU-limit messages.
+- Validate exact RGB/LAB parity across diverse palettes and colors, cache rollover,
+  the full-size Inkplate draft preview, browser delivery and native Linux builds.

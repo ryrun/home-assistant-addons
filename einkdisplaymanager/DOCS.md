@@ -892,7 +892,7 @@ From `einkdisplaymanager/`:
 python3 -m venv /tmp/eink-venv
 /tmp/eink-venv/bin/pip install --require-hashes -r requirements-dev.txt
 /tmp/eink-venv/bin/python -m pytest -q
-node --test scripts/test_optimizer_options.mjs scripts/test_display_profiles.mjs
+node --test scripts/test_optimizer_options.mjs scripts/test_display_profiles.mjs scripts/test_optimizer_nearest.mjs
 /tmp/eink-venv/bin/python server.py --dev --data /tmp/eink-data
 ```
 
@@ -1219,3 +1219,20 @@ retry/ETag behavior. `.github/workflows/eink-dynamic.yml` builds the actual imag
 natively on AMD64 and ARM64 and verifies seccomp/rendering as UID/GID 10002 in a
 read-only, network-disabled container. These checks do not certify physical
 screen quality or a particular installed Home Assistant configuration.
+
+
+### Dynamic preview CPU limit correction (0.6.1)
+
+A dynamic preview in 0.6.0 could fail with `InternalError: interrupted` in the
+optimizer's `Pe` / `St` / `Et` stack, including an 800 × 600 Inkplate target. This
+was the trusted image-processing CPU limit, not evidence of a script loop. The
+reference nearest-color function allocated palette objects for every pixel and
+repeated palette LAB conversion, which is expensive on slower hardware.
+
+Version 0.6.1 reuses the library's own precomputed selector and a bounded exact
+byte-color cache. Pixel choices retain reference RGB/LAB behavior, including
+fractional ordered-dither inputs and ties. The JavaScript-source limit, optimizer
+CPU limit, process memory/CPU cap, and parent wall-clock deadline are unchanged.
+Limit failures now identify script execution or image optimization in plain English.
+The regression suite includes a full-size Inkplate LAB draft preview and native
+container rendering on both supported architectures.

@@ -19,6 +19,7 @@ VENDOR = (
     VENDOR[: VENDOR.rfind("export {")]
     + "\nglobalThis.epd={ditherImage:Et,suggest:zn,natural:Mr,spectra6:jr,aitjcize:Pr};"
 )
+NEAREST_ADAPTER = (ROOT / "web" / "optimizer-nearest.js").read_text()
 PROCESSING = (ROOT / "web" / "processing.js").read_text().replace("export ", "")
 OPTIONS = (
     (ROOT / "web" / "optimizer-options.js")
@@ -47,7 +48,14 @@ def commands(payload):
     ctx = context()
     ctx.set("__input", json.dumps(payload["input"], allow_nan=False))
     ctx.set("__source", payload["source"])
-    return json.loads(ctx.eval(API))
+    try:
+        return json.loads(ctx.eval(API))
+    except quickjs.JSException as error:
+        if "InternalError: interrupted" in str(error):
+            raise ValueError(
+                "Script execution exceeded its CPU limit. Check for long or infinite loops."
+            ) from None
+        raise
 
 
 def validate(commands):
@@ -335,12 +343,23 @@ def draw(payload):
 
 
 def optimize(image, recipe, profile, exact=None, exact_mask=None):
+    try:
+        return _optimize(image, recipe, profile, exact, exact_mask)
+    except quickjs.JSException as error:
+        if "InternalError: interrupted" in str(error):
+            raise ValueError(
+                "Image optimization exceeded its CPU limit. Reduce processing complexity or disable automatic optimization."
+            ) from None
+        raise
+
+
+def _optimize(image, recipe, profile, exact=None, exact_mask=None):
     gray = profile.get("format") == "png"
     if gray:
         image = image.convert("L").convert("RGB")
     rgba = image.convert("RGBA")
     ctx = context(20, 256)
-    ctx.eval(VENDOR + "\n" + PROCESSING + "\n" + OPTIONS)
+    ctx.eval(VENDOR + "\n" + NEAREST_ADAPTER + "\n" + PROCESSING + "\n" + OPTIONS)
     ctx.set("__hex", rgba.tobytes().hex())
     ctx.set("__recipe", json.dumps(recipe))
     ctx.set("__width", image.width)

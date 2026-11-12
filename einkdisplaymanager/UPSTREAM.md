@@ -113,9 +113,13 @@ is descriptive metadata. Hardware timing/charge calibration remains unverified.
   package's installed license remains in the image; no QuickJS CLI, libc host
   modules, Python callbacks, or bytecode-loading API is exposed to scripts.
 - The existing, unmodified epdoptimize 1.2.0 module is also evaluated in a separate
-  trusted QuickJS context with an in-memory ImageData/canvas adapter. Only its
-  terminal ESM export declaration is adapted in memory. The file/hash above stays
-  unchanged. Matching, processing presets, and dithering share the existing code.
+  trusted QuickJS context with an in-memory ImageData/canvas adapter. The ESM
+  export declaration is adapted in memory; the file/hash above stays unchanged.
+  Version 0.6.1 additionally uses `web/optimizer-nearest.js` to reuse the same
+  library’s precomputed RGB/LAB selector for nearest-color lookup, with a bounded
+  exact-color cache. Reference tests cover RGB/LAB, fractional inputs, ties, alpha
+  and cache rollover. Matching, presets and dithering retain reference output;
+  the browser optimizer and vendored module are unchanged.
 - Browser editor: CodeMirror 6.0.2 with `@codemirror/lang-javascript` 6.2.5,
   bundled locally as `web/vendor/editor-6.mjs`. MIT notices for CodeMirror, Lezer,
   and bundled dependencies are in `web/vendor/CodeMirror-LICENSES.txt`.

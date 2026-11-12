@@ -482,3 +482,39 @@ async def test_unavailable_palette_entry_is_an_error_not_a_silent_fallback():
                 },
             }
         )
+
+
+async def test_inkplate_full_preview_lab_nearest_color_completes(system):
+    manager, admin, _frames = system
+    data = {
+        "name": "LAB preview",
+        "script": 'screen.clear("#ffffff");screen.text("Hello World",{x:400,y:300,align:"center",fontSize:48});',
+        "recipe": {"profile": "inkplate_6", "matching": "lab", "dither": "none"},
+    }
+    response = await admin.post("/api/dynamic-preview", json=data)
+    assert response.status == 200, await response.text()
+    result = await response.json()
+    validate_variant(base64.b64decode(result["output"]), "inkplate_6")
+    with Image.open(io.BytesIO(base64.b64decode(result["source"]))) as image:
+        assert image.size == (800, 600)
+    assert not manager.store.all("asset")
+    assert not manager.dynamic.cache  # Drafts remain separate from device output.
+
+
+def test_optimizer_timeout_reports_processing_stage(monkeypatch):
+    import dynamic_worker
+
+    original = dynamic_worker.context
+
+    def short_budget(seconds=2, memory=32):
+        return original(0.000001 if seconds == 20 else seconds, memory)
+
+    monkeypatch.setattr(dynamic_worker, "context", short_budget)
+    from profiles import PROFILES
+
+    with pytest.raises(ValueError, match="Image optimization exceeded its CPU limit"):
+        dynamic_worker.optimize(
+            Image.new("RGB", (32, 32), "white"),
+            recipe({"profile": "inkplate_6"}),
+            PROFILES["inkplate_6"],
+        )
