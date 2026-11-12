@@ -104,3 +104,30 @@ Wall-clock grid, quiet-hour logic, comparison UI, and the linear voltage estimat
 are our own implementation. No chemistry-specific discharge curves are copied or
 assumed. Users supply voltage endpoints suitable for their cells/load; chemistry
 is descriptive metadata. Hardware timing/charge calibration remains unverified.
+
+## Dynamic image runtime and editor (0.6.0)
+
+- JavaScript runtime: `quickjs-ng==0.18.0.1`, maintained Python wrapper at
+  https://github.com/genotrance/quickjs-ng (MIT; embeds QuickJS-NG, MIT).
+  Both native Linux architectures are checked in the container workflow. The
+  package's installed license remains in the image; no QuickJS CLI, libc host
+  modules, Python callbacks, or bytecode-loading API is exposed to scripts.
+- The existing, unmodified epdoptimize 1.2.0 module is also evaluated in a separate
+  trusted QuickJS context with an in-memory ImageData/canvas adapter. Only its
+  terminal ESM export declaration is adapted in memory. The file/hash above stays
+  unchanged. Matching, processing presets, and dithering share the existing code.
+- Browser editor: CodeMirror 6.0.2 with `@codemirror/lang-javascript` 6.2.5,
+  bundled locally as `web/vendor/editor-6.mjs`. MIT notices for CodeMirror, Lezer,
+  and bundled dependencies are in `web/vendor/CodeMirror-LICENSES.txt`.
+- Rebuild with `npm ci --prefix scripts/editor-build`, then
+  `scripts/editor-build/node_modules/.bin/esbuild scripts/editor-build/entry.js --bundle --format=esm --minify --legal-comments=eof --outfile=web/vendor/editor-6.mjs`
+  from this add-on directory. `scripts/editor-build/package-lock.json` fixes the
+  complete build dependency tree. Node/npm is not installed in the runtime image.
+- Default font: Pillow's bundled, limited-character-set Aileron Regular, by dot
+  colon: https://dotcolon.net/fonts/aileron/ . The author marks Aileron “No Rights
+  Reserved” and permits modification/redistribution. No system/proprietary font
+  is bundled by this add-on. Uploaded fonts retain their owner's licensing terms.
+- Linux isolation uses Debian's `libseccomp2` package (LGPL-2.1), with installed
+  distribution copyright notices retained. The default-deny filter is installed
+  with `PR_SET_NO_NEW_PRIVS`; startup self-tests must pass before script execution.
+  macOS development uses the system Seatbelt API and is tested separately.

@@ -298,6 +298,14 @@ class DynamicImages:
         self.due.pop(identifier, None)
 
     async def snapshot(self, entities):
+        try:
+            return await asyncio.wait_for(self._snapshot(entities), 10)
+        except TimeoutError:
+            raise ValueError(
+                "Home Assistant snapshot timed out; the last good image is retained."
+            ) from None
+
+    async def _snapshot(self, entities):
         if not entities:
             return {}
         token = os.environ.get("SUPERVISOR_TOKEN")
@@ -320,12 +328,23 @@ class DynamicImages:
                         raise ValueError(
                             "Home Assistant sensor snapshot could not be loaded."
                         )
-                    data = await response.content.read(65537)
-                    if len(data) > 65536:
-                        raise ValueError(
-                            "Home Assistant entity data exceeds its size limit."
+                    chunks, size = [], 0
+                    async for block in response.content.iter_chunked(16384):
+                        size += len(block)
+                        if size > 65536:
+                            raise ValueError(
+                                "Home Assistant entity data exceeds its size limit."
+                            )
+                        chunks.append(block)
+                    value = json.loads(b"".join(chunks))
+                    if (
+                        not isinstance(value, dict)
+                        or not isinstance(value.get("state"), str)
+                        or not isinstance(value.get("attributes"), dict)
+                    ):
+                        raise ValueError(  # noqa: TRY004 — remote service validation, not a caller type error.
+                            "Home Assistant returned an invalid entity snapshot."
                         )
-                    value = json.loads(data)
                     result[entity] = {
                         k: value[k]
                         for k in ("state", "attributes", "last_changed", "last_updated")
@@ -390,6 +409,7 @@ class DynamicImages:
             timeout=6,
         )
         images, fonts = {}, {}
+        resource_bytes = 0
         for command in result["commands"]:
             kind = command["type"]
             identifier = (
@@ -404,6 +424,10 @@ class DynamicImages:
             collection = images if kind == "image" else fonts
             if identifier in collection:
                 continue
+            if len(images) + len(fonts) >= 32:
+                raise ValueError(
+                    "At most 32 image/font resources may be used in one render."
+                )
             try:
                 item = self.store.get(
                     "asset" if kind == "image" else "font", identifier
@@ -415,6 +439,12 @@ class DynamicImages:
                     raise ValueError(
                         "An embedded image/font exceeds the 8 MiB per-resource limit."
                     )
+                resource_size = path.stat().st_size
+                if resource_bytes + resource_size > 12 * 1024 * 1024:
+                    raise ValueError(
+                        "Selected image/font resources exceed the 12 MiB combined budget."
+                    )
+                resource_bytes += resource_size
                 collection[identifier] = base64.b64encode(
                     await asyncio.to_thread(path.read_bytes)
                 ).decode()
@@ -475,6 +505,10 @@ class DynamicImages:
 
     def launch(self, identifier):
         if identifier not in self.jobs:
+            if len(self.jobs) >= 4:
+                raise ValueError(
+                    "The render queue is full. Wait for an active render to finish."
+                )
             job = asyncio.create_task(self._render(identifier))
             self.jobs[identifier] = job
 
@@ -496,49 +530,42 @@ class DynamicImages:
         )
         status.update(running=True, error=None, last_attempt=time.time())
         try:
-            async with self.lock:
-                document = self.store.get("asset", identifier)
-                targets = [
-                    v for v in self.store.all("variant") if v["asset_id"] == identifier
-                ]
-                if not targets:
-                    raise ValueError("Create a target variant before rendering.")
-                states, now = await self.snapshot(document["entities"]), time.time()
-                results = {}
-                for target in targets:
+            document = self.store.get("asset", identifier)
+            targets = [
+                v for v in self.store.all("variant") if v["asset_id"] == identifier
+            ]
+            if not targets:
+                raise ValueError("Create a target variant before rendering.")
+            states, now = await self.snapshot(document["entities"]), time.time()
+            results = {}
+            for target in targets:
+                async with self.lock:
                     results[target["id"]] = await self.generate(
                         document, target["recipe"], states, now
                     )
-                if (
-                    self.store.get("asset", identifier)["modified"]
-                    != document["modified"]
-                ):
-                    raise ValueError(
-                        "Script changed during rendering; render the saved version again."
-                    )
-                for target in targets:
-                    if self.store.get("variant", target["id"]) != target:
-                        raise ValueError(
-                            "Target changed during rendering; render again."
-                        )
-                used = sum(
-                    v["bytes"] for key, v in self.cache.items() if key not in results
+            if self.store.get("asset", identifier)["modified"] != document["modified"]:
+                raise ValueError(
+                    "Script changed during rendering; render the saved version again."
                 )
-                if used + sum(v["bytes"] for v in results.values()) > MAX_CACHE:
-                    raise ValueError(
-                        "Dynamic RAM cache is full. Remove unused target variants."
-                    )
-                # One atomic replacement on the event-loop thread; no DB/file writes.
-                self.cache.update(results)
-                status.update(
-                    last_success=now,
-                    warnings=list(
-                        dict.fromkeys(
-                            w for r in results.values() for w in r["warnings"]
-                        )
-                    )[:30],
+            for target in targets:
+                if self.store.get("variant", target["id"]) != target:
+                    raise ValueError("Target changed during rendering; render again.")
+            used = sum(
+                v["bytes"] for key, v in self.cache.items() if key not in results
+            )
+            if used + sum(v["bytes"] for v in results.values()) > MAX_CACHE:
+                raise ValueError(
+                    "Dynamic RAM cache is full. Remove unused target variants."
                 )
-                return self.status(identifier)
+            # One atomic replacement on the event-loop thread; no DB/file writes.
+            self.cache.update(results)
+            status.update(
+                last_success=now,
+                warnings=list(
+                    dict.fromkeys(w for r in results.values() for w in r["warnings"])
+                )[:30],
+            )
+            return self.status(identifier)
         except KeyError:
             status["error"] = "Dynamic image or target no longer exists."
             raise ValueError(status["error"]) from None
@@ -561,14 +588,14 @@ class DynamicImages:
 
     async def schedule(self):
         while not self.stopping:
-            if self.isolation:
-                for item in self.store.all("asset"):
-                    if (
-                        item.get("dynamic")
-                        and item["id"] not in self.jobs
-                        and time.monotonic() >= self.due.get(item["id"], 0)
-                    ):
-                        # Reserve the next tick before spawning; running jobs coalesce.
-                        self.due[item["id"]] = time.monotonic() + item["interval"]
-                        self.launch(item["id"])
+            if self.isolation and not self.jobs and self.pending == 0:
+                eligible = [
+                    a
+                    for a in self.store.all("asset")
+                    if a.get("dynamic") and time.monotonic() >= self.due.get(a["id"], 0)
+                ]
+                if eligible:
+                    item = min(eligible, key=lambda a: self.due.get(a["id"], 0))
+                    self.due[item["id"]] = time.monotonic() + item["interval"]
+                    self.launch(item["id"])
             await asyncio.sleep(1)

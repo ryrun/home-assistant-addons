@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.5.4**; locally tested, with Green,
+Status: experimental implementation **0.6.0**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -599,11 +599,13 @@ for Inkplate. The image picker hides all already assigned asset IDs for that dev
 including disabled entries and alternate variants, immediately after each addition.
 Other devices retain independent choices; removal makes the motif available again.
 
-## 12. Planned dynamic images — agreed design, not implemented
+## 12. Dynamic images — agreed design and implemented MVP (0.6.0)
 
-This section records the agreed design, confirmed on 2026-11-12. Version 0.5.4
-still supports uploaded pictures only; dynamic images are not implemented. The
-earlier static Inkplate support does not enable HA API access or a script runtime.
+This section records the design confirmed on 2026-11-12 and implemented in 0.6.0.
+The implementation adds QuickJS-NG, font uploads, read-only HA snapshots, the editor,
+and RAM-only target outputs. Earlier static-only releases did not enable HA API
+access or install a script runtime. Physical Green/Supervisor and panel acceptance
+remain separate from automated Linux container and browser verification.
 
 ### Confirmed first-version scope (2026-11-12)
 
@@ -611,14 +613,16 @@ earlier static Inkplate support does not enable HA API access or a script runtim
   within Media Library. Author scripts in the add-on with syntax highlighting,
   saving, preview, useful validation/runtime errors, and a **Render now** action.
 - Use **JavaScript interpreted by QuickJS**. Jinja2 layout templates were compared
-  and not selected: direct drawing commands are preferred. QuickJS-NG remains the
-  implementation candidate, subject to the embedding/isolation gates below.
+  and not selected: direct drawing commands are preferred. QuickJS-NG 0.18.0.1 is
+  the implemented runtime, with verified isolation on AMD64/ARM64 Linux containers
+  and macOS development.
 - Provide text, lines, rectangles, circles, and images from the existing library.
   Expose the target variant's pixel dimensions as `screen.width` and
   `screen.height`; run composition for each required model/orientation target.
   The display profile defines its actual palette, not just a color count. Support
   target-specific color, grayscale, and monochrome preparation without resizing
-  an already dithered output. Exact color API syntax still needs specification.
+  an already dithered output. Use opaque RGB strings for conversion or `palette.black` and other available
+  named entries for exact ink; exact selections survive automatic optimization.
 - Reuse existing uploaded-image IDs; expose stable image and font IDs with
   **Copy ID** controls. Renaming retains IDs. `screen.image(imageId, options)`
   references an uploaded original for composition before target optimization.
@@ -686,8 +690,8 @@ earlier static Inkplate support does not enable HA API access or a script runtim
 
 ### Script language and drawing API
 
-- Selected language: **JavaScript interpreted by QuickJS**; evaluate an embedded
-  QuickJS-NG core for the implementation.
+- Selected language: **JavaScript interpreted by QuickJS**; the implementation
+  uses the embedded QuickJS-NG 0.18.0.1 Python wrapper.
   No direct Python execution, arbitrary shell commands, or on-device business logic.
   Normal arithmetic, strings, arrays, conditions, loops, and helper functions allow
   programmable layouts without assembling widgets by hand.
@@ -711,18 +715,18 @@ earlier static Inkplate support does not enable HA API access or a script runtim
   setup is required. Bound file sizes/counts, reject path traversal, and handle
   font licensing. Scripts never choose file paths. Font changes invalidate relevant
   render caches. Missing font IDs use a bundled default font with a warning.
-- The current optimizer runs in a browser worker. Background dynamic rendering
-  needs a deliberate **server-side rendering and optimization pipeline**; it cannot
-  depend on an open browser or silently assume browser APIs exist in QuickJS.
-  Verify palette/dither parity and resource cost on Green for OpenPaper Spectra 6
-  and Inkplate eight-level output. Keep compatible-original and prepared-output
-  behavior explicit; avoid an unwanted second dithering pass on the frame.
+- Static-image optimization runs in a browser worker. Dynamic rendering uses
+  Pillow and the same vendored epdoptimize 1.2.0 in a separate trusted QuickJS
+  context with an in-memory ImageData/canvas adapter. It requires no open browser.
+  Native model/geometry and exact palette tests pass; Green resource use and
+  physical Spectra 6/grayscale image quality remain acceptance checks. Avoid an
+  unwanted second dithering pass on the frame.
 
 ### Home Assistant data and credential boundary
 
-- Current add-on configuration has `homeassistant_api: false` and `hassio_api: false`.
-  Supervisor network defaults used for the LAN suggestion do not imply HA entity
-  access. Dynamic images will require an intentional permission/configuration change.
+- Version 0.6.0 sets `homeassistant_api: true` for its trusted snapshot service;
+  `hassio_api` stays false. Prior releases had both permissions disabled. Supervisor
+  network defaults used for the LAN suggestion do not imply HA entity access.
 - Candidate transport: authenticated Core proxy `http://supervisor/core/api`, reading
   `/api/states/<entity_id>` (or a bounded read-only subscription/cache after validation).
   The Supervisor token must remain only in the trusted parent data-fetching service.
@@ -757,9 +761,9 @@ earlier static Inkplate support does not enable HA API access or a script runtim
   vulnerability remains possible; do not claim the solution is hack-proof. Pin the
   runtime, track upstream fixes, and include adversarial resource/escape tests.
 - Research baseline: the original `PetterS/quickjs` Python wrapper was archived in
-  January 2026. Evaluate the maintained `genotrance/quickjs-ng` wrapper and its
-  ARM64/AMD64 availability before choosing it. Neither runtime nor wrapper is
-  installed in the add-on yet. QuickJS-NG's security policy does not promise private
+  January 2026. The implementation selects `genotrance/quickjs-ng` 0.18.0.1, with
+  hash-locked dependencies and successful AMD64/ARM64 container builds. The
+  QuickJS-NG security policy does not promise private
   security reports/CVEs; untrusted bytecode hardening is outside its support scope.
 - Errors must be useful in the editor but contain no raw tokens, environment,
   filesystem paths, sensor snapshots beyond the authorized values, or stack dumps
@@ -793,16 +797,19 @@ earlier static Inkplate support does not enable HA API access or a script runtim
 
 ### Proposed implementation and acceptance sequence
 
-- [ ] Validate HA API access and read-only snapshot service with no script exposure.
-- [ ] Prove QuickJS-NG core embedding, runtime limits, and OS isolation on both
-      architectures and within the actual HA add-on environment.
-- [ ] Implement versioned drawing commands, font registration, trusted renderer,
+- [x] Implement bounded read-only snapshot fetching with no token/client exposure;
+      test selected Core API requests and script snapshot helpers.
+- [ ] Verify Core proxy access on the actual installed Home Assistant system.
+- [x] Prove QuickJS-NG embedding, limits, and default-deny OS isolation inside the
+      actual unprivileged Linux image on AMD64 and ARM64 (native CI builds).
+- [ ] Verify the deployed container under the user's Supervisor configuration.
+- [x] Implement versioned drawing commands, font registration, trusted renderer,
       target-specific output, and server optimization with bounded resources.
-- [ ] Add Dynamic image editor, validation, preview, errors, selected entity list,
+- [x] Add Dynamic image editor, validation, preview, errors, selected entity list,
       own refresh interval, and persisted configuration through existing Ingress.
-- [ ] Add RAM scheduler/cache with atomic swap, last-good output, restart/first-render
+- [x] Add RAM scheduler/cache with atomic swap, last-good output, restart/first-render
       behavior, deduplication, invalidation, and separate render/device diagnostics.
-- [ ] Integrate dynamic items into existing device lists without changing fixed URLs
+- [x] Integrate dynamic items into existing device lists without changing fixed URLs
       or causing sensor renders to advance playback or reset watchdog health.
 - [ ] Test infinite loops/recursion, huge allocations/outputs, malformed commands,
       prototype manipulation, attempted module/file/network/process access, worker
@@ -972,3 +979,31 @@ generation intervals to device polls.
   smoke test passed. MQTT integration used a temporary real Mosquitto broker;
   changing decline duration updated retained percentages and problem status
   without reconnecting or changing availability.
+
+
+## 18. Dynamic image implementation and validation (0.6.0)
+
+- Implement Images / Dynamic images / Fonts library sections, stable resource IDs,
+  local CodeMirror JavaScript editing, draft preview, Save image & target, Render
+  now, per-target recipes, and independent generation intervals/time zones.
+- Execute source in fresh bounded QuickJS-NG workers; pass only selected immutable
+  HA snapshot data and a frozen clock. Read literal helper-call IDs automatically
+  and support an explicit list for computed IDs. All host credentials stay in the
+  trusted parent. Core API permission is enabled intentionally, with the platform's
+  broad scope documented rather than represented as a narrowly scoped token.
+- Render text/shapes/uploaded originals/fonts with trusted Pillow inside the same
+  OS boundary. Optimize in a separate QuickJS context using existing epdoptimize
+  code and presets; preserve named palette ink, native BMP/PNG geometry, grayscale
+  inversion, and mounting correction. Bound all commands, resources and queues.
+- Persist definitions and uploaded resources only. Atomically replace complete
+  target batches in a 128 MiB RAM cache; rendering does not write files, blobs,
+  hashes or histories. Preserve last-good output and return HTTP 503 before first
+  success. Queue state stays pending for retry and real-byte ETags govern 304.
+- Implement missing-image skip and missing-font fallback warnings, font-aware
+  orphan cleanup, and metadata version 2 to prevent destructive old-version cleanup.
+- Native CI container checks have passed on AMD64 and ARM64, including syscall
+  restrictions, unprivileged UID/GID 10002, read-only filesystem, no network, and
+  native encoded output for all three device profiles. macOS Seatbelt probes and
+  real Chromium UI/device-delivery checks also pass. Final suite counts are
+  recorded after the release checks. Installed HA/physical panel acceptance remains
+  separate; no full ESPHome firmware build or hardware-quality success is claimed.

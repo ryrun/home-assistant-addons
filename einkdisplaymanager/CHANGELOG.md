@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0
+
+- Add Images, Dynamic images, and Fonts sections in Media Library with stable resource IDs and Copy ID controls.
+- Add a local CodeMirror JavaScript editor with syntax highlighting, draft preview, saved target variants, Render now, status/error feedback, and independent generation intervals.
+- Run QuickJS-NG and the trusted renderer in disposable, credential-free workers. Require verified OS restrictions, limit CPU/memory/output, and block filesystem, network, and process access.
+- Support text/alignment/wrapping, lines, rectangles, circles, uploaded images and fonts, target dimensions/palettes, local render time, and allowlisted read-only HA snapshots. Enable the Core API permission for the trusted snapshot service only.
+- Reuse the existing epdoptimize library on the server for per-target matching and dithering. Preserve explicit palette colors, native BMP/PNG contracts, orientation, and device mounting correction.
+- Keep generated compositions, previews, target outputs, and render status in bounded RAM. Preserve the last good output on errors; return HTTP 503 before the first successful render and retain pending playback for retry.
+- Preserve fixed device URLs and hash-based ETags/304. Background generation never advances queues or resets delivery health.
+- Persist uploaded fonts safely, fall back to a bundled default for missing font IDs, and skip missing images with warnings. Mark metadata version 2 to prevent destructive cleanup by older builds.
+- Add real browser, adversarial/runtime, RAM-only persistence and native AMD64/ARM64 Linux-container isolation checks.
+
 ## 0.5.4
 
 - Add a global Activity battery decline period in seconds (0–2592000; default 0) after the existing image-fetch grace period. Support five-minute (300) and 24-hour (86400) declines.

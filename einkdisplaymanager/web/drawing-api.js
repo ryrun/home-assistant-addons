@@ -23,11 +23,14 @@
     circle(options){add('circle',options);},image(id,options={}){add('image',{...options,id:String(id)});}
   });
   const ha=freeze({
-    state(id,fallback=null){const s=values[id];return !s||['unknown','unavailable'].includes(s.state)?fallback:s.state;},
+    state(id,fallback=null){const s=Object.hasOwn(values,id)?values[id]:null;return !s||['unknown','unavailable'].includes(s.state)?fallback:s.state;},
     number(id,fallback=null){const s=this.state(id);if(s===null||String(s).trim()==='')return fallback;const n=Number(s);return Number.isFinite(n)?n:fallback;},
-    attribute(id,name,fallback=null){return values[id]?.attributes?.[name]??fallback;}
+    attribute(id,name,fallback=null){return Object.hasOwn(values,id)?values[id]?.attributes?.[name]??fallback:fallback;}
   });
-  const palette=freeze(input.palette), now=safe(input.now);
+  const palette=new Proxy(freeze(input.palette),{get(target,key){
+    if(typeof key==='string'&&!Object.hasOwn(target,key))throw new Error('Color '+key+' is not available in the target palette.');
+    return target[key];
+  }}), now=safe(input.now);
   // A fresh runtime and scope per invocation; any source escaping this function
   // still has no privileged globals. Host independently validates every command.
   const run=new Function('screen','ha','palette','now','"use strict";\n'+source);

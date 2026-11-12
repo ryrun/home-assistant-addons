@@ -133,7 +133,7 @@ function modal(title,body){
   dialog.prepend($('#notice'));
 }
 function stopWorker(){dynamicTools.dispose();state.optimization?.abort();state.optimization=null;state.result=null;if(state.previewURL){URL.revokeObjectURL(state.previewURL);state.previewURL=null;}}
-dialog.addEventListener('close',()=>{stopWorker();document.documentElement.classList.remove('modal-open');$('main').prepend($('#notice'));});
+dialog.addEventListener('close',()=>{const dynamic=dialog.classList.contains('dynamic-editor');stopWorker();document.documentElement.classList.remove('modal-open');$('main').prepend($('#notice'));if(dynamic&&route()==='library/dynamic')run(async()=>{await refresh();libraryView();});});
 
 async function openEditor(id, options={}){
   const item=asset(id);if(!item)throw new Error('Image not found.');
@@ -364,7 +364,7 @@ function settingsView(){
 async function run(action){try{return await action();}catch(error){notice(error.message||'The operation failed. Refresh and try again.',true);}}
 const dynamicTools=createDynamicUI({api,modal,notice,refresh,getData:()=>state.data,render});
 window.addEventListener('hashchange',()=>run(render));
-setInterval(()=>{if(!dialog.open&&route()==='devices'&&!state.search&&!state.selected.size)run(async()=>{await refresh();await render();});},15000);
+setInterval(()=>{if(!dialog.open&&(route()==='library/dynamic'||route()==='devices'&&!state.search&&!state.selected.size))run(async()=>{await refresh();await render();});},15000);
 run(render);
 setInterval(pollDeviceActivity,2000);
 

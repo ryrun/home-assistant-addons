@@ -25,11 +25,14 @@ class Store:
         os.chmod(self.root / 'manager.sqlite3', 0o600)
         self.db.execute('PRAGMA foreign_keys=ON')
         self.db.execute('PRAGMA synchronous=FULL')
-        self.db.execute('CREATE TABLE IF NOT EXISTS records (kind TEXT, id TEXT, doc TEXT NOT NULL, PRIMARY KEY(kind,id))')
         version = self.db.execute('PRAGMA user_version').fetchone()[0]
-        if version not in (0, 1):
+        if version not in (0, 1, 2):
+            self.db.close()
             raise RuntimeError('Database version is newer than this add-on; restore a compatible version.')
-        self.db.execute('PRAGMA user_version=1')
+        self.db.execute('CREATE TABLE IF NOT EXISTS records (kind TEXT, id TEXT, doc TEXT NOT NULL, PRIMARY KEY(kind,id))')
+        # Older builds cannot preserve uploaded fonts during their orphan-file
+        # cleanup. Refuse unsafe downgrades instead of silently losing fonts.
+        self.db.execute('PRAGMA user_version=2')
         self.db.commit()
         self.cleanup()
 

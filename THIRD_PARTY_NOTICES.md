@@ -64,3 +64,14 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## E-Ink Display Manager dynamic script editor
+
+- Included module: `einkdisplaymanager/web/vendor/editor-6.mjs`.
+- CodeMirror 6 / Lezer and supporting packages are MIT-licensed. Full notices:
+  `einkdisplaymanager/web/vendor/CodeMirror-LICENSES.txt`.
+- The runtime installs MIT-licensed QuickJS-NG through its hash-locked Python
+  wrapper; its license files stay in the container. Pillow supplies the Aileron
+  default font, whose author dot colon marks it “No Rights Reserved”.
+- Versions, source links, and reproducible editor build instructions:
+  `einkdisplaymanager/UPSTREAM.md`.

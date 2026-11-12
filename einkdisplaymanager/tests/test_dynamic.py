@@ -318,7 +318,7 @@ async def test_explicit_palette_colors_survive_tone_optimization(
     result = await worker(
         {
             "mode": "render",
-            "size": [20, 20],
+            "size": [32, 32],
             "profile": PROFILES[profile],
             "recipe": settings,
             "palette": {color: rgb},
@@ -339,3 +339,146 @@ async def test_explicit_palette_colors_survive_tone_optimization(
     )
     output = Image.open(io.BytesIO(base64.b64decode(result["output"]))).convert("RGB")
     assert output.getpixel((5, 5)) == expected
+
+
+async def test_ram_budget_failure_keeps_last_good_output(system, monkeypatch):
+    import dynamic
+
+    manager, admin, _frames = system
+    item, target = await create(admin)
+    await finish(manager, item["id"])
+    original = manager.dynamic.output(target["id"])
+    monkeypatch.setattr(dynamic, "MAX_CACHE", 1)
+    with pytest.raises(ValueError, match="RAM cache is full"):
+        await finish(manager, item["id"])
+    assert manager.dynamic.output(target["id"])["hash"] == original["hash"]
+
+
+async def test_multiline_wrapping_and_centered_text():
+    from profiles import PROFILES
+
+    result = await worker(
+        {
+            "mode": "render",
+            "size": [128, 128],
+            "profile": PROFILES["inkplate_6"],
+            "recipe": recipe({"profile": "inkplate_6"}),
+            "palette": {"black": "#000000"},
+            "images": {},
+            "fonts": {},
+            "commands": [
+                {
+                    "type": "text",
+                    "text": "Hello world from a wrapped label",
+                    "x": 64,
+                    "y": 64,
+                    "maxWidth": 100,
+                    "fontSize": 20,
+                    "align": "center",
+                    "verticalAlign": "middle",
+                    "color": "palette:black",
+                }
+            ],
+        }
+    )
+    image = Image.open(io.BytesIO(base64.b64decode(result["source"]))).convert("L")
+    from PIL import ImageOps
+
+    bounds = ImageOps.invert(image).getbbox()
+    assert bounds and 58 <= (bounds[0] + bounds[2]) / 2 <= 70
+    assert 58 <= (bounds[1] + bounds[3]) / 2 <= 70
+
+
+def test_old_metadata_migrates_and_font_aware_version_is_marked(tmp_path):
+    import sqlite3
+
+    from storage import Store
+
+    store = Store(tmp_path)
+    store.db.execute("PRAGMA user_version=1")
+    store.close()
+    upgraded = Store(tmp_path)
+    assert upgraded.db.execute("PRAGMA user_version").fetchone()[0] == 2
+    upgraded.close()
+    connection = sqlite3.connect(tmp_path / "manager.sqlite3")
+    connection.execute("PRAGMA user_version=99")
+    connection.close()
+    with pytest.raises(RuntimeError, match="newer"):
+        Store(tmp_path)
+
+
+async def test_selected_ha_reads_are_bounded_and_parent_only(system, monkeypatch):
+    import json
+
+    manager, _admin, _frames = system
+    calls = []
+
+    class Content:
+        async def iter_chunked(self, size):
+            value = json.dumps(
+                {
+                    "state": "22.5",
+                    "attributes": {"unit_of_measurement": "°C"},
+                    "last_updated": "2026-11-12T10:00:00Z",
+                }
+            ).encode()
+            yield value[:10]
+            yield value[10:]
+
+    class Response:
+        status = 200
+        content = Content()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+    class Session:
+        def get(self, url, **kwargs):
+            calls.append((url, kwargs))
+            return Response()
+
+    old_session = manager.dynamic.session
+    manager.dynamic.session = Session()
+    monkeypatch.setenv("SUPERVISOR_TOKEN", "parent-only-test-token")
+    try:
+        result = await manager.dynamic.snapshot(["sensor.temperature"])
+    finally:
+        manager.dynamic.session = old_session
+    assert list(result) == ["sensor.temperature"]
+    assert result["sensor.temperature"]["state"] == "22.5"
+    assert calls[0][0] == "http://supervisor/core/api/states/sensor.temperature"
+    assert calls[0][1]["allow_redirects"] is False
+    assert calls[0][1]["headers"]["Authorization"] == "Bearer parent-only-test-token"
+    assert "parent-only-test-token" not in json.dumps(result)
+    # A fresh child inherits no Supervisor credentials or host process facilities.
+    assert (await worker({"mode": "probe"}))["isolation"]
+
+
+def test_entity_detection_does_not_read_arbitrary_dotted_strings():
+    result = definition(
+        {
+            "name": "Names",
+            "script": 'screen.text("screen.width");ha.number("sensor.temperature");',
+        }
+    )
+    assert result["entities"] == ["sensor.temperature"]
+
+
+async def test_unavailable_palette_entry_is_an_error_not_a_silent_fallback():
+    with pytest.raises(ValueError, match="not available"):
+        await worker(
+            {
+                "mode": "commands",
+                "source": "screen.rectangle({fill:palette.red});",
+                "input": {
+                    "width": 800,
+                    "height": 600,
+                    "palette": {"black": "palette:black"},
+                    "states": {},
+                    "now": {},
+                },
+            }
+        )

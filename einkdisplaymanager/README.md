@@ -31,13 +31,16 @@ English management interface through HA Ingress.
   ESPHome `greyscale: false`.
 - Hide already assigned motifs in each device’s Add images picker.
 
-**Experimental 0.5.4.** Automated and browser testing are separate from real-device
+**Experimental 0.6.0.** Automated and browser testing are separate from real-device
 acceptance. Installation on Home Assistant Green and display quality on a physical
 frame still need verification. The new OpenPaper 7 profile is validated in software;
 physical acceptance on its 7.3-inch Spectra 6 hardware remains pending. Inkplate 6
 also needs physical acceptance with your existing board configuration.
-Dynamic, scripted images are planned in the repository’s [plan.md](../plan.md);
-this release supports uploaded images only.
+Dynamic images are available in **Media Library → Dynamic images**. Write JavaScript
+with the isolated QuickJS editor, upload fonts in **Fonts**, create target variants,
+and use them in ordinary device lists. Generated images and variants stay in a
+bounded RAM cache; scripts, recipes, uploaded images, and fonts persist.
+See [the dynamic-image guide](DOCS.md#dynamic-images-and-fonts) for examples and limits.
 
 See [DOCS.md](DOCS.md) for installation, networking, firmware setup, and development.
 No manufacturer-cloud account or custom Home Assistant integration is required.

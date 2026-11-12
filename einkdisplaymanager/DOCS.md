@@ -1026,3 +1026,196 @@ delivery, all eight tones / only two tones on full-resolution ramps, exact inver
 pixels with automatic tone/dithering options, native portrait pixel equivalence,
 and button/keyboard/touch comparison with no hover switching. Physical display
 quality and the complete ESPHome firmware build still need external acceptance.
+
+## Dynamic images and fonts
+
+Version 0.6.0 adds **Images**, **Dynamic images**, and **Fonts** within Media Library.
+Normal uploaded originals and their manually prepared variants keep their existing
+persistent storage. Dynamic images are programmable canvases with a separate,
+volatile rendering pipeline.
+
+### Create a dynamic image
+
+1. Optionally upload backgrounds or symbols in **Images**, and TTF/OTF fonts in
+   **Fonts**. Use **Copy ID** to reference them. Image/font IDs stay stable when
+   their display name changes; scripts never use filenames or filesystem paths.
+2. Open **Dynamic images → Create dynamic image**. Enter a name, generation
+   interval, and IANA time zone. JavaScript editing includes syntax highlighting,
+   line numbers, bracket matching, completion, and indentation with Tab.
+3. Choose a display model and orientation. Every saved target variant has its own
+   palette, matching, dithering, automatic-optimization and grayscale-inversion
+   recipe. The **Image optimization** section contains these options. Exact
+   `palette` colors bypass tone/matching changes; RGB colors and photos are optimized.
+4. Use **Render preview** to render the unsaved draft without publishing it to
+   devices. **Save image & target** saves the script and selected recipe and starts
+   rendering saved targets. **Render now** regenerates saved targets; save edits
+   first or use the separate draft preview.
+5. Add the saved target variant through a device's ordinary **Add images** dialog.
+   Dynamic items have no original-delivery mode. Matching targets can be shared by
+   devices. Create a new target when changing hardware models; editing a target
+   retains its ID and assignments.
+
+Script changes apply to all of the item's saved target variants. A render uses
+one frozen time and HA snapshot, runs the script for each target's dimensions,
+then publishes the completed batch atomically. An active transfer keeps its own
+immutable bytes. Target recipes can be edited; source/recipe edits during a render
+invalidate that in-flight result and schedule another run.
+
+### JavaScript example
+
+```javascript
+screen.clear("#ffffff");
+
+screen.rectangle({
+  x: 20, y: 20,
+  width: screen.width - 40,
+  height: screen.height - 40,
+  stroke: palette.black,
+  strokeWidth: 2
+});
+
+const greeting = now.hour < 12 ? "Good morning"
+  : now.hour < 18 ? "Good afternoon" : "Good evening";
+const temperature = ha.number("sensor.living_room_temperature", null);
+
+screen.text(greeting, {
+  x: screen.width / 2, y: screen.height / 2,
+  font: "default", fontSize: 48,
+  color: palette.black,
+  align: "center", verticalAlign: "middle"
+});
+
+screen.text(temperature === null ? "Temperature unavailable" : `${temperature} °C`, {
+  x: 40, y: screen.height - 80,
+  font: "your-uploaded-font-id", fontSize: 30,
+  color: palette.black
+});
+
+screen.image("your-uploaded-image-id", {
+  x: 40, y: 100, width: 160, height: 120, fit: "contain"
+});
+```
+
+This is synchronous JavaScript source interpreted by QuickJS-NG, not Python or a
+browser/Node environment. Conditions, loops, arrays, arithmetic and helper
+functions work normally. There are no host `fetch`, file, shell, `process`,
+`require`, package-installation or HA service-call functions. Asynchronous jobs
+are not used to draw: issue commands synchronously within the script.
+
+### Drawing API version 1
+
+Coordinates are pixels from the viewing area's top left, before native transport
+rotation or per-device 180° correction. Later commands draw over earlier commands.
+Content is clipped at the canvas edge. Common options are plain JSON values;
+unknown fields, invalid sizes/nonfinite coordinates and excessive output fail the
+render instead of reaching unrestricted Pillow APIs.
+
+| API | Options / behavior |
+|---|---|
+| `screen.width`, `screen.height` | Current target's viewing dimensions; do not hard-code a device size |
+| `screen.clear(color)` | Opaque background; default `#ffffff` |
+| `screen.text(text, options)` | `x`, `y`, `font`, `fontSize`, `color`, `align`, `verticalAlign`, optional `maxWidth` for word wrapping |
+| `screen.line(options)` | `x1`, `y1`, `x2`, `y2`, `stroke`, `strokeWidth` |
+| `screen.rectangle(options)` | Top-left `x`, `y`, `width`, `height`, optional `fill`, `stroke`, `strokeWidth` |
+| `screen.circle(options)` | Center `x`, `y`, `radius`, optional `fill`, `stroke`, `strokeWidth` |
+| `screen.image(id, options)` | `x`, `y`, `width`, `height`, `fit: "contain"` or `"cover"`; uses an uploaded original |
+
+Text defaults to left/top alignment, 24 px, black and font `default`. Use
+`align: "center"` and `verticalAlign: "middle"` to place the text's visible block
+around a point. Right/bottom alignment and multiline text are supported. Font
+sizes are pixels, not CSS points. The bundled default font has a limited character
+set; upload a suitable font for additional scripts or symbols.
+
+Ordinary opaque CSS color names and `#RRGGBB` colors are mapped to the target
+palette. `palette.black`, `palette.white`, and available named panel colors select
+exact device colors. OpenPaper offers black, blue, green, red, yellow, and white.
+Inkplate offers black, white, and `palette.gray0` through `palette.gray7` in
+8-level mode; monochrome mode exposes black/white only. A missing named palette
+entry is an error. Explicit palette ink remains exact through optimization;
+intentional Inkplate inversion then reverses its final gray level.
+
+`now` is a frozen object in the item's configured time zone: `hour`, `minute`,
+`second`, `year`, `month`, `day`, ISO weekday `weekday` (1–7), `iso`, and Unix-seconds
+`timestamp`. A new greeting appears on the display only after a new image is
+generated **and** the device fetches it.
+
+### Home Assistant snapshots
+
+The add-on now requests the **Home Assistant Core API** permission. The trusted
+parent service uses the Supervisor Core proxy to fetch selected entity states;
+this permission is broad at the platform level. Application code restricts this
+feature to reads of `/api/states/<entity_id>`. It is not a narrowly scoped HA token.
+No Supervisor/MQTT credentials, API client or live connection enters the worker.
+
+Literal IDs in `ha.state("sensor.example")`, `ha.number(...)`, and
+`ha.attribute(...)` are detected automatically. For loops or calculated IDs, list
+all permitted IDs under **Home Assistant inputs → Additional entity IDs**. Scripts
+can read only that preloaded snapshot. Use the explicit list for unusual syntax;
+ID detection is a convenience, not a complete JavaScript dependency parser.
+
+- `ha.state(id, fallback = null)` returns the state string; missing, unknown and
+  unavailable states return the fallback.
+- `ha.number(id, fallback = null)` converts a finite numeric state. Always choose
+  a useful fallback before formatting a potentially unavailable value.
+- `ha.attribute(id, name, fallback = null)` returns a selected state's attribute.
+
+Up to 64 selected entities are loaded per render with a ten-second total snapshot
+budget, 64 KiB per entity, and 256 KiB combined data limit. A missing entity is
+unavailable; authentication/network/snapshot failures retain the last good image.
+The Core proxy connection still requires acceptance on an installed Home Assistant
+system; local tests do not replace Green/Supervisor or physical-device testing.
+
+### Storage, scheduling, and errors
+
+- Scripts, names, intervals, time zones, target recipes, uploaded originals and
+  fonts persist. Generated source rasters, native target outputs, previews and
+  render status are **RAM only**. No generated files, image blobs, render histories
+  or per-render hash/status updates are written to SQLite. Normal authenticated
+  device-transfer/playback diagnostics continue to persist as before.
+- Each item's generation interval is independent of device sleep/playlist timing.
+  Device GETs consume the latest successful output; they never start a render or
+  fetch HA data. Rendering does not advance queues, count as device contact, or
+  reset the simulated battery watchdog.
+- The scheduler coalesces overlapping runs, skips catch-up bursts, and runs one
+  isolated rendering worker at a time. Interactive previews can run between target
+  variants; manual queues are bounded. ETags hash actual delivered bytes, so an
+  unchanged generated image can still produce HTTP 304 at the fixed image URL.
+- A missing image ID draws nothing and reports a warning. A missing font ID uses
+  the bundled default with a warning. Script references do not prevent deleting
+  an otherwise unused uploaded resource. Normal direct device assignments and
+  static saved variants retain their existing deletion protection.
+- Errors preserve the last successful batch. The editor shows running/error state,
+  warnings and last-success time separately from device transfer diagnostics.
+  When no good output exists, including immediately after restart, image delivery
+  returns **HTTP 503** with `Retry-After: 60`; pending playback is retained for retry.
+  The firmware controls its retry behavior. No replacement error image is sent.
+- A 128 MiB dynamic-output budget bounds the RAM cache. At capacity a render fails
+  while retaining prior good outputs; remove unused targets to free space. Other
+  limits: 32 dynamic items, eight targets/item, 32 uploaded fonts at 4 MiB each,
+  64 KiB source, 1000 drawing commands/256 KiB command output, 8 MiB per embedded
+  resource and 12 MiB combined resources. Generation intervals are 10 seconds to
+  30 days. Complex/frequent renders consume CPU; there is no unlimited catch-up.
+- Each disposable worker has sanitized environment/closed inherited descriptors,
+  CPU and wall-clock limits, a limited QuickJS heap/stack and (Linux) a 512 MiB
+  process address-space limit. Linux installs a default-deny seccomp filter with
+  no-new-privileges; macOS development uses Seatbelt. Native file access, network
+  connections and process creation are tested at startup. Failed/unsupported
+  isolation disables dynamic execution while uploaded-image delivery remains
+  available. Only source is accepted; no untrusted QuickJS bytecode is loaded.
+
+Metadata upgrades to version 2 so older builds refuse an unsafe downgrade instead
+of deleting uploaded font files as orphans. Use a matching backup to roll back;
+do not edit the database version manually. Font licensing remains the uploader's
+responsibility. See [UPSTREAM.md](UPSTREAM.md) for editor/runtime attribution.
+
+### Dynamic image verification
+
+Run `scripts/dynamic_browser_smoke.py` with the same Playwright environment as the
+existing browser smoke. It exercises the real editor, fonts/IDs, draft preview,
+saved rendering, device PNG/304 delivery, errors, last-good images and absence of
+persistent generated files. `tests/test_dynamic.py` covers bounded hostile scripts,
+native target geometry, resource fallbacks, RAM budgets, clock/snapshot APIs and
+retry/ETag behavior. `.github/workflows/eink-dynamic.yml` builds the actual image
+natively on AMD64 and ARM64 and verifies seccomp/rendering as UID/GID 10002 in a
+read-only, network-disabled container. These checks do not certify physical
+screen quality or a particular installed Home Assistant configuration.

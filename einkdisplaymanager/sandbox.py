@@ -88,6 +88,12 @@ def restrict():
 
 
 def probe():
+    if any(
+        key in os.environ
+        for key in ("SUPERVISOR_TOKEN", "MQTT_PASSWORD", "EINK_TEST_SECRET")
+    ):
+        raise RuntimeError("Worker inherited a protected environment value.")
+
     def network():
         with socket.socket() as connection:
             connection.connect(("127.0.0.1", 9))

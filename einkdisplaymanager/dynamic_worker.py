@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 import quickjs
-from PIL import Image, ImageColor, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageCms, ImageColor, ImageDraw, ImageFont, ImageOps
 from sandbox import probe, restrict
 
 ROOT = Path(__file__).parent
@@ -30,6 +30,7 @@ OPTIONS = "const getProcessingPreset=F;\n" + OPTIONS
 Image.init()  # Load codec modules before filesystem access is disabled.
 Image.MAX_IMAGE_PIXELS = 8_000_000
 DEFAULT_FONT = ImageFont.load_default(size=16)  # Pillow's bundled Aileron.
+SRGB = ImageCms.createProfile("sRGB")
 # Force optional native modules to load before seccomp denies opens.
 Image.new("RGB", (1, 1)).save(io.BytesIO(), "PNG")
 
@@ -168,7 +169,10 @@ def draw(payload):
             if value is None:
                 raise ValueError("This color is not available in the target palette.")
         try:
-            return ImageColor.getrgb(value)
+            rgb = ImageColor.getrgb(value)
+            if len(rgb) != 3:
+                raise ValueError("Use opaque RGB colors.")
+            return rgb
         except ValueError:
             raise ValueError(
                 "Use a named color, #RRGGBB, or a color from palette."
@@ -223,25 +227,26 @@ def draw(payload):
                     else:
                         line = candidate
                 text = "\n".join(lines + [line])
-            anchor = {"left": "l", "center": "m", "right": "r"}[align] + {
-                "top": "t",
-                "middle": "m",
-                "bottom": "b",
-            }[vertical]
+            box = ink.multiline_textbbox((0, 0), text, font=selected, align=align)
+            text_width, text_height = box[2] - box[0], box[3] - box[1]
+            position = (
+                x - {"left": 0, "center": 0.5, "right": 1}[align] * text_width - box[0],
+                y
+                - {"top": 0, "middle": 0.5, "bottom": 1}[vertical] * text_height
+                - box[1],
+            )
             ink.multiline_text(
-                (x, y),
+                position,
                 text,
                 font=selected,
                 fill=color(c.get("color", "#000000")),
-                anchor=anchor,
                 align=align,
             )
             mark(
                 "multiline_text",
-                [(x, y), text],
+                [position, text],
                 {"fill": c.get("color", "#000000")},
                 font=selected,
-                anchor=anchor,
                 align=align,
             )
         elif kind in ("rectangle", "circle"):
@@ -288,7 +293,15 @@ def draw(payload):
                 )
                 continue
             with Image.open(io.BytesIO(base64.b64decode(source))) as original:
-                original = ImageOps.exif_transpose(original).convert("RGBA")
+                original = ImageOps.exif_transpose(original)
+                alpha = original.convert("RGBA").getchannel("A")
+                profile_data = original.info.get("icc_profile")
+                if profile_data:
+                    original = ImageCms.profileToProfile(
+                        original, io.BytesIO(profile_data), SRGB, outputMode="RGB"
+                    )
+                original = original.convert("RGBA")
+                original.putalpha(alpha)
                 size = (
                     round(c.get("width", original.width)),
                     round(c.get("height", original.height)),

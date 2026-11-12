@@ -78,6 +78,7 @@ screen.text("Hello World", {{x:400,y:300,font:"{font_id}",fontSize:40,color:pale
                     await page.locator('#dynamic-preview-stage img').wait_for()
                     assert await page.locator('#dynamic-profile').is_disabled()
                     await page.get_by_role('button',name='Close dialog').click()
+                    await page.get_by_role('button',name='Edit Morning canvas',exact=True).wait_for()
                     await page.reload()
                     await page.get_by_role('button',name='Edit Morning canvas',exact=True).click()
                     assert 'Hello World' in await page.get_by_role('textbox',name='JavaScript source').inner_text()
