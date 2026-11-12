@@ -17,7 +17,7 @@ ingress_stream: true
 panel_icon: mdi:image-frame
 panel_title: E-Ink Display Manager
 panel_admin: true
-homeassistant_api: false
+homeassistant_api: true
 hassio_api: false
 ports:
   8098/tcp: 8098

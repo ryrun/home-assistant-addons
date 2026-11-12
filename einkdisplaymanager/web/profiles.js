@@ -11,6 +11,7 @@ export function originalProfile(asset,profiles){
 }
 
 export function originalCompatible(asset,profileId,profiles){
+  if(asset.dynamic)return false;
   const native=originalProfile(asset,profiles);
   return (!native||native===profileId)&&(asset.original_supported||profileId==='inkplate_6');
 }

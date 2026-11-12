@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import base64
 import copy
 import hmac
 import ipaddress
@@ -22,6 +23,13 @@ import scheduling
 from aiohttp import web
 from correction import rotate_delivery
 from diagnostics import Diagnostics
+from dynamic import (
+    DynamicImages,
+    definition,
+    recipe,
+    valid_name,
+    worker,
+)
 from media import (
     MAX_UPLOAD,
     composition_thumbnail,
@@ -95,6 +103,8 @@ async def errors(request, handler):
         response = await handler(request)
     except web.HTTPException as exc:
         response = web.json_response({'error': exc.reason}, status=exc.status)
+        if exc.headers.get('Retry-After'):
+            response.headers['Retry-After'] = exc.headers['Retry-After']
     except KeyError:
         response = web.json_response({'error': 'Item not found.'}, status=404)
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
@@ -133,6 +143,7 @@ class Manager:
         if self.options.get('lan_base_url'):
             self.settings['base_url'] = base_url(self.options['lan_base_url'])
         self.mqtt = MQTTBridge(self, VERSION)
+        self.dynamic = DynamicImages(self)
 
     def urls(self, device, base=None):
         origin = self.settings['base_url'] if base is None else base
@@ -186,7 +197,7 @@ class Manager:
             raise web.HTTPForbidden(reason='Refresh the page before making changes.')
         response = await handler(request)
         response.headers['Content-Security-Policy'] = (
-            "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; "
+            f"default-src 'self'; script-src 'self'; style-src 'self' 'nonce-{self.csrf}'; img-src 'self' blob:; "
             "worker-src 'self'; connect-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'")
         return response
 
@@ -251,9 +262,18 @@ class Manager:
         for asset in assets:
             asset.setdefault('filename', asset['name'])
             asset['usage'] = sum(e['asset_id'] == asset['id'] for e in entries)
+            if asset.get('dynamic'):
+                asset['render_status'] = self.dynamic.status(asset['id'])
         for variant in variants:
             variant['usage'] = sum(e.get('variant_id') == variant['id'] for e in entries)
+            if variant.get('dynamic') and variant['id'] in self.dynamic.cache:
+                cached = self.dynamic.cache[variant['id']]
+                variant.update(hash=cached['hash'], bytes=len(cached['output']))
+        fonts = self.store.all('font')
+        for font in fonts:
+            font.pop('file', None)
         return web.json_response({'assets': assets, 'variants': variants,
+                                  'fonts': fonts, 'dynamic': self.dynamic.public(),
                                   'devices': [self.public_device(d) for d in devices],
                                   'settings': self.settings, 'version': VERSION, 'csrf': self.csrf,
                                   'mqtt': self.mqtt.public(),
@@ -284,6 +304,135 @@ class Manager:
         if request.method == 'PUT':
             self.mqtt.configure(await self.json(request))
         return web.json_response(self.mqtt.public())
+
+    async def save_dynamic(self, request):
+        data = await self.json(request)
+        async with self.media_lock:
+            identifier = request.match_info.get('item')
+            old = self.store.get('asset', identifier) if identifier else None
+            if old and not old.get('dynamic'):
+                raise ValueError('Choose a dynamic image.')
+            if old and data.get('modified') != old['modified']:
+                raise web.HTTPConflict(reason='This script changed. Reload before saving.')
+            if not old and sum(a.get('dynamic',False) for a in self.store.all('asset')) >= 32:
+                raise ValueError('At most 32 dynamic images are supported.')
+            document = definition(data, old)
+            now = time.time()
+            document.update(id=identifier or new_id(), dynamic=True, modified=now,
+                            created_at=old['created_at'] if old else now,
+                            hash=digest(document['script'].encode()), width=1200, height=1600,
+                            mime='image/png', bytes=0, original_supported=False,
+                            original_note='Dynamic images require a saved target variant.')
+            document.pop('targets',None)
+            self.store.save('asset',document)
+            self.dynamic.invalidate(document['id'])
+        return web.json_response(document, status=200 if old else 201)
+
+    async def dynamic_target(self, request):
+        data = await self.json(request)
+        if set(data) - {'name','recipe','modified'}:
+            raise ValueError('Unknown target setting.')
+        async with self.media_lock:
+            original = self.store.get('asset',request.match_info['item'])
+            if not original.get('dynamic'):
+                raise ValueError('Choose a dynamic image.')
+            identifier = request.match_info.get('target')
+            old = self.store.get('variant',identifier) if identifier else None
+            if old and (old['asset_id'] != original['id'] or not old.get('dynamic')):
+                raise ValueError('Target does not belong to this dynamic image.')
+            if old and data.get('modified') != old['modified']:
+                raise web.HTTPConflict(reason='This target changed. Reload before saving.')
+            targets = [v for v in self.store.all('variant') if v['asset_id']==original['id']]
+            if not old and len(targets) >= 8:
+                raise ValueError('At most eight target variants are supported per dynamic image.')
+            settings = recipe(data.get('recipe'))
+            if old and old['profile'] != settings['profile']:
+                raise ValueError('Create a new target when changing display models.')
+            variant = {'id':identifier or new_id(),'asset_id':original['id'],'dynamic':True,
+                       'name':valid_name(data.get('name')), 'profile':settings['profile'],'recipe':settings,
+                       'modified':time.time(), 'created_at':old['created_at'] if old else time.time(),
+                       'mime':'image/png' if settings['profile']=='inkplate_6' else 'image/bmp',
+                       'bytes':0,'hash':new_id(),'revision':old.get('revision',0)+1 if old else 1}
+            self.store.save('variant',variant)
+            self.dynamic.invalidate(original['id'])
+        return web.json_response(variant,status=200 if old else 201)
+
+    async def dynamic_preview(self, request):
+        data = await self.json(request)
+        result = await self.dynamic.preview(data)
+        target = recipe(data['recipe'])
+        async with self.workers:
+            preview = await asyncio.to_thread(device_thumbnail,result['output'],target['orientation']=='landscape',
+                                              True,False,target['profile'])
+        return web.json_response({'source':base64.b64encode(result['source']).decode(),
+                                  'preview':base64.b64encode(preview).decode(),
+                                  'output':base64.b64encode(result['output']).decode(),
+                                  'mime':result['mime'],'warnings':result['warnings']})
+
+    async def dynamic_render(self, request):
+        item = self.store.get('asset',request.match_info['item'])
+        if not item.get('dynamic'):
+            raise ValueError('Choose a dynamic image.')
+        self.dynamic.launch(item['id'])
+        return web.json_response({**self.dynamic.status(item['id']),'running':True},status=202)
+
+    async def dynamic_status(self, request):
+        item = self.store.get('asset',request.match_info['item'])
+        if not item.get('dynamic'):
+            raise ValueError('Choose a dynamic image.')
+        return web.json_response(self.dynamic.status(item['id']))
+
+    async def upload_font(self, request):
+        if len(self.store.all('font')) >= 32:
+            raise ValueError('At most 32 uploaded fonts are supported.')
+        data = await request.read()
+        if not 1 <= len(data) <= 4*1024*1024 or data[:4] not in (b'\x00\x01\x00\x00',b'OTTO'):
+            raise ValueError('Upload a TrueType (.ttf) or OpenType (.otf) font up to 4 MiB.')
+        if not self.dynamic.isolation:
+            raise ValueError('Font validation requires verified process isolation.')
+        async with self.dynamic.lock:
+            await worker({'mode':'font','data':base64.b64encode(data).decode()},timeout=6)
+        async with self.media_lock:
+            if len(self.store.all('font')) >= 32:
+                raise ValueError('At most 32 uploaded fonts are supported.')
+            font = {'id':new_id(),'name':valid_name(unquote(request.headers.get('X-File-Name','Uploaded font'))),
+                    'bytes':len(data),'created_at':time.time(),'file':self.store.put_file(data,'.font')}
+            self.store.save('font',font)
+        return web.json_response({k:v for k,v in font.items() if k!='file'},status=201)
+
+    async def delete_font(self, request):
+        async with self.media_lock:
+            self.store.delete('font',request.match_info['item'])
+            self.store.cleanup()
+            for asset in self.store.all('asset'):
+                if asset.get('dynamic'):
+                    self.dynamic.invalidate(asset['id'])
+        return web.json_response({'deleted':True})
+
+    async def dynamic_media(self, request, item, kind, output):
+        device = self.store.get('device',request.query['device']) if request.query.get('device') else None
+        if kind == 'asset':
+            variants = [v for v in self.store.all('variant') if v['asset_id']==item['id']
+                        and v['id'] in self.dynamic.cache and (not device or v['profile']==device['profile'])]
+            if not variants:
+                raise web.HTTPServiceUnavailable(reason='Dynamic image is not ready; render a target first.',headers={'Retry-After':'60'})
+            item = variants[0]
+        if device and item['profile'] != device['profile']:
+            raise ValueError('Choose a variant prepared for this device model.')
+        try:
+            cached = self.dynamic.output(item['id'])
+        except ValueError:
+            raise web.HTTPServiceUnavailable(reason='Dynamic target is not ready; retry later.',headers={'Retry-After':'60'}) from None
+        if output == 'source' or request.query.get('comparison') == 'source':
+            return web.Response(body=cached['source'],content_type='image/png',headers={'Cache-Control':'private, no-store'})
+        data, mime, _hash = await self.delivery(item,device_rotation(device) if device else 0,item['profile'])
+        if output == 'thumbnail':
+            mounting = device_orientation(device) if device else item['recipe']['orientation']
+            async with self.workers:
+                data = await asyncio.to_thread(device_thumbnail,data,mounting=='landscape',True,
+                                               bool(device_rotation(device)) if device else False,item['profile'])
+            mime = 'image/jpeg'
+        return web.Response(body=data,content_type=mime,headers={'Cache-Control':'private, no-store'})
 
     async def upload(self, request):
         async with self.media_lock:
@@ -327,6 +476,8 @@ class Manager:
         if kind not in ('asset', 'variant') or output not in ('thumbnail', 'file', 'source'):
             raise web.HTTPNotFound()
         item = self.store.get(kind, identifier)
+        if item.get('dynamic'):
+            return await self.dynamic_media(request, item, kind, output)
         if output == 'thumbnail' and request.query.get('device'):
             device = self.store.get('device', request.query['device'])
             if kind == 'variant' and item['profile'] != device['profile']:
@@ -363,7 +514,8 @@ class Manager:
     async def create_variant(self, request):
         async with self.media_lock:
             asset_id = request.match_info['asset']
-            self.store.get('asset', asset_id)
+            if self.store.get('asset', asset_id).get('dynamic'):
+                raise ValueError('Edit target recipes in the Dynamic image editor.')
             previous = self.store.get('variant', request.match_info['variant']) if 'variant' in request.match_info else None
             if previous:
                 if previous['asset_id'] != asset_id:
@@ -443,6 +595,7 @@ class Manager:
             if kind == 'asset' and any(v['asset_id'] == identifier for v in self.store.all('variant')):
                 raise web.HTTPConflict(reason='Delete saved variants before deleting their original.')
             self.store.delete(kind, identifier)
+            self.dynamic.forget(identifier)
             # Active transfers hold the device lock; deletion only reaches unreferenced assets.
             self.store.cleanup()
         return web.json_response({'deleted': True})
@@ -612,7 +765,10 @@ class Manager:
     async def device_status(self, request):
         identifier = request.match_info['device']
         device = self.store.get('device', identifier)
+        selected = next((e for e in device['entries'] if e['id']==device['state']['selected']),None)
+        cached = self.dynamic.cache.get(selected.get('variant_id')) if selected else None
         return web.json_response({'id': identifier, 'state': device['state'], 'paused': device['paused'],
+                                  'selected_output_hash': cached['hash'] if cached else None,
                                   'health': self.mqtt.health(device), 'telemetry': self.telemetry(identifier),
                                   'timing': scheduling.view(device, time.time()),
                                   'battery_status': battery.status(device, self.telemetry(identifier)),
@@ -716,6 +872,15 @@ class Manager:
         if item is None:
             blank = self.blanks[profile_id]
             return blank, 'image/png' if profile_id == 'inkplate_6' else 'image/bmp', digest(blank)
+        if item.get('dynamic'):
+            try:
+                cached = self.dynamic.output(item['id'])
+            except ValueError:
+                raise web.HTTPServiceUnavailable(reason='Dynamic image is not ready; retry later.', headers={'Retry-After':'60'}) from None
+            data, mime = cached['output'], cached['mime']
+            if rotation:
+                data = await asyncio.to_thread(rotate_delivery, data, mime)
+            return data, mime, digest(data)
         path = self.store.path(item['file'])
         convert = profile_id == 'inkplate_6' and 'asset_id' not in item
         key = (item['hash'], rotation, profile_id, mounting if convert else None, 2)
@@ -766,6 +931,13 @@ class Manager:
                                            item.get('asset_id', item['id']) if item else None,
                                            ('image/png' if device['profile'] == 'inkplate_6' else item['mime'] if item else 'image/bmp'))
                 data, mime, output_hash = await self.delivery(item, device_rotation(device), device['profile'], device_orientation(device))
+            except web.HTTPServiceUnavailable:
+                if frame_fetch:
+                    device['state']['last_error'] = 'Dynamic image is not ready; its pending selection will be retried.'
+                    self.store.save('device',device)
+                    self.diagnostics.finish(identifier,'failed',device['state']['last_error'],
+                                            http_status=503,error_code='dynamic_not_ready')
+                raise
             except (KeyError, OSError):
                 if frame_fetch:
                     if not self.diagnostics.running(identifier):
@@ -861,7 +1033,9 @@ class Manager:
         admin = web.Application(middlewares=[errors, self.ingress], client_max_size=MAX_UPLOAD)
         async def mqtt_lifecycle(_app):
             self.mqtt.start()
+            await self.dynamic.start()
             yield
+            await self.dynamic.stop()
             await self.mqtt.stop()
         admin.cleanup_ctx.append(mqtt_lifecycle)
         admin.router.add_get('/api/state', self.snapshot)
@@ -869,6 +1043,15 @@ class Manager:
         admin.router.add_get('/api/mqtt', self.mqtt_settings)
         admin.router.add_put('/api/mqtt', self.mqtt_settings)
         admin.router.add_post('/api/assets', self.upload)
+        admin.router.add_post('/api/dynamic', self.save_dynamic)
+        admin.router.add_put('/api/dynamic/{item}', self.save_dynamic)
+        admin.router.add_post('/api/dynamic-preview', self.dynamic_preview)
+        admin.router.add_post('/api/dynamic/{item}/render', self.dynamic_render)
+        admin.router.add_get('/api/dynamic/{item}/status', self.dynamic_status)
+        admin.router.add_post('/api/dynamic/{item}/targets', self.dynamic_target)
+        admin.router.add_put('/api/dynamic/{item}/targets/{target}', self.dynamic_target)
+        admin.router.add_post('/api/fonts', self.upload_font)
+        admin.router.add_delete('/api/fonts/{item}', self.delete_font)
         admin.router.add_patch('/api/assets/{asset}', self.rename_asset)
         admin.router.add_post('/api/assets/{asset}/variants', self.create_variant)
         admin.router.add_put('/api/assets/{asset}/variants/{variant}', self.create_variant)

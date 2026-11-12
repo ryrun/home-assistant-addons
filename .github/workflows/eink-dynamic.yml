@@ -1,0 +1,32 @@
+name: E-Ink dynamic image isolation
+on:
+  push:
+    paths:
+      - 'einkdisplaymanager/**'
+      - '.github/workflows/eink-dynamic.yml'
+  pull_request:
+    paths:
+      - 'einkdisplaymanager/**'
+      - '.github/workflows/eink-dynamic.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  linux-container:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build native add-on image
+        run: docker build -t eink-dynamic-test einkdisplaymanager
+      - name: Verify isolation and render all display profiles as the add-on user
+        run: >-
+          docker run --rm --user 10002:10002
+          --memory 768m --cpus 2 --network none
+          --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m
+          -v "$PWD/einkdisplaymanager/scripts/container_smoke.py:/verify.py:ro"
+          --entrypoint python eink-dynamic-test -B /verify.py

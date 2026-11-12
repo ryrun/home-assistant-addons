@@ -2,10 +2,12 @@ FROM python:3.13.18-slim-bookworm@sha256:281d39ff02e3b389401586134ff9e6572954687
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1 PYTHONTZPATH=""
 WORKDIR /app
 COPY requirements.txt ./
-RUN pip install --no-cache-dir --require-hashes -r requirements.txt \
+RUN apt-get update && apt-get install -y --no-install-recommends libseccomp2 \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir --require-hashes -r requirements.txt \
     && groupadd --gid 10002 eink \
     && useradd --uid 10002 --gid 10002 --no-create-home --shell /usr/sbin/nologin eink
-COPY media.py storage.py playback.py network.py profiles.py scheduling.py battery.py diagnostics.py correction.py mqtt_bridge.py server.py startup.py ./
+COPY media.py storage.py playback.py network.py profiles.py scheduling.py battery.py diagnostics.py correction.py mqtt_bridge.py dynamic.py dynamic_worker.py sandbox.py server.py startup.py ./
 COPY web/ ./web/
 EXPOSE 8098 8099
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \

@@ -29,6 +29,8 @@ def original_profile(asset):
 
 
 def original_compatible(asset, profile_id):
+    if asset.get('dynamic'):
+        return False
     native = original_profile(asset)
     return (native is None or native == profile_id) and (asset['original_supported'] or profile_id == 'inkplate_6')
 

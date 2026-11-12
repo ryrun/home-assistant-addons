@@ -80,7 +80,8 @@ class Store:
     def cleanup(self):
         """Remove crash leftovers only; named variants are always retained."""
         referenced = {v[key] for kind in ('asset', 'variant') for v in self.all(kind)
-                      for key in ('file', 'thumbnail')}
+                      for key in ('file', 'thumbnail') if key in v}
+        referenced |= {f['file'] for f in self.all('font')}
         for path in self.files.iterdir():
             if path.is_file() and path.name not in referenced:
                 path.unlink()

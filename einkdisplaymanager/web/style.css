@@ -70,3 +70,17 @@ dialog>#notice{position:relative;inset:auto;flex:none;width:auto;max-height:25vh
 [hidden]{display:none!important}
 @media(max-width:720px){.page-head{flex-wrap:wrap;gap:14px}.panel{padding:20px}.panel .page-head{margin-bottom:20px}.queue li{flex-wrap:wrap}.queue-controls{margin-left:auto;max-width:none;gap:5px}.queue-controls button{min-height:30px;min-width:30px}.form-pair{grid-template-columns:1fr}.comparison-stage{padding:8px}.facts{gap:18px 12px}}
 @media(max-width:720px){.queue li{display:grid;grid-template-columns:42px minmax(0,1fr) 24px;gap:10px}.queue .entry-text{grid-column:2;grid-row:1}.queue li>img{grid-column:1;grid-row:1}.queue li>.check{grid-column:3;grid-row:1}.queue-controls{grid-column:2/-1;justify-content:flex-start;margin-left:0}.queue li>p{grid-column:1/-1}}
+
+/* Library categories and programmable canvases use the existing frame palette. */
+.library-tabs{display:flex;gap:6px;margin:0 0 26px;border-bottom:1px solid var(--line);padding-bottom:10px;flex-wrap:wrap}
+.library-tabs a{padding:8px 14px;border-radius:5px;color:var(--muted);text-decoration:none}
+.library-tabs a[aria-current=page]{background:var(--pale);color:var(--blue);font-weight:600}
+.dynamic-placeholder{display:grid;place-items:center;width:100%;min-height:130px;font:48px/1 var(--utility);color:var(--muted);background:var(--bg);border-radius:5px}
+.dynamic-card .dynamic-placeholder{height:100%}.dynamic-card .image-button{aspect-ratio:4/3}
+.font-list{display:grid;gap:14px}.font-row{display:flex;justify-content:space-between;align-items:center;gap:15px;border-top:1px solid var(--line);padding-top:16px;min-width:0}.font-row strong{overflow-wrap:anywhere}.font-row code{font-size:12px}
+dialog.dynamic-editor{width:min(1450px,96vw);max-width:96vw}
+.dynamic-layout{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:24px;align-items:start}
+.script-pane,.dynamic-target-pane{min-width:0}.dynamic-target-pane .preview-stage{height:280px;min-height:0}
+.dynamic-target-pane #dynamic-render-status{white-space:pre-line}.resource-ids{display:grid;gap:8px}.resource-ids>div{display:flex;align-items:center;justify-content:space-between;gap:12px;overflow-wrap:anywhere}.api-example{white-space:pre-wrap;overflow-wrap:anywhere;padding:14px;background:var(--bg);border-radius:5px;font:12px/1.6 var(--utility)}
+.error-text{color:var(--error)}.dynamic-card small{margin-top:8px}.font-row .actions{flex-shrink:0}
+@media(max-width:900px){.dynamic-layout{grid-template-columns:1fr}.font-row{align-items:flex-start;flex-wrap:wrap}.dynamic-target-pane .preview-stage{height:250px}}

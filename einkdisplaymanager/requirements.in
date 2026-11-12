@@ -2,3 +2,4 @@ aiohttp==3.14.5
 Pillow==13.0.0
 aiomqtt==2.5.1
 tzdata==2026.6
+quickjs-ng==0.18.0.1

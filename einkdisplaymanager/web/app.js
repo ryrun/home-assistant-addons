@@ -1,3 +1,4 @@
+import {dynamicUI as createDynamicUI} from './dynamic.js';
 import {viewSize,originalCompatible} from './profiles.js';
 import {optionGroups} from './selects.js';
 import {mqttSettingsHTML,bindMQTTForm,pollMQTT} from './mqtt.js';
@@ -72,9 +73,11 @@ async function render(){
 }
 
 function libraryView(){
+  const section=route().split('/')[1]||'images';
+  if(section!=='images'){content.innerHTML=heading('Your collection','Media Library','Images, live canvases, and the fonts that give them a voice.')+libraryTabs(section);if(section==='fonts')dynamicTools.fonts(content);else dynamicTools.library(content);return;}
   content.innerHTML=heading('Your collection','Media Library','One collection. Every frame. Originals stay untouched.',
     '<button class="primary" id="upload">＋ Upload images</button>')+
-    `<div class="toolbar"><input id="search" type="search" aria-label="Search images" placeholder="Search your images…" value="${escape(state.search)}"><select id="sort" aria-label="Sort images"><option value="newest">Newest first</option><option value="name">Name</option><option value="used">Most used</option></select><div class="selection"><button class="small" id="select-all">Select visible</button><button class="small danger" id="bulk-delete" ${state.selected.size?'':'disabled'}>Delete selected (${state.selected.size})</button></div></div><div id="gallery"></div>`;
+    libraryTabs('images')+`<div class="toolbar"><input id="search" type="search" aria-label="Search images" placeholder="Search your images…" value="${escape(state.search)}"><select id="sort" aria-label="Sort images"><option value="newest">Newest first</option><option value="name">Name</option><option value="used">Most used</option></select><div class="selection"><button class="small" id="select-all">Select visible</button><button class="small danger" id="bulk-delete" ${state.selected.size?'':'disabled'}>Delete selected (${state.selected.size})</button></div></div><div id="gallery"></div>`;
   $('#sort').value=state.sort;
   $('#upload').onclick=()=>$('#upload-input').click();
   $('#search').oninput=e=>{state.search=e.target.value;gallery();};
@@ -89,16 +92,19 @@ function libraryView(){
   gallery();
 }
 
+function libraryTabs(active){return `<nav class="library-tabs" aria-label="Library sections">${[['images','Images','#library'],['dynamic','Dynamic images','#library/dynamic'],['fonts','Fonts','#library/fonts']].map(([id,label,url])=>`<a href="${url}" ${id===active?'aria-current="page"':''}>${label}</a>`).join('')}</nav>`;}
+
 function visibleAssets(){
-  return state.data.assets.filter(a=>a.name.toLowerCase().includes(state.search.toLowerCase())).sort((a,b)=>state.sort==='name'?a.name.localeCompare(b.name):state.sort==='used'?b.usage-a.usage:b.created_at-a.created_at);
+  return state.data.assets.filter(a=>!a.dynamic).filter(a=>a.name.toLowerCase().includes(state.search.toLowerCase())).sort((a,b)=>state.sort==='name'?a.name.localeCompare(b.name):state.sort==='used'?b.usage-a.usage:b.created_at-a.created_at);
 }
 
 function gallery(){
   const items=visibleAssets();
   $('#gallery').innerHTML=items.length?`<div class="library-grid">${items.map(a=>{
     const variants=state.data.variants.filter(v=>v.asset_id===a.id);
-    return `<article class="media-card"><button class="image-button" data-edit="${a.id}" aria-label="Open ${escape(a.name)}"><img loading="lazy" src="${thumb('asset',a.id)}" alt="${escape(a.name)}"></button><div class="card-meta"><h3 title="${escape(a.name)}">${escape(a.name)}</h3><label class="library-label"><input type="checkbox" data-select="${a.id}" aria-label="Select ${escape(a.name)}" ${state.selected.has(a.id)?'checked':''}></label></div><small>${a.width} × ${a.height} · ${a.mime.split('/')[1].toUpperCase()} · ${bytes(a.bytes)}</small><div class="card-meta"><small>${variants.length} variant${variants.length===1?'':'s'} · ${a.usage} assignment${a.usage===1?'':'s'}</small>${variants.length?'<span class="badge">Optimized</span>':''}</div></article>`;
+    return `<article class="media-card"><button class="image-button" data-edit="${a.id}" aria-label="Open ${escape(a.name)}"><img loading="lazy" src="${thumb('asset',a.id)}" alt="${escape(a.name)}"></button><div class="card-meta"><h3 title="${escape(a.name)}">${escape(a.name)}</h3><label class="library-label"><input type="checkbox" data-select="${a.id}" aria-label="Select ${escape(a.name)}" ${state.selected.has(a.id)?'checked':''}></label></div><small>${a.width} × ${a.height} · ${a.mime.split('/')[1].toUpperCase()} · ${bytes(a.bytes)}</small><div class="card-meta"><small>${variants.length} variant${variants.length===1?'':'s'} · ${a.usage} assignment${a.usage===1?'':'s'}</small>${variants.length?'<span class="badge">Optimized</span>':''}</div><button class="small" data-copy-id="${a.id}" aria-label="Copy ID for ${escape(a.name)}">Copy ID</button></article>`;
   }).join('')}</div>`:`<div class="empty"><h2>${state.search?'No matching images':'A home for your images'}</h2><p>${state.search?'Try another name.':'Upload photos, keep the originals, and create display-ready versions for your displays.'}</p>${state.search?'':'<button id="empty-upload">Upload your first images</button>'}</div>`;
+  dynamicTools.bindCopies();
   $('#empty-upload')?.addEventListener('click',()=>$('#upload-input').click());
   document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>run(()=>openEditor(b.dataset.edit)));
   document.querySelectorAll('[data-select]').forEach(b=>b.onchange=()=>{b.checked?state.selected.add(b.dataset.select):state.selected.delete(b.dataset.select);updateBulk();});
@@ -120,17 +126,18 @@ $('#upload-input').onchange=()=>run(async()=>{
 function modal(title,body){
   stopWorker();
   document.documentElement.classList.add('modal-open');
-  dialog.classList.remove('image-editor');
+  dialog.classList.remove('image-editor','dynamic-editor');
   dialogContent.innerHTML=`<div class="dialog-head"><h2 id="dialog-title">${escape(title)}</h2><button id="close-dialog" class="icon" aria-label="Close dialog">×</button></div><div class="dialog-body">${body}</div>`;
   $('#close-dialog').onclick=()=>dialog.close();
   if(!dialog.open)dialog.showModal();
   dialog.prepend($('#notice'));
 }
-function stopWorker(){state.optimization?.abort();state.optimization=null;state.result=null;if(state.previewURL){URL.revokeObjectURL(state.previewURL);state.previewURL=null;}}
+function stopWorker(){dynamicTools.dispose();state.optimization?.abort();state.optimization=null;state.result=null;if(state.previewURL){URL.revokeObjectURL(state.previewURL);state.previewURL=null;}}
 dialog.addEventListener('close',()=>{stopWorker();document.documentElement.classList.remove('modal-open');$('main').prepend($('#notice'));});
 
 async function openEditor(id, options={}){
   const item=asset(id);if(!item)throw new Error('Image not found.');
+  if(item.dynamic){const device=options.deviceId?state.data.devices.find(d=>d.id===options.deviceId):null;return dynamicTools.edit(id,{targetId:options.variantId,profileId:device?.profile||options.profileId,orientation:device?.orientation});}
   const variants=state.data.variants.filter(v=>v.asset_id===id);
   const editing=options.variantId?variant(options.variantId):null;
   if(editing&&editing.asset_id!==id)throw new Error('Variant does not belong to this original.');
@@ -278,6 +285,7 @@ function paintDeviceActivity(id,activity,detail=state.deviceDetail){
     else if(button.dataset.transferDisabled!==undefined){button.disabled=button.dataset.transferDisabled==='true';delete button.dataset.transferDisabled;button.removeAttribute('title');}
   }
   if(activity.state&&detail){const current=activity.state, entry=detail.entries.find(e=>e.id===current.selected);
+    if(entry?.variant_id&&activity.selected_output_hash){const currentVariant=variant(entry.variant_id);if(currentVariant)currentVariant.hash=activity.selected_output_hash;}
     const health=activity.health||detail.health;if(health){$('#device-battery-estimate').textContent=health.battery_estimate==null?'Unknown':`${health.battery_estimate}%`;$('#device-fetch-health').textContent=health.frame_status;}
     if($('#device-voltage')){$('#device-voltage').textContent=voltageLabel(activity.telemetry);$('#device-voltage-time').textContent=when(activity.telemetry?.measured_at);}
     if($('#device-charge'))$('#device-charge').textContent=chargeLabel(activity.battery_status);
@@ -322,7 +330,7 @@ function picker(device){
   modal('Add images to '+device.name,`<p class="help">Images already assigned to this device are hidden. Choose an original or a saved variant for each remaining image. Variants are prepared for a model and mounting orientation. Use Prepare for this device to start from the right target; a different mounting can show a sideways result.</p><div class="picker-grid">${state.data.assets.filter(a=>!device.entries.some(entry=>entry.asset_id===a.id)).map(a=>{
     const variants=state.data.variants.filter(v=>v.asset_id===a.id&&v.profile===device.profile);
     const compatible=originalCompatible(a,device.profile,state.data.profiles);
-    return `<div class="picker-card"><img src="${thumb('asset',a.id)}" alt=""><strong>${escape(a.name)}</strong><select data-representation="${a.id}" aria-label="Image version for ${escape(a.name)}">${optionGroups([['Original image',`<option value="original" ${compatible?'':'disabled'}>Original ${compatible?'':'(not compatible)'}</option>`],['Saved variants',variants.map((v,index)=>`<option value="${v.id}" ${!compatible&&index===0?'selected':''}>${escape(v.name)} · ${escape(variantFormat(v))}${variantOrientation(v)!==(device.orientation||'portrait')?' · different mounting':''}</option>`).join('')]])}</select><button data-prepare-asset="${a.id}">Prepare for this device</button><button data-add-asset="${a.id}" ${compatible||variants.length?'':'disabled'}>Add to device</button>${!compatible&&!variants.length?'<small>Create a variant in the Media Library first.</small>':''}</div>`;
+    return `<div class="picker-card">${a.dynamic&&!a.render_status?.ready_variants.length?'<span class="dynamic-placeholder" aria-hidden="true">{ }</span>':`<img src="${thumb('asset',a.id)}" alt="">`}<strong>${escape(a.name)}</strong><select data-representation="${a.id}" aria-label="Image version for ${escape(a.name)}">${optionGroups([['Original image',`<option value="original" ${compatible?'':'disabled'}>Original ${compatible?'':'(not compatible)'}</option>`],['Saved variants',variants.map((v,index)=>`<option value="${v.id}" ${!compatible&&index===0?'selected':''}>${escape(v.name)} · ${escape(variantFormat(v))}${variantOrientation(v)!==(device.orientation||'portrait')?' · different mounting':''}</option>`).join('')]])}</select><button data-prepare-asset="${a.id}">Prepare for this device</button><button data-add-asset="${a.id}" ${compatible||variants.length?'':'disabled'}>Add to device</button>${!compatible&&!variants.length?'<small>Create a variant in the Media Library first.</small>':''}</div>`;
   }).join('')||`<p class="help">${state.data.assets.length?'All library images are already assigned to this device. Upload more images in the Media Library to add others.':'Upload images in the Media Library first.'}</p>`}</div>`);
   document.querySelectorAll('[data-prepare-asset]').forEach(b=>b.onclick=()=>run(()=>openEditor(b.dataset.prepareAsset,{deviceId:device.id})));
   document.querySelectorAll('[data-add-asset]').forEach(b=>b.onclick=()=>run(async()=>{
@@ -354,6 +362,7 @@ function settingsView(){
 }
 
 async function run(action){try{return await action();}catch(error){notice(error.message||'The operation failed. Refresh and try again.',true);}}
+const dynamicTools=createDynamicUI({api,modal,notice,refresh,getData:()=>state.data,render});
 window.addEventListener('hashchange',()=>run(render));
 setInterval(()=>{if(!dialog.open&&route()==='devices'&&!state.search&&!state.selected.size)run(async()=>{await refresh();await render();});},15000);
 run(render);
