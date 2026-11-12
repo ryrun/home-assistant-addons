@@ -180,12 +180,14 @@ async def main():
                     assert await page.locator('#dither').input_value() == 'atkinson'
                     assert await page.get_by_role('button', name='About dithering methods').count() == 0
                     assert 'predictable baseline' in await page.locator('#matching-tip').inner_text()
-                    await page.locator('#dither').select_option('stucki')
-                    await page.locator('#palette').select_option('spectra6')
-                    await page.locator('#matching').select_option('lab')
-                    assert 'human perception' in await page.locator('#matching-tip').inner_text()
-                    assert 'photographic gradients' in await page.locator('#dither-tip').inner_text()
-                    await page.get_by_role('button', name='Update full-resolution preview').click()
+                    await page.locator('#use-l-photo-profile').click()
+                    assert await page.locator('#palette').input_value() == 'openpaper_l_measured'
+                    assert await page.locator('#orientation').input_value() == 'landscape'
+                    assert await page.locator('#rotation').input_value() == '90'
+                    assert await page.locator('#focusX').input_value() == '80'
+                    assert await page.locator('#matching').input_value() == 'lab'
+                    assert await page.locator('#dither').input_value() == 'floyd'
+                    assert await page.locator('#automatic').is_checked()
                     await page.locator('#save-variant:not([disabled])').wait_for(timeout=90000)
                     await page.get_by_role('button', name='Save changes', exact=True).click()
                     await page.locator('#notice').filter(has_text='Variant updated.').wait_for()
@@ -194,7 +196,8 @@ async def main():
                     async with session.get(origin + '/api/state') as response:
                         snapshot = await response.json()
                     revision = next(v for v in snapshot['variants'] if v['id'] == monochrome['id'])
-                    assert revision['recipe']['palette'] == 'spectra6' and revision['recipe']['dither'] == 'stucki'
+                    assert revision['recipe']['palette'] == 'openpaper_l_measured' and revision['recipe']['dither'] == 'floyd'
+                    assert revision['optimizer'] == 'epdoptimize@1.4.1'
                     assert revision['revision'] == 1 and revision['name'] == monochrome['name']
                     assert len(snapshot['variants']) == 2
                     # Check the actual full-resolution BMPs, not just the checkbox.

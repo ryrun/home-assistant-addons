@@ -15,11 +15,22 @@ from sandbox import probe, restrict
 
 ROOT = Path(__file__).parent
 API = (ROOT / "web" / "drawing-api.js").read_text()
-VENDOR = (ROOT / "web" / "vendor" / "epdoptimize-1.2.0.mjs").read_text()
+VENDOR = (ROOT / "web" / "vendor" / "epdoptimize-1.4.1.mjs").read_text()
+# The pinned ESM build is evaluated only in the trusted processing context.
+# Disable URL resolution there; blue-noise samples are loaded before isolation.
 VENDOR = (
     VENDOR[: VENDOR.rfind("export {")]
-    + "\nglobalThis.epd={ditherImage:Et,suggest:zn,natural:Mr,spectra6:jr,aitjcize:Pr};"
+    .replace(
+        'new URL("assets/blue-noise-1200x1600.png", import.meta.url).href',
+        '"disabled:"',
+    )
+    .replace("import.meta.url", '"disabled:"')
+    + "\nglobalThis.epd={ditherImage:On,suggest:Ur,natural:Wi,spectra6:Hi,aitjcize:Ki,getPreset:ge};"
 )
+PANEL_PALETTES = (ROOT / "web" / "panel-palettes.js").read_text().replace("export ", "")
+BLUE_NOISE_PNG = (
+    ROOT / "web" / "vendor" / "assets" / "blue-noise-1200x1600.png"
+).read_bytes()
 NEAREST_ADAPTER = (ROOT / "web" / "optimizer-nearest.js").read_text()
 PIXEL_ADAPTER = (ROOT / "web" / "optimizer-pixels.js").read_text()
 PROCESSING = (ROOT / "web" / "processing.js").read_text().replace("export ", "")
@@ -29,7 +40,7 @@ OPTIONS = (
     .split("\n", 2)[2]
     .replace("export ", "")
 )
-OPTIONS = "const getProcessingPreset=F;\n" + OPTIONS
+OPTIONS = "const getProcessingPreset=epd.getPreset;\n" + OPTIONS
 Image.init()  # Load codec modules before filesystem access is disabled.
 Image.MAX_IMAGE_PIXELS = 8_000_000
 DEFAULT_FONT = ImageFont.load_default(size=16)  # Pillow's bundled Aileron.
@@ -417,7 +428,18 @@ def _quantize(image, recipe, profile):
         + PROCESSING
         + "\n"
         + OPTIONS
+        + "\n"
+        + PANEL_PALETTES
     )
+    if recipe["dither"] == "blueNoise":
+        with Image.open(io.BytesIO(BLUE_NOISE_PNG)) as noise:
+            mask = noise.convert("I;16").tobytes()
+            ctx.set("__noise", mask.decode("latin1"))
+            ctx.set("__noiseWidth", noise.width)
+            ctx.set("__noiseHeight", noise.height)
+        ctx.eval(
+            "var samples=new Uint16Array(__noise.length/2);for(var n=0;n<samples.length;n++)samples[n]=__noise.charCodeAt(n*2)|(__noise.charCodeAt(n*2+1)<<8);O={width:__noiseWidth,height:__noiseHeight,samples,maxValue:65535};__noise=null;"
+        )
     ctx.set("__raw", rgba.tobytes().decode("latin1"))
     ctx.set("__recipe", json.dumps(recipe))
     ctx.set("__width", image.width)
@@ -426,7 +448,7 @@ def _quantize(image, recipe, profile):
     ctx.eval("""
     var recipe=JSON.parse(__recipe), levels=Array.from({length:8},(_,i)=>Math.round(i*255/7));
     var palette=__gray?levels.map((v,i)=>({name:'gray'+i,color:'#'+v.toString(16).padStart(2,'0').repeat(3)})):
-      (recipe.palette==='spectra6'?epd.spectra6:recipe.palette==='aitjcize'?epd.aitjcize:epd.natural);
+      (recipe.palette==='openpaper_l_measured'?measuredOpenPaperLPalette:recipe.palette==='spectra6'?epd.spectra6:recipe.palette==='aitjcize'?epd.aitjcize:epd.natural);
     if(recipe.palette==='grayscale')palette=palette.filter(p=>__gray?['gray0','gray7'].includes(p.name):['black','white'].includes(p.name));
     var pixels=einkPixels.decodeRGBA(__raw,__width,__height);
     __raw=null;

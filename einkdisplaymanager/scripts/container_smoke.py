@@ -45,7 +45,20 @@ async def main():
     )
     for profile in ("openpaper_l", "openpaper_7", "inkplate_6"):
         p = PROFILES[profile]
-        target = recipe({"profile": profile})
+        target = recipe(
+            {
+                "profile": profile,
+                **(
+                    {
+                        "palette": "openpaper_l_measured",
+                        "matching": "lab",
+                        "dither": "floyd",
+                    }
+                    if profile == "openpaper_l"
+                    else {}
+                ),
+            }
+        )
         import base64
 
         result = await worker(
@@ -92,6 +105,21 @@ async def main():
         }
     )
     validate_variant(base64.b64decode(explicit["output"]), "openpaper_l")
+    # The new 16-bit blue-noise asset is decoded without network/filesystem access.
+    p = PROFILES["inkplate_6"]
+    noise = await worker(
+        {
+            "mode": "render",
+            "size": [800, 600],
+            "profile": p,
+            "recipe": recipe({"profile": "inkplate_6", "dither": "blueNoise"}),
+            "commands": [{"type": "clear", "color": "#b0b0b0"}],
+            "palette": {},
+            "images": {},
+            "fonts": {},
+        }
+    )
+    validate_variant(base64.b64decode(noise["output"]), "inkplate_6")
     # Regression: nearest-color LAB on a full 800×600 Inkplate preview used to
     # recompute palette LAB for every pixel and exhaust the optimizer CPU budget.
     target = recipe({"profile": "inkplate_6", "matching": "lab", "dither": "none"})

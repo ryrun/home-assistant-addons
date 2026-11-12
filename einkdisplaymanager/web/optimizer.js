@@ -1,4 +1,5 @@
-import {ditherImage, suggestCanvasProcessingOptions, spectra6OriginalPalette, spectra6Palette, aitjcizeSpectra6Palette} from './vendor/epdoptimize-1.2.0.mjs';
+import {ditherImage, suggestCanvasProcessingOptions, spectra6OriginalPalette, spectra6Palette, aitjcizeSpectra6Palette} from './vendor/epdoptimize-1.4.1.mjs';
+import {measuredOpenPaperLPalette} from './panel-palettes.js';
 import {processingOptions} from './optimizer-options.js';
 import {viewSize,transportRotated} from './profiles.js';
 
@@ -61,7 +62,7 @@ self.onmessage = async ({data}) => {
       ctx.putImageData(monochrome,0,0);
     }
     const grayPalette=levels.map((value,i)=>({name:`gray${i}`,color:'#'+value.toString(16).padStart(2,'0').repeat(3)}));
-    const basePalette=gray?grayPalette:recipe.palette==='spectra6'?spectra6Palette:recipe.palette==='aitjcize'?aitjcizeSpectra6Palette:spectra6OriginalPalette;
+    const basePalette=gray?grayPalette:recipe.palette==='openpaper_l_measured'?measuredOpenPaperLPalette:recipe.palette==='spectra6'?spectra6Palette:recipe.palette==='aitjcize'?aitjcizeSpectra6Palette:spectra6OriginalPalette;
     let palette=basePalette.map(p=>({...p}));
     if(recipe.palette==='grayscale') palette=palette.filter(p=>gray?p.name==='gray0'||p.name==='gray7':p.name==='black'||p.name==='white');
     const invert=gray&&recipe.invert===true;
@@ -108,7 +109,7 @@ self.onmessage = async ({data}) => {
       output=new Uint8Array(await (await nativeCanvas.convertToBlob({type:'image/png'})).arrayBuffer());mime='image/png';
     }else output=bmp(native,W,H);
     const preview=await canvas.convertToBlob({type:'image/png'});
-    self.postMessage({bmp:output.buffer,mime,preview,recipe:{...recipe,intent,invert,automaticAnalysis:analysis,orientation:mounting,nativeRotation:rotateTransport?270:0,nativeWidth:W,nativeHeight:H,viewWidth:viewW,viewHeight:viewH,resolvedOptions:options,optimizer:'epdoptimize@1.2.0',profile:profile.id,encoder:7}},[output.buffer]);
+    self.postMessage({bmp:output.buffer,mime,preview,recipe:{...recipe,intent,invert,automaticAnalysis:analysis,orientation:mounting,nativeRotation:rotateTransport?270:0,nativeWidth:W,nativeHeight:H,viewWidth:viewW,viewHeight:viewH,resolvedOptions:options,optimizer:'epdoptimize@1.4.1',profile:profile.id,encoder:7}},[output.buffer]);
   } catch(error) { self.postMessage({error:`Image optimization failed while ${stage}. ${error.message||'Close other image editors and try again.'}`}); }
   finally { image?.close(); }
 };

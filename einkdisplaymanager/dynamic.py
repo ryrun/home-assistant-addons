@@ -20,6 +20,7 @@ from media import COLORS, GRAY8, digest, validate_variant
 from profiles import PROFILES, view_size
 
 ROOT = Path(__file__).parent
+OPTIMIZER_VERSION = "epdoptimize@1.4.1"
 MAX_CACHE = 128 * 1024 * 1024
 MAX_SOURCE = 65536
 DEFAULT_SOURCE = """screen.clear(palette.white);
@@ -83,9 +84,11 @@ def recipe(data):
     if result["palette"] not in (
         ("gray8", "grayscale")
         if profile.get("format") == "png"
-        else ("natural", "spectra6", "aitjcize", "vivid", "grayscale")
+        else ("natural", "spectra6", "aitjcize", "vivid", "grayscale", "openpaper_l_measured")
     ):
         raise ValueError("Choose a palette supported by the target display.")
+    if result["palette"] == "openpaper_l_measured" and profile["id"] != "openpaper_l":
+        raise ValueError("The measured 13.3-inch palette is for OpenPaper L only.")
     if result["dither"] not in (
         "none",
         "floyd",
@@ -503,6 +506,7 @@ class DynamicImages:
                 "render_worker_seconds": time.perf_counter() - resources_done,
                 **result.get("timings", {}),
             },
+            "optimizer": OPTIMIZER_VERSION,
             "rendered_at": now,
             "asset_id": document["id"],
         }

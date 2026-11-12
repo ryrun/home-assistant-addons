@@ -1,8 +1,8 @@
 # Upstream sources and licenses
 
 The add-on's own Python/JavaScript/CSS implementation is covered by the repository
-MIT license. Firmware/Web UI implementation files and calibration profiles are
-not copied into this add-on.
+MIT license. Firmware/Web UI implementation files are not copied into this add-on.
+The optional measured palette below transcribes six documented color measurements.
 
 ## Firmware compatibility baseline
 
@@ -15,22 +15,36 @@ not copied into this add-on.
   inform the independently implemented protocol validation/encoder. Copying other
   upstream implementation/profile files requires a separate license review.
 
-## epdoptimize 1.2.0
+## epdoptimize 1.4.1
 
 - Source: https://github.com/paperlesspaper/epdoptimize
-- Distribution: https://registry.npmjs.org/epdoptimize/-/epdoptimize-1.2.0.tgz
+- Release: https://github.com/paperlesspaper/epdoptimize/releases/tag/v1.4.1
+- Distribution: https://registry.npmjs.org/epdoptimize/-/epdoptimize-1.4.1.tgz
 - License: Apache-2.0, full text at `web/vendor/epdoptimize-LICENSE`.
-- Unmodified npm `dist/index.mjs` copied to `web/vendor/epdoptimize-1.2.0.mjs`.
-- SHA-256 of the vendored module:
-  `f3f39f1a3ce6b2da5160ffad57ec6607b1d36d477590a71f2f942003c04f48ba`.
-- The npm tarball contains no separate NOTICE file. Its bundled RgbQuant code is
-  MIT-licensed; retain `web/vendor/RgbQuant-LICENSE` alongside the module.
-- Library recipe/version is recorded with each saved variant. The vendored
-  module makes no runtime CDN request; Node/npm is not needed in the container.
+- Unmodified npm `dist/index.mjs` copied to `web/vendor/epdoptimize-1.4.1.mjs`.
+- Module SHA-256: `e75e50092d3a837cf0ea1dbff178889c91576cf7de3f19ece3d15ef87ef92b00`.
+- Unmodified `dist/assets/blue-noise-1200x1600.png` copied below `web/vendor/assets/`.
+- Mask SHA-256: `dc5e9e401ca975af527cf5095b4855d263c1ab2229b3aa4e22ea2cbfcccdae74`.
+- Retain the bundled RgbQuant MIT notice at `web/vendor/RgbQuant-LICENSE`.
+- Recipes record the generating optimizer version. Existing saved image bytes are
+  not automatically replaced; the same variant ID can be rebuilt in place.
 
-To reproduce the vendor files: use `npm pack epdoptimize@1.2.0`, unpack the tarball,
-copy `dist/index.mjs` and `LICENSE` to the paths above, and verify the SHA-256.
-Audit bundled dependencies/attributions before upgrading the package.
+Reproduce with `npm pack epdoptimize@1.4.1 --ignore-scripts`, copy the files listed
+above and verify their hashes. Runtime processing uses the JavaScript engine.
+The browser loads the mask locally; the trusted server adapter uses the same
+16-bit samples decoded from the bundled PNG. No runtime CDN is needed.
+
+## Measured OpenPaper L palette (experimental)
+
+- Source: https://docs.paperlesspaper.de/panels/dke-13-3-inch
+- Method/limits: https://docs.paperlesspaper.de/panels/overview
+- Checked 2026-11-12; panel DEPG1330RTE133F5HP, 1600 × 1200 test raster.
+- Six factual solid-color sRGB values are transcribed in `web/panel-palettes.js`.
+  No measurement photographs, full datasets or upstream calibration code are
+  copied. Native device color codes remain the standard six inks.
+- Camera-based estimates under the documented test lighting, not a per-device
+  calibration or proof of better output on every 13.3-inch panel. Selection is
+  explicit, limited to OpenPaper L, and does not replace existing recipes.
 
 ## RgbQuant.js (bundled by epdoptimize)
 
@@ -112,14 +126,14 @@ is descriptive metadata. Hardware timing/charge calibration remains unverified.
   Both native Linux architectures are checked in the container workflow. The
   package's installed license remains in the image; no QuickJS CLI, libc host
   modules, Python callbacks, or bytecode-loading API is exposed to scripts.
-- The existing, unmodified epdoptimize 1.2.0 module is also evaluated in a separate
+- The unmodified epdoptimize module (1.2.0 initially, 1.4.1 since 0.8.0) is also evaluated in a separate
   trusted QuickJS context with an in-memory ImageData/canvas adapter. The ESM
   export declaration is adapted in memory; the file/hash above stays unchanged.
   Version 0.6.1 additionally uses `web/optimizer-nearest.js` to reuse the same
   library’s precomputed RGB/LAB selector for nearest-color lookup, with a bounded
   exact-color cache. Reference tests cover RGB/LAB, fractional inputs, ties, alpha
   and cache rollover. Matching, presets and dithering retain reference output;
-  the browser optimizer and vendored module are unchanged.
+  the adapter is retargeted and parity-tested for the pinned release.
 - Version 0.6.2 adds the trusted `web/optimizer-pixels.js` adapter for Latin-1
   input transport and bounded palette encoding. It retains ASCII hex return
   transport to avoid the pinned wrapper's returned-NUL truncation. Reference

@@ -1,6 +1,7 @@
 """Exercise the isolated editor, font library, preview, RAM delivery and fallback UI."""
 
 import asyncio
+import base64
 import io
 import sys
 import tempfile
@@ -181,6 +182,29 @@ screen.text("Hello World", {{x:400,y:300,font:"{font_id}",fontSize:40,color:pale
                     # Persistent media contains just the original, thumbnail and font.
                     paths=list((Path(data)/'media').iterdir())
                     assert len(paths)==3,paths
+                    # Uniform source avoids browser/Pillow resampling differences.
+                    # Compare exact native BMP bytes to verify the same 16-bit
+                    # blue-noise samples and measured palette in both engines.
+                    sys.path.insert(0,str(ROOT))
+                    from dynamic import recipe, worker
+                    from profiles import PROFILES
+                    native=await worker({'mode':'render','size':[1200,1600],
+                        'profile':PROFILES['openpaper_l'],
+                        'recipe':recipe({'profile':'openpaper_l','palette':'openpaper_l_measured','dither':'blueNoise'}),
+                        'commands':[{'type':'clear','color':'#b08060'}], 'palette':{},'images':{},'fonts':{}})
+                    client=await page.evaluate("""async()=>{
+                      const {optimizeImage}=await import('./static/optimizer-client.js');
+                      const source=new OffscreenCanvas(1200,1600),ctx=source.getContext('2d');
+                      ctx.fillStyle='#b08060';ctx.fillRect(0,0,1200,1600);
+                      const result=await optimizeImage({source:await source.convertToBlob({type:'image/png'}),
+                        recipe:{profile:'openpaper_l',orientation:'portrait',fit:'contain',rotation:0,
+                          palette:'openpaper_l_measured',dither:'blueNoise',matching:'rgb',automatic:false},
+                        signal:new AbortController().signal});
+                      const data=new Uint8Array(result.bmp),chunks=[];
+                      for(let i=0;i<data.length;i+=32768)chunks.push(String.fromCharCode(...data.subarray(i,i+32768)));
+                      return btoa(chunks.join(''));
+                    }""")
+                    assert base64.b64decode(client)==base64.b64decode(native['output']), 'Browser/server blue-noise output differs'
                     assert not errors,errors
                     await browser.close()
             print('Dynamic browser smoke passed: insecure HTTP ID/URL selection without clipboard buttons, lazy editor loading, library sections, real CodeMirror highlighting/CSP, font upload and IDs, source editing, native preview, saved target rendering, reload/mobile, device picker and PNG/304 delivery, visible errors, last-good output, and RAM-only generated images.')

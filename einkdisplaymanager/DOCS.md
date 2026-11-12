@@ -711,11 +711,10 @@ say their newer 13.3-inch camera measurements have not yet been applied to the
 built-in palettes. See the [optimizer documentation](https://github.com/paperlesspaper/epdoptimize#readme)
 and [OpenPaper L specification](https://paperlesspaper.de/en/openpaper-l).
 
-The add-on retains pinned optimizer 1.2.0, also pinned in the offline Web UI's
-package lock at the time of this investigation. Upstream main identifies itself as
-1.4.1 and documents newer gamut-aware diffusion and other changes. Upgrading that
-code, including changed blue-noise assets/behavior, needs a separate regression and
-physical comparison; the integration fixes here do not claim those newer algorithms.
+Version 0.8.0 upgrades the pinned optimizer to 1.4.1, including its gamut-aware
+native error diffusion and local full-resolution blue-noise asset. Existing
+variants keep their saved pixels until rebuilt. The measured L palette is a
+separate experimental choice; the library's built-in palettes remain available.
 
 Version 0.1.7 fixes two integration defects: the menu-list helper
 `getProcessingPresetOptions()` was incorrectly treated as a preset lookup, and
@@ -758,7 +757,7 @@ version-history UI or undo for a successful overwrite. To prepare a separate var
 open the original's editor and use **Save as new variant**. **Prepare for this device**
 in the device image picker starts with the appropriate target and mounting.
 
-Optimization uses the vendored `epdoptimize@1.2.0` in an isolated browser worker,
+Optimization uses the vendored `epdoptimize@1.4.1` in an isolated browser worker,
 not the HA backend's event loop. A current browser with OffscreenCanvas support
 is needed. Startup has a readiness check, one retry for a failed start, and a
 15-second startup timeout; processing has a three-minute timeout. Progress and
@@ -799,7 +798,7 @@ your work. A short recommendation also follows the selected method.
 | Burkes | A lighter Stucki alternative | Less computation, different texture |
 | Sierra-3 | Another photo/detail balance | Compare against Stucki on the actual panel |
 | Ordered Bayer 4 × 4 | Graphics and consistent patterned texture | Visible regular grid |
-| Blue-noise style (experimental) | Less directional texture | Uses the fixed 64 × 64 tile in the pinned 1.2.0 build |
+| Blue-noise style (experimental) | Less directional texture | Uses the local 1200 × 1600 16-bit mask in the pinned 1.4.1 build |
 | None | Native-color art, icons, text | No intermediate-shade simulation; photos may band |
 
 All use the display's supported pixel codes. The library's calibrated Spectra 6
@@ -811,7 +810,7 @@ your specific panel. There is no universal best algorithm or guaranteed image
 improvement. Existing variants are never silently reprocessed with new defaults.
 
 See the [optimizer documentation](https://github.com/paperlesspaper/epdoptimize)
-for palettes and methods; this add-on retains the vendored 1.2.0 implementation.
+for palettes and methods; this add-on uses the pinned 1.4.1 implementation.
 
 ## Playback rules
 
@@ -1427,3 +1426,36 @@ and [event serialization](https://github.com/home-assistant/core/blob/dev/homeas
 on 2026-11-12. Live integration/provider acceptance remains separate from the
 automated mocked-API and actual restricted-worker tests.
 
+
+### Switch an existing variant to the new L profile (0.8.0)
+
+1. In **Media Library → Images**, open the image, then choose **Edit** beside
+   its saved variant. The saved optimizer version is shown in the variant list.
+2. Click **Try measured L profile**. It selects the experimental measured
+   13.3-inch palette, enables Automatic optimization with Natural intent, selects
+   LAB and Floyd–Steinberg, resets brightness/contrast/saturation to zero, and
+   generates a preview. Crop, mounting orientation, rotation and variant name
+   remain as saved. The button is available only for OpenPaper L.
+3. Inspect the result and click **Save changes**. The variant keeps its ID and
+   all existing device assignments. Its next normal delivery uses the rebuilt
+   pixels. Wait for that delivery or wake the frame as described in device help.
+
+There is no automatic bulk replacement of saved image bytes. To use optimizer
+1.4.1 with the old palette/settings, just edit the existing variant, update its
+full-resolution preview and save changes. To compare both results, prepare a
+separate new variant from the original rather than overwriting the existing one.
+The old library version is not selectable for new renders, but its saved files
+remain available until you overwrite/delete them. Raw externally uploaded images
+are marked external; rebuilding them from a library original records 1.4.1.
+
+For **Dynamic images**, select an OpenPaper L target, choose
+**OpenPaper L · measured 13.3-inch palette (Experimental)** in **Colors**,
+use **Render preview**, then **Save image & target** to update that target in
+place. Background rendering uses the current optimizer. Explicit `palette.*`
+colors retain exact ink behavior; photograph/hex-color content uses the selected
+matching/dithering and measured palette.
+
+The profile is based on the manufacturer's DKE 13.3-inch measurements under its
+test lighting. Compare on the physical frame with the same source, crop and
+lighting; a browser preview is not a calibrated simulation of reflective ink.
+See [panel measurements](https://docs.paperlesspaper.de/panels/dke-13-3-inch).

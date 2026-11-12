@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {processingOptions} from '../web/optimizer-options.js';
-import {getProcessingPreset} from '../web/vendor/epdoptimize-1.2.0.mjs';
+import {getProcessingPreset} from '../web/vendor/epdoptimize-1.4.1.mjs';
 
 const base={automatic:true,brightness:0,contrast:0,saturation:0,matching:'rgb',dither:'floyd',palette:'spectra6',intent:'natural'};
 

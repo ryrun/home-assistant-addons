@@ -1,16 +1,16 @@
-// Trusted QuickJS adapter for the hash-pinned epdoptimize 1.2.0 module.
-// Keep the browser's reference implementation unchanged. Its Pe() allocates a
+// Trusted QuickJS adapter for the hash-pinned epdoptimize 1.4.1 module.
+// Keep the browser's reference implementation unchanged. Its it() allocates a
 // palette-sized array and recalculates palette LAB for EVERY pixel. Reuse the
 // library's own precomputed error-diffusion selector instead; distances and the
 // first-color tie rule are identical for RGB/LAB. No color approximation occurs.
 (function(){
-  const reference=Pe, selectors=new WeakMap(), maximumEntries=4096;
-  Pe=function(color,palette,matching='rgb',original=color){
+  const reference=it, selectors=new WeakMap(), maximumEntries=4096;
+  it=function(color,palette,matching='rgb',original=color){
     if(!palette.length||!['rgb','lab'].includes(matching))return reference(color,palette,matching,original);
     let modes=selectors.get(palette);
     if(!modes){modes=new Map();selectors.set(palette,modes);}
     let entry=modes.get(matching);
-    if(!entry){entry={selector:It(palette,matching),colors:new Map(),lastKey:-1,lastIndex:0};modes.set(matching,entry);}
+    if(!entry){entry={selector:zn(palette,matching),colors:new Map(),lastKey:-1,lastIndex:0};modes.set(matching,entry);}
     const r=color[0],g=color[1],b=color[2];
     // Memoize only exact byte-valued colors. Ordered dithering may pass floats
     // or out-of-range values; those must retain their original precision.
@@ -29,6 +29,6 @@
         entry.lastKey=key;entry.lastIndex=index;
       }
     }else index=entry.selector.findIndex(r,g,b,r,g,b);
-    return Ne(palette[index]);
+    return rt(palette[index]);
   };
 })();

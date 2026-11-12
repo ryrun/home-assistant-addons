@@ -1,4 +1,4 @@
-import {getProcessingPreset} from './vendor/epdoptimize-1.2.0.mjs';
+import {getProcessingPreset} from './vendor/epdoptimize-1.4.1.mjs';
 import {ditherOptions} from './processing.js';
 
 // Resolve the real preset configuration, not getProcessingPresetOptions(),
@@ -18,12 +18,12 @@ export function processingOptions(recipe,suggestion){
     const tone={...options.toneMapping};
     if(!options.toneMapping||tone.mode==='off')tone.mode='contrast';
     for(const [key,value] of overrides)tone[key]=value/100;
-    // In optimizer 1.2.0 an unspecified mode applies contrast and the S-curve
+    // An unspecified mode applies contrast and the S-curve
     // together; explicit scurve mode alone ignores the contrast control.
     if(tone.mode==='scurve'&&overrides.some(([key])=>key==='contrast'))delete tone.mode;
     options.toneMapping=tone;
   }
-  Object.assign(options,{colorMatching:recipe.matching==='lab'?'lab':'rgb',processingEngine:'js',
+  Object.assign(options,{colorMatching:recipe.matching==='lab'?'lab':'rgb',processingEngine:'js',adjustmentEngine:'js',
     ...ditherOptions(recipe.dither),serpentine:true});
   return {options,analysis:{enabled:!!recipe.automatic,imageKind:recipe.automatic?suggestion?.imageKind:null,
     preset:recipe.automatic?preset?.title||presetName||null:null,

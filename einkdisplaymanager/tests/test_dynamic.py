@@ -691,3 +691,22 @@ async def test_fully_explicit_palette_output_skips_optimizer_and_rotated_deliver
     manager.dynamic.cache[identifier]['hash']='render-v2'
     await manager.delivery(item,180,profile_id)
     assert len(manager.delivery_cache)==2
+
+
+async def test_measured_l_palette_and_full_size_blue_noise_render(system):
+    from profiles import PROFILES
+
+    _manager,admin,_frames=system
+    response=await admin.post('/api/dynamic',json={'name':'Measured target'})
+    item=await response.json()
+    response=await admin.post('/api/dynamic/'+item['id']+'/targets',json={'name':'L target','recipe':{'profile':'openpaper_l','palette':'openpaper_l_measured'}})
+    assert response.status==201
+    assert (await response.json())['optimizer']=='epdoptimize@1.4.1'
+    for profile in ['openpaper_7','inkplate_6']:
+        with pytest.raises(ValueError,match='OpenPaper L only|supported by the target'):
+            recipe({'profile':profile,'palette':'openpaper_l_measured'})
+    # Force the full optimizer, rather than the explicit-ink shortcut.
+    result=await worker({'mode':'render','size':[1200,1600], 'profile':PROFILES['openpaper_l'],
+        'recipe':recipe({'profile':'openpaper_l','palette':'openpaper_l_measured','dither':'blueNoise'}),
+        'commands':[{'type':'clear','color':'#b08060'}], 'palette':{}, 'images':{},'fonts':{}})
+    validate_variant(base64.b64decode(result['output']),'openpaper_l')

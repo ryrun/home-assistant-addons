@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.7.2**; locally tested, with Green,
+Status: experimental implementation **0.8.0**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -1083,3 +1083,14 @@ in RAM, including failed-attempt total duration; retain last-good output.
 - Preserve the old battery discovery identity and remove obsolete retained
   charge-from-voltage discovery through the existing topic registry cleanup.
 
+
+## 26. Optimizer and measured OpenPaper L profile (0.8.0)
+
+- Pin epdoptimize 1.4.1 and its local 16-bit blue-noise mask; keep browser/server
+  parity and existing resource limits.
+- Offer the manufacturer's six measured 13.3-inch colors as an experimental
+  OpenPaper-L-only palette, with source attribution and physical comparison.
+- Provide an explicit photo-profile preview action; overwrite existing variants
+  only through Save changes, retaining IDs, device assignments and crop/layout.
+- Record/display generating optimizer versions. Preserve existing static bytes
+  until rebuilt, and update dynamic target recipes in place.

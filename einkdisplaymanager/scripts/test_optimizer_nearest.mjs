@@ -2,11 +2,11 @@ import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import vm from 'node:vm';
-let library=readFileSync(new URL('../web/vendor/epdoptimize-1.2.0.mjs',import.meta.url),'utf8');
-library=library.slice(0,library.lastIndexOf('export {'));
+let library=readFileSync(new URL('../web/vendor/epdoptimize-1.4.1.mjs',import.meta.url),'utf8');
+library=library.slice(0,library.lastIndexOf('export {')).replaceAll('import.meta.url',JSON.stringify('https://example.invalid/optimizer.mjs'));
 const adapter=readFileSync(new URL('../web/optimizer-nearest.js',import.meta.url),'utf8');
-const context=vm.createContext({});
-vm.runInContext(library+';globalThis.referenceNearest=Pe;',context);
+const context=vm.createContext({URL:globalThis.URL});
+vm.runInContext(library+';globalThis.referenceNearest=it;',context);
 vm.runInContext(adapter,context);
 for(const matching of ['rgb','lab'])test(`QuickJS nearest-color adapter exactly matches reference ${matching}`,()=>{
   const result=vm.runInContext(`(()=>{
@@ -25,7 +25,7 @@ for(const matching of ['rgb','lab'])test(`QuickJS nearest-color adapter exactly 
       }
       for(const rgb of colors){
         const original=referenceNearest(rgb,palette,'${matching}');
-        const fast=Pe(rgb,palette,'${matching}');
+        const fast=it(rgb,palette,'${matching}');
         if(JSON.stringify(original)!==JSON.stringify(fast))return {rgb,palette,original,fast};
       }
     }
@@ -37,7 +37,7 @@ test('empty palettes, alpha and unsupported matching keep reference behavior',()
   const result=vm.runInContext(`(()=>{
     for(const matching of ['rgb','lab','chroma'])for(const palette of [[],[[1,2,3,90],[254,253,252,200]]]){
       const color=[100,120,130,140];
-      if(JSON.stringify(Pe(color,palette,matching))!==JSON.stringify(referenceNearest(color,palette,matching)))return false;
+      if(JSON.stringify(it(color,palette,matching))!==JSON.stringify(referenceNearest(color,palette,matching)))return false;
     }return true;
   })()`,context);
   assert.equal(result,true);

@@ -1,4 +1,4 @@
-// Only methods supported by the vendored epdoptimize 1.2.0 build are offered.
+// Only methods supported by the vendored epdoptimize 1.4.1 build are offered.
 export const DITHERS = {
   floyd:{name:'Floyd–Steinberg', type:'errorDiffusion', matrix:'floydSteinberg', use:'A useful baseline for photos and mixed content. Fine grain and good local detail; some areas may show directional patterns.'},
   atkinson:{name:'Atkinson', type:'errorDiffusion', matrix:'atkinson', use:'Try for high-contrast illustrations, line art, and text. Its lighter error spread can keep edges clear but may lose subtle tones.'},
@@ -7,11 +7,12 @@ export const DITHERS = {
   burkes:{name:'Burkes', type:'errorDiffusion', matrix:'burkes', use:'A smaller, faster relative of Stucki. Try when you want smoother gradients without as much processing or blur.'},
   sierra3:{name:'Sierra-3', type:'errorDiffusion', matrix:'sierra3', use:'Another photographic option balancing gradients and detail. Compare with Stucki on the actual frame; neither is universally better.'},
   ordered:{name:'Ordered Bayer · 4 × 4', type:'ordered', use:'A regular repeating pattern. Useful for graphics and consistent texture, but the grid may be visible in photos and smooth skies.'},
-  blueNoise:{name:'Blue-noise style · experimental', type:'blueNoise', use:'Uses the bundled 64 × 64 high-frequency tile in optimizer 1.2.0. Try for a less directional texture; inspect gradients and color balance on the frame.'},
+  blueNoise:{name:'Blue-noise style · experimental', type:'blueNoise', use:'Uses the bundled 1200 × 1600 blue-noise mask in optimizer 1.4.1. Try for a less directional texture; inspect gradients and color balance on the frame.'},
   none:{name:'None · nearest color', type:'quantizationOnly', use:'No simulated intermediate shades. Useful for icons, text, and artwork already using the target palette; photos may show banding.'},
 };
 
 export const PALETTES = {
+  openpaper_l_measured:{name:'OpenPaper L · measured 13.3-inch palette (Experimental)', use:'Camera-based measurements of a DKE 13.3-inch Spectra 6 test panel. Compare on your OpenPaper L; lighting and panel differences affect the result. Existing device assignments remain attached when you save changes to a variant.'},
   natural:{name:'Spectra 6 · original RGB', use:'Matches against ideal RGB primaries; useful as a reference, but reflective ink differs from a bright screen.'},
   spectra6:{name:'Spectra 6 · calibrated library palette', use:'Matches the library’s calibrated ink colors before exporting native codes. Try with Floyd–Steinberg or Stucki for photos. Not calibrated to your individual panel.'},
   aitjcize:{name:'Spectra 6 · alternative calibrated palette', use:'An alternative library palette inspired by epaper-image-convert. Compare color balance with the calibrated Spectra 6 palette on your frame.'},
@@ -29,4 +30,8 @@ export function ditherOptions(value){
   const method=DITHERS[value];
   if(!method)throw new Error('Choose a supported dithering method.');
   return {ditheringType:method.type,errorDiffusionMatrix:method.matrix||'floydSteinberg',orderedDitheringMatrix:[4,4]};
+}
+
+export function paletteKeys(profile){
+  return Object.keys(PALETTES).filter(key=>profile==='inkplate_6'?['gray8','grayscale'].includes(key):key!=='gray8'&&(key!=='openpaper_l_measured'||profile==='openpaper_l'));
 }

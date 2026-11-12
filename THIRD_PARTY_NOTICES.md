@@ -9,13 +9,14 @@ licenses as documented here and in their own license files.
 
 ## E-Ink Display Manager image optimizer
 
-- Included module: `einkdisplaymanager/web/vendor/epdoptimize-1.2.0.mjs`.
-- Component/source: [epdoptimize 1.2.0](https://github.com/paperlesspaper/epdoptimize), distributed under Apache-2.0.
+- Included module: `einkdisplaymanager/web/vendor/epdoptimize-1.4.1.mjs`.
+- Component/source: [epdoptimize 1.4.1](https://github.com/paperlesspaper/epdoptimize), distributed under Apache-2.0.
 - Full license: `einkdisplaymanager/web/vendor/epdoptimize-LICENSE`.
 - The unmodified module bundles MIT-licensed [RgbQuant.js](https://github.com/alexharris/RgbQuant.js), copyright (c) 2017 Leon Sorokin.
 - Full bundled license: `einkdisplaymanager/web/vendor/RgbQuant-LICENSE`.
 - Distribution provenance, integrity hash, and compatibility baseline: `einkdisplaymanager/UPSTREAM.md`.
-- Firmware/flasher code and calibration profiles are not included or relicensed.
+- Firmware/flasher implementation code is not included or relicensed.
+- The bundled blue-noise PNG is from the same Apache-2.0 package. Six publicly documented solid-color measurements inform the optional measured L palette; source and limitations are in the add-on provenance notes.
 
 ## CtrlApp UI
 

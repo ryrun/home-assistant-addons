@@ -24,6 +24,7 @@ from aiohttp import web
 from correction import rotate_delivery
 from diagnostics import Diagnostics
 from dynamic import (
+    OPTIMIZER_VERSION,
     DynamicImages,
     definition,
     recipe,
@@ -55,7 +56,7 @@ from profiles import (
 )
 from storage import Store, new_id
 
-VERSION = '0.7.2'
+VERSION = '0.8.0'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -287,7 +288,7 @@ class Manager:
             variant['usage'] = variant_usage[variant['id']]
             if variant.get('dynamic') and variant['id'] in self.dynamic.cache:
                 cached = self.dynamic.cache[variant['id']]
-                variant.update(hash=cached['hash'], bytes=len(cached['output']))
+                variant.update(hash=cached['hash'], bytes=len(cached['output']), optimizer=cached.get('optimizer', OPTIMIZER_VERSION))
         fonts = self.store.all('font')
         for font in fonts:
             font.pop('file', None)
@@ -371,7 +372,7 @@ class Manager:
                        'name':valid_name(data.get('name')), 'profile':settings['profile'],'recipe':settings,
                        'modified':time.time(), 'created_at':old['created_at'] if old else time.time(),
                        'mime':'image/png' if settings['profile']=='inkplate_6' else 'image/bmp',
-                       'bytes':0,'hash':new_id(),'revision':old.get('revision',0)+1 if old else 1}
+                       'bytes':0,'hash':new_id(),'optimizer':OPTIMIZER_VERSION,'revision':old.get('revision',0)+1 if old else 1}
             self.store.save('variant',variant)
             self.dynamic.invalidate(original['id'])
         return web.json_response(variant,status=200 if old else 201)
@@ -549,6 +550,11 @@ class Manager:
                 raise ValueError('Invalid processing recipe.')
             profile = display_profile(recipe.get('profile', 'openpaper_l'))
             recipe.setdefault('profile', profile['id'])
+            if recipe.get('palette') == 'openpaper_l_measured' and profile['id'] != 'openpaper_l':
+                raise ValueError('The measured 13.3-inch palette is for OpenPaper L only.')
+            optimizer = recipe.get('optimizer', 'external')
+            if not isinstance(optimizer, str) or len(optimizer) > 80:
+                raise ValueError('Invalid optimizer version.')
             recipe.setdefault('orientation', profile['native_orientation'])
             if 'invert' in recipe:
                 boolean(recipe['invert'])
@@ -575,7 +581,7 @@ class Manager:
             thumbnail = await asyncio.to_thread(self.store.put_file, thumb, '.jpg')
             doc = dict(metadata, id=new_id(), asset_id=asset_id, name=name, recipe=recipe,
                        parent_variant_id=parent_id, profile=recipe.get('profile', 'openpaper_l'),
-                       optimizer='epdoptimize@1.2.0', created_at=time.time(), file=file, thumbnail=thumbnail)
+                       optimizer=optimizer, created_at=time.time(), file=file, thumbnail=thumbnail)
             if previous:
                 doc.update(id=previous['id'], created_at=previous['created_at'],
                            parent_variant_id=previous.get('parent_variant_id'),

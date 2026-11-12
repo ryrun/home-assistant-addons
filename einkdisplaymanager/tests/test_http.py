@@ -1,9 +1,11 @@
 import asyncio
 import io
+import json
 import time
 from contextlib import suppress
 from urllib.parse import urlsplit
 
+import pytest
 from aiohttp import ClientError
 from aiohttp.test_utils import TestClient, TestServer
 from media import placeholder
@@ -677,3 +679,40 @@ async def test_variant_overwrite_waits_for_an_active_transfer(system, monkeypatc
     assert (await replacing).status == 200
     assert manager.store.get('device',d['id'])['state']['pending']
     assert await (await frames.get(path(d['urls']['image']))).read() == asymmetric_bmp()
+
+
+async def test_optimizer_upgrade_preserves_variant_ids_assignments_and_original(system):
+    manager, admin, _frames = system
+    asset = await upload(admin)
+    before = manager.store.get('asset',asset)
+    response=await admin.post(f'/api/assets/{asset}/variants', data=placeholder(),
+        headers={'X-Recipe':json.dumps({'profile':'openpaper_l','palette':'spectra6','optimizer':'epdoptimize@1.2.0'})})
+    assert response.status==201
+    old=manager.store.get('variant',(await response.json())['id'])
+    assert old['optimizer']=='epdoptimize@1.2.0'
+    d=await device(admin,[])
+    response=await admin.put('/api/devices/'+d['id'],json={'entries':[{'asset_id':asset,'mode':'variant','variant_id':old['id']}]})
+    assert response.status==200
+    assigned=await response.json()
+    response=await admin.put(f"/api/assets/{asset}/variants/{old['id']}",data=placeholder(),
+        headers={'X-Variant-Version':str(old.get('revision',0)),
+                 'X-Recipe':json.dumps({'profile':'openpaper_l','palette':'openpaper_l_measured','optimizer':'epdoptimize@1.4.1'})})
+    assert response.status==200
+    updated=manager.store.get('variant',(await response.json())['id'])
+    assert updated['id']==old['id'] and updated['revision']==1
+    assert updated['optimizer']=='epdoptimize@1.4.1'
+    assert updated['recipe']['palette']=='openpaper_l_measured'
+    current=await (await admin.get('/api/devices/'+d['id'])).json()
+    assert current['entries']==assigned['entries']
+    assert manager.store.get('asset',asset)==before
+    assert len(manager.store.all('variant'))==1
+
+
+@pytest.mark.parametrize('profile',['openpaper_7','inkplate_6'])
+async def test_measured_l_palette_cannot_be_assigned_to_another_model(system,profile):
+    _manager,admin,_frames=system
+    asset=await upload(admin)
+    response=await admin.post(f'/api/assets/{asset}/variants',data=b'unused',
+        headers={'X-Recipe':json.dumps({'profile':profile,'palette':'openpaper_l_measured'})})
+    assert response.status==400
+    assert 'OpenPaper L only' in (await response.json())['error']

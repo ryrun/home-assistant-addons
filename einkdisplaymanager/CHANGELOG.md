@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0
+
+- Upgrade epdoptimize to 1.4.1 with gamut-aware error diffusion and its local full-resolution 16-bit blue-noise mask, for static and dynamic images.
+- Add an experimental measured 13.3-inch OpenPaper L palette using the manufacturer's published solid-color measurements. Keep the previous palettes available.
+- Add Try measured L profile: apply the measured palette, Natural automatic tone mapping, LAB and Floyd–Steinberg, reset manual tones, and render a preview while retaining crop/orientation. Save changes overwrites the existing variant ID and preserves device assignments.
+- Show saved optimizer versions and an update hint for older generated variants. External uploads are labeled external rather than attributed to an optimizer they did not use.
+- Keep existing saved BMP/PNG variants unchanged until explicitly rebuilt; retain native formats, exact-palette handling and rendering limits.
+
 ## 0.7.2
 
 - Bound streamed metadata JSON to 512 KiB and font uploads to 4 MiB before allocation/validation. Reject non-finite/deep JSON and contain malformed deeply nested HA snapshots.
