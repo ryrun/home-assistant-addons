@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.2
+
+- Bound streamed metadata JSON to 512 KiB and font uploads to 4 MiB before allocation/validation. Reject non-finite/deep JSON and contain malformed deeply nested HA snapshots.
+- Skip unnecessary quantization when every pixel is already explicit palette ink, preserving native output bytes and all sandbox/resource limits. New dynamic-image templates use an explicit white background.
+- Validate BMP color indices and PNG grayscale/alpha with native operations; move dynamic output validation off the event loop.
+- Reuse immutable delivery bytes and rotated dynamic outputs in the existing bounded LRU; retain missing-file retry behavior and precompute blank hashes.
+- Add resource-boundary, exact-output, validation and cache regressions.
+
 ## 0.7.1
 
 - Publish a single MQTT battery percentage named Battery Level. Prefer the last reported voltage converted with the enabled per-device calibration; otherwise use the activity-based estimate. Preserve genuine 0% voltage estimates.

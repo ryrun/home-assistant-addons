@@ -401,7 +401,7 @@ def optimize(image, recipe, profile, exact=None, exact_mask=None):
         raise
 
 
-def _optimize(image, recipe, profile, exact=None, exact_mask=None):
+def _quantize(image, recipe, profile):
     gray = profile.get("format") == "png"
     if gray:
         image = image.convert("L").convert("RGB")
@@ -442,8 +442,24 @@ def _optimize(image, recipe, profile, exact=None, exact_mask=None):
         raise ValueError("Image optimization failed.")
     result = ctx.eval("einkPixels.encodeIndices(pixels,palette,__gray,levels)")
     indices = Image.frombytes("L", image.size, bytes.fromhex(result))
-    if exact is not None:
-        indices.paste(exact, (0, 0), exact_mask)
+    return indices
+
+
+def _optimize(image, recipe, profile, exact=None, exact_mask=None):
+    gray = profile.get("format") == "png"
+    if (
+        exact is not None
+        and exact_mask is not None
+        and exact_mask.mode == "1"
+        and exact_mask.getextrema()[0]
+    ):
+        # Every pixel is explicit ink. The previous pipeline overwrote every
+        # optimizer pixel with these exact codes, regardless of recipe settings.
+        indices = exact.copy()
+    else:
+        indices = _quantize(image, recipe, profile)
+        if exact is not None:
+            indices.paste(exact, (0, 0), exact_mask)
     if gray and recipe["invert"]:
         indices = ImageOps.invert(indices)
     if recipe["orientation"] != profile["native_orientation"]:

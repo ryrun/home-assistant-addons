@@ -73,3 +73,16 @@ def test_decoded_pixel_limit(monkeypatch):
     monkeypatch.setattr(Image, 'MAX_IMAGE_PIXELS', 100)
     with pytest.raises(ValueError):
         inspect_image(picture('PNG'))
+
+
+def test_bmp_validation_rejects_every_unsupported_nibble_value():
+    from media import COLORS, placeholder, validate_bmp
+
+    data = bytearray(placeholder('openpaper_7'))
+    for packed in range(256):
+        data[118] = packed
+        if packed >> 4 in COLORS and packed & 15 in COLORS:
+            validate_bmp(data, 'openpaper_7')
+        else:
+            with pytest.raises(ValueError, match='unsupported device color indices'):
+                validate_bmp(data, 'openpaper_7')

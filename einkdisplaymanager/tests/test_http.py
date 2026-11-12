@@ -524,7 +524,7 @@ async def test_upside_down_delivery_keeps_shared_variant_queue_and_fixed_url(sys
     assert await (await frames.get(path(peer['urls']['image']))).read() == data
     assert await (await admin.get(f"/api/media/variant/{v['id']}/file")).read() == data
     assert manager.store.get('variant', v['id']) == stored_variant
-    assert manager.delivery_cache_bytes == len(corrected)
+    assert manager.delivery_cache_bytes == len(data) + len(corrected)
     await admin.put('/api/devices/' + d['id'], json={'upside_down': False})
     assert await (await frames.get(url, headers={'If-None-Match': second.headers['ETag']})).read() == data
 

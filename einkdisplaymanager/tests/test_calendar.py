@@ -233,6 +233,7 @@ async def test_api_is_read_only_bounded_and_empty_calendar_is_explicit():
         Response([], 500),
         Response([], 302),
         Response(b"not json"),
+        Response(b"["*10000 + b"0" + b"]"*10000),
         Response({"error": "calendar failed"}),
         Response([event("Naive", "2026-11-12T10:00:00", "2026-11-12T11:00:00")]),
         Response([event("Invalid day", "2026-02-30", "2026-03-01")]),

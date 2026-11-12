@@ -1426,3 +1426,4 @@ API contract checked against the official Home Assistant
 and [event serialization](https://github.com/home-assistant/core/blob/dev/homeassistant/components/calendar/helper.py)
 on 2026-11-12. Live integration/provider acceptance remains separate from the
 automated mocked-API and actual restricted-worker tests.
+

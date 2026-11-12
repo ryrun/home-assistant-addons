@@ -22,7 +22,7 @@ from profiles import PROFILES, view_size
 ROOT = Path(__file__).parent
 MAX_CACHE = 128 * 1024 * 1024
 MAX_SOURCE = 65536
-DEFAULT_SOURCE = """screen.clear("#ffffff");
+DEFAULT_SOURCE = """screen.clear(palette.white);
 screen.rectangle({x: 20, y: 20, width: screen.width - 40, height: screen.height - 40,
   stroke: palette.black, strokeWidth: 2});
 const greeting = now.hour < 12 ? "Good morning" : now.hour < 18 ? "Good afternoon" : "Good evening";
@@ -355,7 +355,7 @@ class DynamicImages:
                         for k in ("state", "attributes", "last_changed", "last_updated")
                         if k in value
                     }
-            except (aiohttp.ClientError, TimeoutError, json.JSONDecodeError):
+            except (aiohttp.ClientError, TimeoutError, json.JSONDecodeError, UnicodeError, RecursionError):
                 raise ValueError(
                     "Home Assistant is unavailable; the last good image is retained."
                 ) from None
@@ -483,8 +483,8 @@ class DynamicImages:
             base64.b64decode(result["output"]),
             base64.b64decode(result["source"]),
         )
-        validate_variant(
-            output,
+        await asyncio.to_thread(
+            validate_variant, output,
             profile["id"],
             monochrome=profile.get("format") == "png"
             and target["palette"] == "grayscale",

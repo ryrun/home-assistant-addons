@@ -653,3 +653,41 @@ def test_default_text_metrics_remain_content_bbox_and_baseline_needs_no_opt_in()
         command["verticalMetrics"] = "invalid"
         with pytest.raises(ValueError, match="Invalid vertical text metrics"):
             draw(payload)
+
+
+@pytest.mark.parametrize("profile_id", ["openpaper_l", "openpaper_7", "inkplate_6"])
+async def test_fully_explicit_palette_output_skips_optimizer_and_rotated_delivery_is_cached(system,monkeypatch,profile_id):
+    import dynamic_worker
+    from profiles import PROFILES
+
+    profile = PROFILES[profile_id]
+    target_recipe = recipe({"profile":profile_id,"automatic":True,"dither":"floyd","matching":"lab"})
+    payload = {"commands":[{"type":"clear","color":"palette:white"},
+                           {"type":"rectangle","x":20,"y":20,"width":80,"height":80,"fill":"palette:black"}],
+               "size":[profile['width'],profile['height']],"profile":profile,
+               "fonts":{},"images":{},"palette":{"white":"#ffffff","black":"#000000"}}
+    image,_warnings,exact,mask=dynamic_worker.draw(payload)
+    # Reference: full old pipeline, then replacement with explicit ink codes.
+    # Force quantization before calling the unchanged final encoding path.
+    original_quantize=dynamic_worker._quantize
+    reference_indices=original_quantize(image,target_recipe,profile)
+    reference_indices.paste(exact,(0,0),mask)
+    def forbidden(*args):
+        raise AssertionError('Fully covered ink pixels must not run the optimizer')
+    monkeypatch.setattr(dynamic_worker,'_quantize',forbidden)
+    output,mime=dynamic_worker.optimize(image,target_recipe,profile,exact,mask)
+    # The same native encoder receives the same indices as the old full pipeline.
+    reference,_=dynamic_worker.optimize(image,target_recipe,profile,reference_indices,mask)
+    assert output == reference
+    validate_variant(output,profile_id)
+    manager,_admin,_frames=system
+    identifier='explicit-'+profile_id
+    manager.dynamic.cache[identifier]={'output':output,'mime':mime,'hash':'render-v1','asset_id':'fixture','bytes':len(output)}
+    item={'id':identifier,'dynamic':True}
+    first=await manager.delivery(item,180,profile_id)
+    second=await manager.delivery(item,180,profile_id)
+    assert first is second
+    # A new render's hash invalidates the derived rotation cache naturally.
+    manager.dynamic.cache[identifier]['hash']='render-v2'
+    await manager.delivery(item,180,profile_id)
+    assert len(manager.delivery_cache)==2

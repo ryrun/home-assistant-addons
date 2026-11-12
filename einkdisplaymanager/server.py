@@ -55,7 +55,7 @@ from profiles import (
 )
 from storage import Store, new_id
 
-VERSION = '0.7.1'
+VERSION = '0.7.2'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -135,6 +135,7 @@ class Manager:
         self.delivery_cache_bytes = 0
         self.blanks = {identifier: placeholder(identifier) for identifier in PROFILES}
         self.blank = self.blanks['openpaper_l']
+        self.blank_hashes = {key: digest(data) for key, data in self.blanks.items()}
         self.csrf = secrets.token_urlsafe(32)
         try:
             self.settings = self.store.get('settings', 'global')
@@ -244,10 +245,26 @@ class Manager:
             'Access-Control-Allow-Headers': ', '.join(sorted(allowed)),
             'Access-Control-Max-Age': '600'})
 
+    async def read_body(self, request, limit):
+        if request.content_length is not None and request.content_length > limit:
+            raise web.HTTPRequestEntityTooLarge(max_size=limit, actual_size=request.content_length)
+        data = bytearray()
+        async for block in request.content.iter_chunked(16384):
+            if len(data) + len(block) > limit:
+                raise web.HTTPRequestEntityTooLarge(max_size=limit, actual_size=len(data) + len(block))
+            data.extend(block)
+        return bytes(data)
+
     async def json(self, request):
         if request.content_type != 'application/json':
             raise ValueError('Use application/json.')
-        data = await request.json()
+        raw = await self.read_body(request, 512 * 1024)
+        def reject_constant(_value):
+            raise ValueError('JSON numbers must be finite.')
+        try:
+            data = json.loads(raw, parse_constant=reject_constant)
+        except RecursionError:
+            raise ValueError('JSON nesting is too deep.') from None
         if not isinstance(data, dict):
             raise TypeError('Expected a JSON object.')
         return data
@@ -389,7 +406,7 @@ class Manager:
     async def upload_font(self, request):
         if len(self.store.all('font')) >= 32:
             raise ValueError('At most 32 uploaded fonts are supported.')
-        data = await request.read()
+        data = await self.read_body(request, 4 * 1024 * 1024)
         if not 1 <= len(data) <= 4*1024*1024 or data[:4] not in (b'\x00\x01\x00\x00',b'OTTO'):
             raise ValueError('Upload a TrueType (.ttf) or OpenType (.otf) font up to 4 MiB.')
         if not self.dynamic.isolation:
@@ -874,33 +891,40 @@ class Manager:
 
     async def delivery(self, item, rotation=0, profile_id='openpaper_l', mounting='landscape'):
         if item is None:
-            blank = self.blanks[profile_id]
-            return blank, 'image/png' if profile_id == 'inkplate_6' else 'image/bmp', digest(blank)
-        if item.get('dynamic'):
+            return self.blanks[profile_id], 'image/png' if profile_id == 'inkplate_6' else 'image/bmp', self.blank_hashes[profile_id]
+        dynamic = item.get('dynamic', False)
+        if dynamic:
             try:
                 cached = self.dynamic.output(item['id'])
             except ValueError:
                 raise web.HTTPServiceUnavailable(reason='Dynamic image is not ready; retry later.', headers={'Retry-After':'60'}) from None
-            data, mime = cached['output'], cached['mime']
-            if rotation:
-                data = await asyncio.to_thread(rotate_delivery, data, mime)
-            return data, mime, digest(data) if rotation else cached['hash']
-        path = self.store.path(item['file'])
-        convert = profile_id == 'inkplate_6' and 'asset_id' not in item
-        key = (item['hash'], rotation, profile_id, mounting if convert else None, 2)
-        if (rotation or convert) and key in self.delivery_cache:
+            if not rotation:
+                return cached['output'], cached['mime'], cached['hash']
+            content_hash = cached['hash']
+        else:
+            # Check existence even on a cache hit so deleted/unavailable files
+            # retain their existing retry/error semantics.
+            path = self.store.path(item['file'])
+            content_hash = item['hash']
+        convert = not dynamic and profile_id == 'inkplate_6' and 'asset_id' not in item
+        key = (content_hash, rotation, profile_id, mounting if convert else None, 2)
+        if key in self.delivery_cache:
             self.delivery_cache.move_to_end(key)
             return self.delivery_cache[key]
-        data = await asyncio.to_thread(path.read_bytes)
-        if not rotation and not convert:
-            return data, item['mime'], item['hash']
-        mime = 'image/png' if convert else item['mime']
         async with self.workers:
+            # Another device can fill this shared immutable-content cache while
+            # this request waits for a worker.
+            if key in self.delivery_cache:
+                self.delivery_cache.move_to_end(key)
+                return self.delivery_cache[key]
+            data = cached['output'] if dynamic else await asyncio.to_thread(path.read_bytes)
+            mime = cached['mime'] if dynamic else item['mime']
             if convert:
                 data = await asyncio.to_thread(inkplate_original, data, mounting, bool(rotation))
-            else:
+                mime = 'image/png'
+            elif rotation:
                 data = await asyncio.to_thread(rotate_delivery, data, mime)
-            output_hash = await asyncio.to_thread(digest, data)
+            output_hash = await asyncio.to_thread(digest, data) if rotation or convert else content_hash
         result = (data, mime, output_hash)
         if key in self.delivery_cache:
             self.delivery_cache.move_to_end(key)

@@ -175,7 +175,7 @@ async def fetch(session, token, document, now):
             raise ValueError(
                 f"Calendar {calendar} is unavailable; the last good image is retained."
             ) from None
-        except (json.JSONDecodeError, UnicodeError, OverflowError):
+        except (json.JSONDecodeError, UnicodeError, OverflowError, RecursionError):
             raise ValueError(
                 f"Calendar {calendar} returned invalid data; the last good image is retained."
             ) from None

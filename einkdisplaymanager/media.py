@@ -7,7 +7,7 @@ import struct
 import warnings
 from pathlib import Path
 
-from PIL import Image, ImageCms, ImageOps
+from PIL import Image, ImageChops, ImageCms, ImageOps
 from profiles import PROFILES, display_profile
 
 WIDTH, HEIGHT = 1200, 1600
@@ -17,6 +17,7 @@ Image.MAX_IMAGE_PIXELS = MAX_PIXELS
 COLORS = {0: (0, 0, 0), 1: (0, 0, 255), 2: (0, 255, 0),
           3: (255, 0, 0), 5: (255, 255, 0), 6: (255, 255, 255)}
 GRAY8 = tuple(round(index * 255 / 7) for index in range(8))
+INVALID_PACKED_COLORS = bytes(int((v >> 4) not in COLORS or (v & 15) not in COLORS) for v in range(256))
 
 
 def digest(data):
@@ -132,8 +133,7 @@ def validate_bmp(data, profile_id='openpaper_l'):
     for index, (r, g, b) in COLORS.items():
         if data[54 + index * 4:57 + index * 4] != bytes((b, g, r)):
             raise ValueError('BMP palette does not match device color codes.')
-    valid = set(COLORS)
-    if any((v >> 4) not in valid or (v & 15) not in valid for v in data[118:]):
+    if data[118:].translate(INVALID_PACKED_COLORS).count(b'\x01'):
         raise ValueError('BMP contains unsupported device color indices.')
 
 
@@ -146,8 +146,11 @@ def validate_variant(data, profile_id, *, monochrome=False):
                 raise ValueError('Inkplate 6 variants require a single-frame 800 × 600 grayscale PNG.')
             # Validate decoded pixels, including alpha; never silently re-quantize a variant.
             levels = (0, 255) if monochrome else GRAY8
-            if any(r != g or r != b or r not in levels or a != 255
-                   for r, g, b, a in image.convert('RGBA').get_flattened_data()):
+            red, green, blue, alpha = image.convert('RGBA').split()
+            if (ImageChops.difference(red, green).getbbox() is not None or
+                    ImageChops.difference(red, blue).getbbox() is not None or
+                    alpha.getextrema() != (255, 255) or
+                    any(count and value not in levels for value, count in enumerate(red.histogram()))):
                 if monochrome:
                     raise ValueError('Inkplate black-and-white PNG pixels must use only black and white without transparency.')
                 raise ValueError('Inkplate 6 PNG pixels must use exactly the supported eight grayscale levels without transparency.')

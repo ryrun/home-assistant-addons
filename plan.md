@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.7.1**; locally tested, with Green,
+Status: experimental implementation **0.7.2**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -1082,3 +1082,4 @@ in RAM, including failed-attempt total duration; retain last-good output.
 - Keep raw voltage/measurement time and overdue/fetch diagnostics independent.
 - Preserve the old battery discovery identity and remove obsolete retained
   charge-from-voltage discovery through the existing topic registry cleanup.
+

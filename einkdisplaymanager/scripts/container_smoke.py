@@ -61,6 +61,37 @@ async def main():
             }
         )
         validate_variant(base64.b64decode(result["output"]), profile)
+    # Fully explicit ink must also render under the native worker restrictions.
+    profile = PROFILES["openpaper_l"]
+    explicit = await worker(
+        {
+            "mode": "render",
+            "size": [profile["width"], profile["height"]],
+            "profile": profile,
+            "recipe": recipe(
+                {
+                    "profile": "openpaper_l",
+                    "automatic": True,
+                    "matching": "lab",
+                    "dither": "floyd",
+                }
+            ),
+            "commands": [
+                {"type": "clear", "color": "palette:white"},
+                {
+                    "type": "text",
+                    "text": "Exact ink",
+                    "x": 20,
+                    "y": 40,
+                    "color": "palette:black",
+                },
+            ],
+            "palette": {"white": "#ffffff", "black": "#000000"},
+            "images": {},
+            "fonts": {},
+        }
+    )
+    validate_variant(base64.b64decode(explicit["output"]), "openpaper_l")
     # Regression: nearest-color LAB on a full 800×600 Inkplate preview used to
     # recompute palette LAB for every pixel and exhaust the optimizer CPU budget.
     target = recipe({"profile": "inkplate_6", "matching": "lab", "dither": "none"})
