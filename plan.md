@@ -682,8 +682,9 @@ remain separate from automated Linux container and browser verification.
 - ETags represent **actual delivered bytes**, not render timestamps. An unchanged
   raster can keep its validator and return 304 to a client retaining the matching
   body. Dynamic frame-fetch timing remains independent of the generation schedule.
-- Keep the last good output when HA is unavailable, a sensor is unknown, a script
-  times out, or rendering fails. Show render/snapshot times and stale/error status
+- Keep the last good output when loading the HA snapshot fails, a script times
+  out, or rendering fails. Individual unknown/unavailable values use explicit
+  helper fallbacks so a script can choose how to represent them. Show render/snapshot times and stale/error status
   separately from frame-transfer errors. Return temporary HTTP 503 when there is
   no previous good output. Restart regenerates outputs because the cache is
   intentionally volatile; it must not send empty files or a replacement error image.
@@ -1004,6 +1005,7 @@ generation intervals to device polls.
 - Native CI container checks have passed on AMD64 and ARM64, including syscall
   restrictions, unprivileged UID/GID 10002, read-only filesystem, no network, and
   native encoded output for all three device profiles. macOS Seatbelt probes and
-  real Chromium UI/device-delivery checks also pass. Final suite counts are
-  recorded after the release checks. Installed HA/physical panel acceptance remains
+  real Chromium UI/device-delivery checks also pass. Release evidence: 178 Python
+  tests, 14 JavaScript tests, original and dynamic browser smokes, and the live
+  stalled-transfer UI test passed. Installed HA/physical panel acceptance remains
   separate; no full ESPHome firmware build or hardware-quality success is claimed.

@@ -83,6 +83,7 @@ screen.text("Hello World", {{x:400,y:300,font:"{font_id}",fontSize:40,color:pale
                     await page.get_by_role('button',name='Edit Morning canvas',exact=True).click()
                     assert 'Hello World' in await page.get_by_role('textbox',name='JavaScript source').inner_text()
                     assert await page.locator('#dynamic-interval').input_value()=='10'
+                    await page.emulate_media(color_scheme='dark')
                     await page.set_viewport_size({'width':390,'height':844})
                     await page.screenshot(path=str(artifacts/'dynamic-editor-mobile.png'),full_page=True)
                     assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')
