@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.2
+
+- Estimate remaining battery days and scheduled refreshes from a reliable, calibrated voltage discharge trend. Keep the bounded observation history in RAM only.
+- Show forecasts only after sufficient consistent measurements; hide stale, noisy, flat, charging, or insufficient data. Reset after charging/replacement or battery calibration changes.
+
 ## 0.8.1
 
 - Replace the measured-L shortcut with a device-specific Processing preset selector and an Apply button beside it. Group recommended and experimental choices with optgroups.

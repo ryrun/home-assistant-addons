@@ -1479,3 +1479,28 @@ Presets reset manual tone sliders and inversion, and preserve composition, crop,
 rotation, orientation and variant/device assignments. You can adjust individual
 settings after applying a preset. These are starting points, not a guarantee of
 the best output for every image.
+
+### Voltage-based remaining-life forecast (0.8.2)
+
+Playback status shows **Estimated remaining battery life** only when calibrated
+voltage measurements establish a reliable downward trend. It reports approximate
+remaining days and refreshes. Battery Level MQTT attributes include the same
+`forecast` object when voltage estimation is enabled; unavailable forecasts are null.
+No extra battery percentage entity is created.
+
+Observations remain in RAM: at most one per hour over 90 days per device.
+Daily medians need at least five observed days spanning four days, a decline of
+at least 3% of the configured voltage range, and a linear fit with R² ≥ 0.8.
+Predictions cannot exceed three times the observation span or 365 days.
+Measurements older than the greater of two refresh intervals or two days hide
+the prediction. Charging/replacement (a rise above the recent median by over 10%
+of the voltage range) and calibration changes restart collection. Add-on restarts
+lose the history. Paused/disabled devices do not show a forecast.
+
+Days extrapolate the observed voltage trend to the configured empty voltage.
+Refresh counts use the current schedule including anchors and quiet hours;
+large counts use a bounded cadence sample. Voltage is not a linear measure of
+remaining energy, and temperature, WiFi and workload changes affect the estimate.
+Changing the schedule updates the refresh count, but the day estimate needs new
+measurements to reflect any changed consumption. HTTP fetches do not confirm
+physical display refreshes. Synthetic activity percentages never feed this model.

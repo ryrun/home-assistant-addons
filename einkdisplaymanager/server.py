@@ -56,7 +56,7 @@ from profiles import (
 )
 from storage import Store, new_id
 
-VERSION = '0.8.1'
+VERSION = '0.8.2'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -125,6 +125,7 @@ class Manager:
         self.network = network_defaults()
         self.store = Store(root, integer(self.options.get('storage_limit_mb', 1024), 64, 32768))
         self.diagnostics = Diagnostics(self.store)
+        self.battery_forecast = battery.Forecast()
         self.networks = [ipaddress.ip_network(n, strict=False) for n in self.options.get('allowed_networks', DEFAULT_NETWORKS)]
         if not self.networks:
             raise ValueError('Configure at least one allowed device network.')
@@ -167,7 +168,7 @@ class Manager:
         result['schedule'] = scheduling.config(device)
         result['timing'] = scheduling.view(device, time.time())
         result['battery'] = battery.config(device)
-        result['battery_status'] = battery.status(device, result['telemetry'])
+        result['battery_status'] = self.battery_status(device)
         result['transfer'] = self.diagnostics.transfer(device['id'])
         result['health'] = self.mqtt.health(device)
         if detail:
@@ -798,7 +799,7 @@ class Manager:
                                   'selected_output_hash': cached['hash'] if cached else None,
                                   'health': self.mqtt.health(device), 'telemetry': self.telemetry(identifier),
                                   'timing': scheduling.view(device, time.time()),
-                                  'battery_status': battery.status(device, self.telemetry(identifier)),
+                                  'battery_status': self.battery_status(device),
                                   **self.diagnostics.view(identifier)})
 
     async def remove_device(self, request):
@@ -806,12 +807,17 @@ class Manager:
         async with self.media_lock, self.locks[identifier]:
             self.store.delete('device', identifier)
             self.diagnostics.remove(identifier)
+            self.battery_forecast.histories.pop(identifier, None)
             for kind in ('settings_response', 'image_response', 'mqtt_watch', 'telemetry'):
                 try:
                     self.store.delete(kind, identifier)
                 except KeyError:
                     pass
         return web.json_response({'deleted': True})
+
+    def battery_status(self, device):
+        return battery.status(device, self.telemetry(device['id'])) | {
+            'forecast': self.battery_forecast.estimate(device, time.time())}
 
     def telemetry(self, identifier):
         try:
@@ -828,6 +834,7 @@ class Manager:
         if not (1 <= len(value) <= 6 and value.isascii() and value.isdecimal() and 500 <= int(value) <= 200000):
             return  # Missing/malformed telemetry must not prevent image updates.
         self.store.save('telemetry', {'id': device['id'], 'battery_millivolts': int(value), 'measured_at': time.time()})
+        self.battery_forecast.record(device, int(value), time.time())
         self.mqtt.wake.set()
 
     async def settings_json(self, request):

@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from aiohttp.test_utils import TestServer
@@ -135,6 +136,16 @@ async def main():
                     )
                     assert response.ok, await response.text()
                     devices.append(await response.json())
+                    if profile == "openpaper_l":
+                        stored = manager.store.get('device', device['id'])
+                        stored['battery'] = {'enabled': True, 'chemistry': 'custom', 'series_cells': 4,
+                                             'empty_voltage': 1.2, 'full_voltage': 1.6}
+                        manager.store.save('device', stored)
+                        now = time.time()
+                        for day in range(11):
+                            manager.battery_forecast.record(stored, 5800 - day * 40, now - (10 - day) * 86400)
+                        assert manager.battery_status(stored)['forecast']
+
                     manager.diagnostics.event(
                         device["id"],
                         "image_interrupted",

@@ -197,7 +197,7 @@ class MQTTBridge:
             image_name = None
         telemetry = self.manager.telemetry(device['id'])
         voltage = telemetry.get('battery_millivolts')
-        charge = battery.status(device, telemetry)
+        charge = self.manager.battery_status(device)
         use_voltage = charge['estimated_percent'] is not None
         attributes = ({**charge, 'measurement_time': iso(telemetry.get('measured_at')),
                        'meaning': 'Charge estimated from the last reported voltage and configured per-cell endpoints.'}

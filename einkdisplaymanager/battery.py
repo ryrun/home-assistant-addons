@@ -43,3 +43,83 @@ def status(device, telemetry):
     return {'estimated_percent': percentage, 'cell_voltage': cell_voltage,
             'measured_at': telemetry.get('measured_at'), 'source': 'linear_voltage',
             'chemistry': settings['chemistry'], 'estimated': True}
+
+
+class Forecast:
+    """Bounded, RAM-only discharge observations; never use synthetic charge."""
+
+    def __init__(self):
+        self.histories = {}
+
+    def record(self, device, millivolts, now):
+        from statistics import median
+
+        settings = config(device)
+        if not settings['enabled']:
+            self.histories.pop(device['id'], None)
+            return
+        signature = tuple(settings[key] for key in sorted(settings))
+        history = self.histories.get(device['id'])
+        span = 1000 * settings['series_cells'] * (settings['full_voltage'] - settings['empty_voltage'])
+        if history is None or history['signature'] != signature:
+            history = {'signature': signature, 'samples': {}}
+            self.histories[device['id']] = history
+        samples = history['samples']
+        recent = [v for t, v in samples.values() if now - t < 3 * 86400]
+        # Charging or replacement invalidates the previous discharge cycle.
+        if recent and millivolts > median(recent) + span * .1:
+            samples.clear()
+        # At most one observation per hour, for at most 90 days.
+        hour = int(now // 3600)
+        samples[hour] = (now, millivolts)
+        for key in list(samples):
+            if key < hour - 90 * 24:
+                del samples[key]
+
+    def estimate(self, device, now):
+        from statistics import median
+
+        import scheduling
+
+        history = self.histories.get(device['id'])
+        settings = config(device)
+        if (not history or not settings['enabled'] or device.get('paused') or not device.get('enabled', True)
+                or history['signature'] != tuple(settings[key] for key in sorted(settings))):
+            return None
+        samples = list(history['samples'].values())
+        if not samples or now - max(t for t, _ in samples) > max(2 * device['interval'], 2 * 86400):
+            return None
+        daily = {}
+        for timestamp, voltage in samples:
+            daily.setdefault(int(timestamp // 86400), []).append((timestamp, voltage))
+        points = [(median(t for t, _ in values) / 86400, median(v for _, v in values))
+                  for _, values in sorted(daily.items())]
+        if len(points) < 5 or points[-1][0] - points[0][0] < 4:
+            return None
+        mean_x = sum(x for x, _ in points) / len(points)
+        mean_y = sum(y for _, y in points) / len(points)
+        xx = sum((x - mean_x) ** 2 for x, _ in points)
+        yy = sum((y - mean_y) ** 2 for _, y in points)
+        xy = sum((x - mean_x) * (y - mean_y) for x, y in points)
+        slope = xy / xx
+        span = 1000 * settings['series_cells'] * (settings['full_voltage'] - settings['empty_voltage'])
+        if slope >= 0 or yy == 0 or xy * xy / (xx * yy) < .8 or -slope * (points[-1][0] - points[0][0]) < span * .03:
+            return None
+        empty = settings['empty_voltage'] * settings['series_cells'] * 1000
+        remaining = (mean_y + slope * (now / 86400 - mean_x) - empty) / -slope
+        # Do not extrapolate distant horizons from a short observation period.
+        if not 0 < remaining <= min(365, 3 * (points[-1][0] - points[0][0])):
+            return None
+        cutoff = now + remaining * 86400
+        cursor, refreshes = now, 0
+        # Bound computation for short refresh intervals and long forecasts.
+        for _ in range(256):
+            following = scheduling.next_due(device, cursor)
+            if following > cutoff:
+                break
+            refreshes += 1
+            cursor = following
+        else:
+            refreshes = round(remaining * 86400 / ((cursor - now) / refreshes))
+        return {'remaining_days': round(remaining, 1), 'remaining_refreshes': refreshes,
+                'estimated': True, 'source': 'voltage_trend'}

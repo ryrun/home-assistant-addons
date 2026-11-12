@@ -61,3 +61,79 @@ async def test_optional_profiles_and_generic_voltage_reporting_do_not_change_fir
     payload = manager.mqtt.payload(manager.store.get('device', device['id']))
     assert payload['battery_estimate'] is None
     assert payload['battery_attributes']['source'] == 'image_fetch_watchdog'
+
+
+def forecast_device(**changes):
+    return {'id': 'test', 'profile': 'openpaper_l', 'battery': PROFILE,
+            'interval': 21600, 'paused': False, 'enabled': True} | changes
+
+
+def discharge(forecast, device, *, count=11, slope=40):
+    start = 1800000000
+    for day in range(count):
+        forecast.record(device, 5800 - day * slope, start + day * 86400)
+    return start + (count - 1) * 86400
+
+
+def test_forecast_requires_reliable_data_and_is_ram_only():
+    device = forecast_device()
+    forecast = battery.Forecast()
+    assert forecast.estimate(device, 1800000000) is None
+    now = discharge(forecast, device)
+    result = forecast.estimate(device, now)
+    assert result['remaining_days'] == 15
+    assert result['remaining_refreshes'] == 60
+    assert battery.Forecast().estimate(device, now) is None
+    assert forecast.estimate(device, now + 3 * 86400) is None
+    assert forecast.estimate(device | {'paused': True}, now) is None
+    assert forecast.estimate(device | {'battery': PROFILE | {'full_voltage': 1.7}}, now) is None
+    forecast.record(device, 6200, now + 3600)
+    assert forecast.estimate(device, now + 3600) is None
+
+
+@pytest.mark.parametrize('slope,count', [(0, 11), (-10, 11), (40, 3), (1, 11)])
+def test_forecast_hides_flat_rising_short_and_small_changes(slope, count):
+    device = forecast_device()
+    forecast = battery.Forecast()
+    now = discharge(forecast, device, count=count, slope=slope)
+    assert forecast.estimate(device, now) is None
+
+
+def test_forecast_uses_quiet_hours_and_bounds_history():
+    device = forecast_device(schedule={'quiet_enabled': True, 'quiet_start': '00:00',
+                                       'quiet_end': '12:00', 'timezone': 'UTC'})
+    forecast = battery.Forecast()
+    now = discharge(forecast, device)
+    assert forecast.estimate(device, now)['remaining_refreshes'] < 60
+    for hour in range(2400):
+        forecast.record(device, 5400, now + hour * 3600)
+    assert len(forecast.histories['test']['samples']) <= 2161
+
+
+def test_forecast_hides_noisy_discharge():
+    device = forecast_device()
+    forecast = battery.Forecast()
+    now = discharge(forecast, device)
+    for day in range(11):
+        forecast.record(device, 5600 + (day % 2) * 100, now + day * 86400)
+    assert forecast.estimate(device, now + 10 * 86400) is None
+
+
+async def test_forecast_is_exposed_in_device_status_and_mqtt_attributes(system, monkeypatch):
+    manager, admin, frames = system
+    device = await (await admin.post('/api/devices', json={'name': 'Forecast frame', 'profile': 'openpaper_l'})).json()
+    endpoint = '/api/devices/' + device['id']
+    await admin.put(endpoint, json={'battery': PROFILE, 'interval': 21600})
+    stored = manager.store.get('device', device['id'])
+    now = discharge(manager.battery_forecast, stored)
+    monkeypatch.setattr('server.time.time', lambda: now)
+    response = await frames.get(path(device['urls']['settings']), headers={'X-Display-Battery-Millivolts': '5400'})
+    assert response.status == 200
+    detail = await (await admin.get(endpoint)).json()
+    assert detail['battery_status']['forecast']['remaining_days'] == 15
+    status = await (await admin.get(endpoint + '/status')).json()
+    assert status['battery_status']['forecast'] == detail['battery_status']['forecast']
+    payload = manager.mqtt.payload(stored)
+    assert payload['battery_attributes']['forecast']['remaining_refreshes'] == 60
+    await admin.delete(endpoint)
+    assert stored['id'] not in manager.battery_forecast.histories
