@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.1
+
+- Replace the measured-L shortcut with a device-specific Processing preset selector and an Apply button beside it. Group recommended and experimental choices with optgroups.
+- Offer photo presets for both OpenPaper models, the experimental measured preset for OpenPaper L, and grayscale/monochrome presets for Inkplate 6.
+- Selecting a preset leaves current settings unchanged; Apply updates processing settings and renders a preview. Saving remains explicit and preserves existing variant IDs/assignments.
+
 ## 0.8.0
 
 - Upgrade epdoptimize to 1.4.1 with gamut-aware error diffusion and its local full-resolution 16-bit blue-noise mask, for static and dynamic images.

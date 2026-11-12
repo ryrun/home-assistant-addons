@@ -83,6 +83,11 @@ async def main():
                     assert await page.locator('#target-profile > optgroup').evaluate_all('(groups)=>groups.map(g=>g.label)') == ['Display models']
                     assert await page.locator('#target-profile > option').count() == 0
                     assert await page.locator('#target-profile').input_value() == 'profile:openpaper_l'
+                    assert await page.locator('#apply-preset').is_disabled()
+                    for model,choices in [('openpaper_7',['','photo']),('inkplate_6',['','photo','monochrome']),('openpaper_l',['','photo','measured'])]:
+                        await page.locator('#target-profile').select_option('profile:'+model)
+                        assert await page.locator('#processing-preset option').evaluate_all('(nodes)=>nodes.map(n=>n.value)')==choices
+                        assert await page.locator('#apply-preset').is_disabled()
                     assert await page.locator('#palette > optgroup').evaluate_all('(groups)=>groups.map(g=>g.label)') == ['Spectra 6','Monochrome']
                     assert await page.locator('#dither > optgroup').evaluate_all('(groups)=>groups.map(g=>g.label)') == ['Error diffusion','Pattern dithering','No dithering']
                     assert await page.locator('#dither > optgroup[label="Error diffusion"] option').count() == 6
@@ -180,7 +185,10 @@ async def main():
                     assert await page.locator('#dither').input_value() == 'atkinson'
                     assert await page.get_by_role('button', name='About dithering methods').count() == 0
                     assert 'predictable baseline' in await page.locator('#matching-tip').inner_text()
-                    await page.locator('#use-l-photo-profile').click()
+                    await page.locator('#processing-preset').select_option('measured')
+                    assert await page.locator('#palette').input_value() == 'grayscale'
+                    assert await page.locator('#processing-preset > optgroup').evaluate_all('(groups)=>groups.map(g=>g.label)') == ['Recommended','Experimental']
+                    await page.locator('#apply-preset').click()
                     assert await page.locator('#palette').input_value() == 'openpaper_l_measured'
                     assert await page.locator('#orientation').input_value() == 'landscape'
                     assert await page.locator('#rotation').input_value() == '90'

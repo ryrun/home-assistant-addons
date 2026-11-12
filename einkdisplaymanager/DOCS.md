@@ -1431,7 +1431,8 @@ automated mocked-API and actual restricted-worker tests.
 
 1. In **Media Library → Images**, open the image, then choose **Edit** beside
    its saved variant. The saved optimizer version is shown in the variant list.
-2. Click **Try measured L profile**. It selects the experimental measured
+2. Under **Processing preset**, select **Measured L photo preset** and click
+   **Apply** to the right. It selects the experimental measured
    13.3-inch palette, enables Automatic optimization with Natural intent, selects
    LAB and Floyd–Steinberg, resets brightness/contrast/saturation to zero, and
    generates a preview. Crop, mounting orientation, rotation and variant name
@@ -1459,3 +1460,22 @@ The profile is based on the manufacturer's DKE 13.3-inch measurements under its
 test lighting. Compare on the physical frame with the same source, crop and
 lighting; a browser preview is not a calibrated simulation of reflective ink.
 See [panel measurements](https://docs.paperlesspaper.de/panels/dke-13-3-inch).
+
+### Processing presets (0.8.1)
+
+The image editor offers a **Processing preset** selector and an **Apply** button
+beside it. The choices depend on the selected target model:
+
+| Model | Recommended | Experimental |
+|---|---|---|
+| OpenPaper L | Photo preset | Measured L photo preset |
+| OpenPaper 7 | Photo preset | — |
+| Inkplate 6 | Grayscale photo preset; Monochrome preset | — |
+
+The description below the selector lists the settings to be applied. Selecting
+a choice does not alter the current recipe. **Apply** sets processing options
+and starts the preview; **Save changes** or **Save as new variant** persists it.
+Presets reset manual tone sliders and inversion, and preserve composition, crop,
+rotation, orientation and variant/device assignments. You can adjust individual
+settings after applying a preset. These are starting points, not a guarantee of
+the best output for every image.

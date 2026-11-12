@@ -114,3 +114,5 @@ input,select,textarea{min-width:0}
 .queue .entry-text small{overflow-wrap:anywhere}
 
 .calendar-inputs{margin-top:18px}
+
+.preset-field{margin-bottom:18px;min-width:0}.preset-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;margin-top:6px}.preset-row button{white-space:nowrap}.preset-field .help{margin:6px 0 0}

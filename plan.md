@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.8.0**; locally tested, with Green,
+Status: experimental implementation **0.8.1**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -1094,3 +1094,11 @@ in RAM, including failed-attempt total duration; retain last-good output.
   only through Save changes, retaining IDs, device assignments and crop/layout.
 - Record/display generating optimizer versions. Preserve existing static bytes
   until rebuilt, and update dynamic target recipes in place.
+
+## 27. Device-specific preset selection (0.8.1)
+
+Replace the measured-L shortcut with grouped processing choices and an adjacent
+Apply button. Selection alone preserves current settings; Apply adopts a
+device-compatible starting point and previews it. Retain explicit saving, crop,
+orientation and assignments. Offer generic OpenPaper photo, experimental measured
+L photo, and Inkplate grayscale/monochrome choices.
