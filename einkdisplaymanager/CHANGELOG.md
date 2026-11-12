@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.4
+
+- Add optional `screen.text()` font-metric alignment with `verticalMetrics: "font"`: stable ascent/descent frames for top/middle/bottom and fixed multiline spacing. Keep content-bounding-box alignment as the default.
+- Add `verticalAlign: "baseline"` so y directly specifies the first baseline. Preserve explicit-palette coverage at the same position.
+- Display render timing stages as stacked label/value rows without horizontal scrolling. Align font ID fields and Delete buttons consistently on desktop and mobile.
+- Verify accented capitals, descenders, multiline text, uploaded/default fonts, legacy placement, and responsive controls.
+
 ## 0.6.3
 
 - Measure elapsed render time with a monotonic clock for dynamic images and draft previews.

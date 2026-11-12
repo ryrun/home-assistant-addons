@@ -73,6 +73,15 @@ async def main():
                     await font_input.click()
                     assert await font_input.evaluate('(input)=>input.readOnly&&input.selectionStart===0&&input.selectionEnd===input.value.length')
                     assert await page.locator('[data-copy-value]').count()==0
+                    for viewport in ({'width':1280,'height':900},{'width':390,'height':844}):
+                        await page.set_viewport_size(viewport)
+                        assert await page.locator('.font-row').evaluate('(el)=>el.scrollWidth<=el.clientWidth')
+                        controls=page.locator('.font-controls')
+                        assert await controls.evaluate('(el)=>el.scrollWidth<=el.clientWidth')
+                        field=await controls.locator('input').bounding_box()
+                        button=await controls.locator('[data-delete-font]').bounding_box()
+                        assert abs(field['y']+field['height']-button['y']-button['height'])<2
+                    await page.set_viewport_size({'width':1440,'height':1000})
                     await page.get_by_role('link',name='Dynamic images',exact=True).click()
                     await page.locator('#new-dynamic').click()
                     assert len(editor_requests)==1, 'Script editor did not load on demand'
@@ -84,7 +93,7 @@ async def main():
                     source=f'''screen.clear("#ffffff");
 screen.image("{asset}", {{x:20,y:20,width:160,height:120}});
 screen.rectangle({{x:200,y:200,width:400,height:200,stroke:palette.black,strokeWidth:2}});
-screen.text("Hello World", {{x:400,y:300,font:"{font_id}",fontSize:40,color:palette.black,align:"center",verticalAlign:"middle"}});
+screen.text("Hello World", {{x:400,y:300,font:"{font_id}",fontSize:40,color:palette.black,align:"center",verticalAlign:"middle",verticalMetrics:"font"}});
 '''
                     await page.get_by_role('textbox',name='JavaScript source').fill(source)
                     assert await page.locator('.cm-line span').count()>0
@@ -96,6 +105,7 @@ screen.text("Hello World", {{x:400,y:300,font:"{font_id}",fontSize:40,color:pale
                     assert 'Render timings' in await page.locator('#dynamic-timings').inner_text()
                     await page.locator('#dynamic-timings summary').click()
                     assert 'Optimization + output' in await page.locator('#dynamic-timings').inner_text()
+                    assert await page.locator('#dynamic-timings').evaluate('(el)=>el.scrollWidth<=el.clientWidth')
                     await page.screenshot(path=str(artifacts/'dynamic-editor-desktop.png'),full_page=True)
                     await page.locator('#dynamic-save').click()
                     await page.locator('#notice').filter(has_text='Dynamic image and target saved.').wait_for()

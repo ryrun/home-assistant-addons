@@ -12,7 +12,7 @@ from profiles import PROFILES
 async def main():
     result = await worker({"mode": "probe"})
     assert result["isolation"] == "linux-seccomp", result
-    script = 'screen.text("Linux sandbox",{x:20,y:30});screen.circle({x:100,y:100,radius:20,fill:palette.black});'
+    script = 'screen.text("FÜNF gyp",{x:20,y:30,verticalAlign:"middle",verticalMetrics:"font"});screen.text("ZEHN",{x:20,y:70,verticalAlign:"baseline"});screen.circle({x:100,y:100,radius:20,fill:palette.black});'
     commands = await worker(
         {
             "mode": "commands",

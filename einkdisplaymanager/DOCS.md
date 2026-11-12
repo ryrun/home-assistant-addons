@@ -1114,7 +1114,7 @@ render instead of reaching unrestricted Pillow APIs.
 |---|---|
 | `screen.width`, `screen.height` | Current target's viewing dimensions; do not hard-code a device size |
 | `screen.clear(color)` | Opaque background; default `#ffffff` |
-| `screen.text(text, options)` | `x`, `y`, `font`, `fontSize`, `color`, `align`, `verticalAlign`, optional `maxWidth` for word wrapping |
+| `screen.text(text, options)` | `x`, `y`, `font`, `fontSize`, `color`, `align`, `verticalAlign`, optional `verticalMetrics` and `maxWidth` for word wrapping |
 | `screen.line(options)` | `x1`, `y1`, `x2`, `y2`, `stroke`, `strokeWidth` |
 | `screen.rectangle(options)` | Top-left `x`, `y`, `width`, `height`, optional `fill`, `stroke`, `strokeWidth` |
 | `screen.circle(options)` | Center `x`, `y`, `radius`, optional `fill`, `stroke`, `strokeWidth` |
@@ -1125,6 +1125,28 @@ Text defaults to left/top alignment, 24 px, black and font `default`. Use
 around a point. Right/bottom alignment and multiline text are supported. Font
 sizes are pixels, not CSS points. The bundled default font has a limited character
 set; upload a suitable font for additional scripts or symbols.
+
+For stable placement as content changes, set `verticalMetrics: "font"`.
+`verticalAlign: "top"`, `"middle"`, and `"bottom"` then position a fixed frame
+with height `ascent + descent`, obtained from the selected font at `fontSize`.
+For one line, its baseline is respectively `y + ascent`,
+`y - (ascent + descent) / 2 + ascent`, or `y - descent`.
+Accents and descenders may change the visible bounds without moving this baseline.
+The default `verticalMetrics: "text"` retains the existing content-bounding-box
+placement. Horizontal alignment keeps using visible text bounds.
+
+`verticalAlign: "baseline"` sets `y` directly to the first line's baseline,
+with or without `verticalMetrics: "font"`. In font-metric and baseline modes,
+multiple lines (including wrapped lines) advance by `ascent + descent + 4` pixels;
+top/middle/bottom position the whole fixed-height multiline block.
+
+```javascript
+screen.text("FÜNF VOR HALB SECHS", {
+  x: 400, y: 396, font: "uploaded-font-id", fontSize: 116,
+  align: "center", verticalAlign: "middle", verticalMetrics: "font",
+  color: palette.black
+});
+```
 
 Ordinary opaque CSS color names and `#RRGGBB` colors are mapped to the target
 palette. `palette.black`, `palette.white`, and available named panel colors select

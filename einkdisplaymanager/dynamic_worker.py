@@ -74,6 +74,7 @@ def validate(commands):
             "color",
             "align",
             "verticalAlign",
+            "verticalMetrics",
             "maxWidth",
         },
         "line": {"x1", "y1", "x2", "y2", "stroke", "strokeWidth"},
@@ -220,8 +221,12 @@ def draw(payload):
                 "top",
                 "middle",
                 "bottom",
+                "baseline",
             ):
                 raise ValueError("Invalid text alignment.")
+            metrics = c.get("verticalMetrics", "text")
+            if metrics not in ("text", "font"):
+                raise ValueError("Invalid vertical text metrics; use text or font.")
             selected = font(c.get("font", "default"), round(c.get("fontSize", 24)))
             text = c.get("text", "")
             if "maxWidth" in c:
@@ -237,6 +242,47 @@ def draw(payload):
                     else:
                         line = candidate
                 text = "\n".join(lines + [line])
+            if metrics == "font" or vertical == "baseline":
+                # A fixed ascent/descent frame, independent of the current glyphs.
+                # Baseline anchors avoid Pillow's content-dependent multiline spacing.
+                ascent, descent = selected.getmetrics()
+                lines = text.split("\n")
+                advance = ascent + descent + 4  # Existing default inter-line gap.
+                frame_height = len(lines) * (ascent + descent) + (len(lines) - 1) * 4
+                baseline = (
+                    y
+                    if vertical == "baseline"
+                    else (
+                        y
+                        - {"top": 0, "middle": 0.5, "bottom": 1}[vertical]
+                        * frame_height
+                        + ascent
+                    )
+                )
+                for index, line in enumerate(lines):
+                    box = ink.textbbox((0, 0), line, font=selected, anchor="ls")
+                    position = (
+                        x
+                        - {"left": 0, "center": 0.5, "right": 1}[align]
+                        * (box[2] - box[0])
+                        - box[0],
+                        baseline + index * advance,
+                    )
+                    ink.text(
+                        position,
+                        line,
+                        font=selected,
+                        anchor="ls",
+                        fill=color(c.get("color", "#000000")),
+                    )
+                    mark(
+                        "text",
+                        [position, line],
+                        {"fill": c.get("color", "#000000")},
+                        font=selected,
+                        anchor="ls",
+                    )
+                continue
             box = ink.multiline_textbbox((0, 0), text, font=selected, align=align)
             text_width, text_height = box[2] - box[0], box[3] - box[1]
             position = (

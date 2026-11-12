@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.6.3**; locally tested, with Green,
+Status: experimental implementation **0.6.4**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -1041,3 +1041,12 @@ Show per-target script/startup, resource loading, render worker/validation and
 its drawing, source PNG and optimization/native-output subdivisions. Separate
 queue waiting and Home Assistant snapshots. Store only the latest measurements
 in RAM, including failed-attempt total duration; retain last-good output.
+
+## 22. Stable text frames and layout corrections (0.6.4)
+
+- `verticalMetrics: "font"` uses ascent/descent frames for top/middle/bottom.
+  `verticalAlign: "baseline"` anchors the first baseline at y. Multi-line
+  advance is ascent + descent + 4 px; legacy content bounds remain the default.
+- Verify ZEHN, FÜNF, and gyp against a fixed baseline with default/uploaded fonts.
+- Stack render timing labels/values and consistently align font ID/Delete
+  controls across desktop and mobile, without horizontal scrolling.
