@@ -233,7 +233,7 @@ async def test_api_is_read_only_bounded_and_empty_calendar_is_explicit():
         Response([], 500),
         Response([], 302),
         Response(b"not json"),
-        Response(b"["*10000 + b"0" + b"]"*10000),
+        Response(b"[" * 10000 + b"0" + b"]" * 10000),
         Response({"error": "calendar failed"}),
         Response([event("Naive", "2026-11-12T10:00:00", "2026-11-12T11:00:00")]),
         Response([event("Invalid day", "2026-02-30", "2026-03-01")]),
@@ -308,8 +308,8 @@ async def test_quickjs_combines_two_events_even_from_same_calendar():
             {"summary": "Abholung", "start": "2026-11-20", "daysUntil": 8}
         ],
         "calendar.geburtstage": [
-            {"summary": "Example", "start": "2026-11-12", "daysUntil": 0},
-            {"summary": "Example B", "start": "2026-11-13", "daysUntil": 1},
+            {"summary": "Birthday A", "start": "2026-11-12", "daysUntil": 0},
+            {"summary": "Birthday B", "start": "2026-11-13", "daysUntil": 1},
         ],
     }
     result = await worker(
@@ -326,7 +326,10 @@ async def test_quickjs_combines_two_events_even_from_same_calendar():
             },
         }
     )
-    assert [c["text"] for c in result["commands"]] == ["Example: Heute", "Example B: Morgen"]
+    assert [c["text"] for c in result["commands"]] == [
+        "Birthday A: Heute",
+        "Birthday B: Morgen",
+    ]
     with pytest.raises(ValueError, match="not configured"):
         await worker(
             {
@@ -371,7 +374,7 @@ async def test_one_snapshot_for_all_targets_and_error_preserves_last_good(
     session = Session(
         {
             "calendar.geburtstage": Response(
-                [event("Example", "2026-12-10", "2026-12-11")]
+                [event("Birthday A", "2026-12-10", "2026-12-11")]
             )
         }
     )

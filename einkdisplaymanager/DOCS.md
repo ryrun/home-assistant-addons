@@ -1358,7 +1358,7 @@ an unselected calendar raises an error. Each event has exactly these fields:
 ```javascript
 {
   calendar: "calendar.geburtstage",
-  summary: "Geburtstag Example",
+  summary: "Example birthday",
   start: "2026-12-10",
   end: "2026-12-11",
   allDay: true,

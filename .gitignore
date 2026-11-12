@@ -1,3 +1,40 @@
+# Local editor and operating-system files.
 .DS_Store
+.idea/
+.vscode/
 
-einkdisplaymanager/scripts/editor-build/node_modules/
+# Dependency environments and generated caches.
+.venv/
+venv/
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Local Home Assistant runtime data and credentials.
+/data/
+/*/data/
+/local-data/
+/*/local-data/
+.env
+.env.*
+!.env.example
+options.json
+secrets.yaml
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local logs, network captures and browser test output.
+*.log
+*.har
+playwright-report/
+test-results/
