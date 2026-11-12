@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.0
+
+- Add synchronous read-only `ha.calendarEvents(entityId)` snapshots, fetched once before script execution and shared by all target variants. No network or credentials are exposed to QuickJS.
+- Configure up to eight calendar entities, a 1–366-day look-ahead and optional start at local midnight in the dynamic-image editor. Use the image time zone for event timestamps, local dates and DST-safe calendar-day distances.
+- Normalize and sort all-day/timed events; leave recurrence expansion to Home Assistant. Empty calendars return `[]`; fetch/format/limit failures retain the previous image and report an error.
+- Bound requests, time, raw/normalized data and event counts. Add a two-calendar/two-event example plus calendar, browser and native-worker regressions.
+
 ## 0.6.5
 
 - Fix dashboard and modal overflow caused by long device names, unbroken filenames and variant labels. Preserve access to dialog close buttons and wrap image-picker content.

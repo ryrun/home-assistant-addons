@@ -10,7 +10,7 @@
     }
     return value;
   }
-  const values=safe(input.states), warnings=[];
+  const values=safe(input.states), calendars=safe(input.calendars||{}), warnings=[];
   const add=(type, options)=>{
     if(commands.length>=limit)throw new Error('At most 1000 drawing commands are allowed.');
     const plain=parse(stringify(options));
@@ -23,6 +23,10 @@
     circle(options){add('circle',options);},image(id,options={}){add('image',{...options,id:String(id)});}
   });
   const ha=freeze({
+    calendarEvents(id){
+      if(!Object.hasOwn(calendars,id))throw new Error('Calendar '+String(id)+' is not configured. Add it under Home Assistant inputs.');
+      return calendars[id];
+    },
     state(id,fallback=null){const s=Object.hasOwn(values,id)?values[id]:null;return !s||['unknown','unavailable'].includes(s.state)?fallback:s.state;},
     number(id,fallback=null){const s=this.state(id);if(s===null||String(s).trim()==='')return fallback;const n=Number(s);return Number.isFinite(n)?n:fallback;},
     attribute(id,name,fallback=null){return Object.hasOwn(values,id)?values[id]?.attributes?.[name]??fallback:fallback;}

@@ -1112,6 +1112,7 @@ render instead of reaching unrestricted Pillow APIs.
 
 | API | Options / behavior |
 |---|---|
+| `ha.calendarEvents(entityId)` | Sorted events from a configured read-only calendar snapshot; see Calendar inputs below |
 | `screen.width`, `screen.height` | Current target's viewing dimensions; do not hard-code a device size |
 | `screen.clear(color)` | Opaque background; default `#ffffff` |
 | `screen.text(text, options)` | `x`, `y`, `font`, `fontSize`, `color`, `align`, `verticalAlign`, optional `verticalMetrics` and `maxWidth` for word wrapping |
@@ -1319,3 +1320,91 @@ The audit checks page/container overflow and out-of-bounds headings and dialogs;
 intentional truncated card titles and internal scroll areas remain supported.
 Use `--report` to collect findings without failing the run. `EINK_BROWSER=firefox`
 is supported when that Playwright browser can start on the test host.
+
+### Calendar inputs (0.7.0)
+
+Dynamic images can read Home Assistant calendar events directly without a
+template sensor. In **Home Assistant inputs**, configure **Calendar entity IDs**
+(one `calendar.*` ID per line), **Calendar look-ahead (days)**, and
+**Start at local midnight**. The defaults are no selected calendars, 366 days,
+and local midnight enabled. The image's **Time zone** governs the request range
+and returned local dates. Calendar IDs are explicitly selected here; calls in
+the script do not implicitly grant calendar access. Settings apply to both draft
+previews and saved renders. No extra add-on permission or ESPHome change is needed.
+
+`ha.calendarEvents("calendar.geburtstage")` synchronously returns an immutable
+array sorted by actual start instant. Use spread or `.slice()` before sorting
+or modifying it locally. A selected calendar with no events returns `[]`. Calling
+an unselected calendar raises an error. Each event has exactly these fields:
+
+```javascript
+{
+  calendar: "calendar.geburtstage",
+  summary: "Geburtstag Example",
+  start: "2026-12-10",
+  end: "2026-12-11",
+  allDay: true,
+  startDate: "2026-12-10",
+  daysUntil: 28
+}
+```
+
+All-day `start`/`end` remain ISO dates; the end is exclusive. Timed values are ISO
+timestamps with offsets converted to the image time zone. `startDate` is the
+local start date; `daysUntil` subtracts local calendar dates from the render day's
+date, rather than dividing elapsed seconds by 86400. This handles DST changes,
+year boundaries and leap days. Today's events remain available after their time
+has passed when midnight start is enabled. Ongoing multi-day events can have
+negative `daysUntil`; filter these if only events starting today or later matter.
+
+The query interval is start-inclusive/end-exclusive: midnight today through
+midnight `calendar_days` days later. With midnight disabled, it begins at the
+render timestamp and ends at the same local clock time that many days later.
+Home Assistant's calendar integration expands recurring occurrences. The manager
+does not expand RRULEs or deduplicate occurrences from the same series.
+
+Combine first, then sort and limit to choose the next two events across both
+calendars, including two events from the same calendar:
+
+```javascript
+const events = [
+  ...ha.calendarEvents("calendar.abfallkalender"),
+  ...ha.calendarEvents("calendar.geburtstage")
+]
+  .filter(event => event.daysUntil >= 0)
+  .sort((a, b) => a.daysUntil - b.daysUntil || a.start.localeCompare(b.start))
+  .slice(0, 2);
+
+function eventText(event) {
+  if (!event) return "";
+  if (event.daysUntil === 0) return `${event.summary}: Heute`;
+  if (event.daysUntil === 1) return `${event.summary}: Morgen`;
+  return `${event.summary}: in ${event.daysUntil} Tagen`;
+}
+```
+
+A complete drawing example is in `web/examples/calendar.js`. Configure its two
+calendar IDs in the editor and adjust fonts/coordinates to your layout.
+
+The trusted parent reads `GET /api/calendars/{entity_id}` through the Supervisor
+Core proxy with the existing add-on token. QuickJS receives only normalized JSON,
+with no token, network API or callbacks. One snapshot and render timestamp are
+used for all targets in a batch; there is no per-device calendar fetch.
+Calendar acquisition has a 10-second total deadline and at most eight GETs, with
+redirects disabled and no retries. Limits are 500 events per calendar, 1000
+combined, 256 KiB per response, 1 MiB combined response data, 256 KiB normalized
+calendar data and 2048 UTF-8 bytes per summary. Limit failures are errors rather
+than silent truncation; reduce the look-ahead or calendar selection. Sensor
+snapshots retain their separate existing limits.
+
+A non-200 response, unavailable API, malformed data or timeout aborts rendering,
+shows an error and preserves all last-good target outputs. These failures never
+appear as an empty calendar. Calendar contents and generated images remain in
+RAM; only calendar configuration is saved. Snapshot elapsed time is included in
+**Render timings → Home Assistant snapshot**.
+
+API contract checked against the official Home Assistant
+[calendar endpoint](https://github.com/home-assistant/core/blob/master/homeassistant/components/calendar/__init__.py)
+and [event serialization](https://github.com/home-assistant/core/blob/dev/homeassistant/components/calendar/helper.py)
+on 2026-11-12. Live integration/provider acceptance remains separate from the
+automated mocked-API and actual restricted-worker tests.

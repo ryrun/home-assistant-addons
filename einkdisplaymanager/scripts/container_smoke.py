@@ -12,6 +12,23 @@ from profiles import PROFILES
 async def main():
     result = await worker({"mode": "probe"})
     assert result["isolation"] == "linux-seccomp", result
+    calendar_commands = await worker(
+        {
+            "mode": "commands",
+            "source": 'const events=ha.calendarEvents("calendar.test");screen.text(events[0].summary+":"+events[0].daysUntil);',
+            "input": {
+                "width": 800,
+                "height": 600,
+                "states": {},
+                "palette": {},
+                "now": {},
+                "calendars": {
+                    "calendar.test": [{"summary": "Calendar snapshot", "daysUntil": 1}]
+                },
+            },
+        }
+    )
+    assert calendar_commands["commands"][0]["text"] == "Calendar snapshot:1"
     script = 'screen.text("FÜNF gyp",{x:20,y:30,verticalAlign:"middle",verticalMetrics:"font"});screen.text("ZEHN",{x:20,y:70,verticalAlign:"baseline"});screen.circle({x:100,y:100,radius:20,fill:palette.black});'
     commands = await worker(
         {

@@ -112,3 +112,5 @@ input,select,textarea{min-width:0}
   .page-head>div{flex-basis:100%}
 }
 .queue .entry-text small{overflow-wrap:anywhere}
+
+.calendar-inputs{margin-top:18px}

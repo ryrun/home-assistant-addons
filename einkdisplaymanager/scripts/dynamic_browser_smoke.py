@@ -87,6 +87,13 @@ async def main():
                     assert len(editor_requests)==1, 'Script editor did not load on demand'
                     await page.get_by_label('Name',exact=True).fill('Morning canvas')
                     await page.locator('#dynamic-interval').fill('10')
+                    await page.get_by_text('Home Assistant inputs',exact=True).click()
+                    assert await page.locator('#dynamic-calendar-days').input_value()=='366'
+                    assert await page.locator('#dynamic-calendar-day-start').is_checked()
+                    await page.locator('#dynamic-calendar-days').fill('30')
+                    await page.locator('#dynamic-calendar-day-start').uncheck()
+                    # Empty calendars work without HA; settings persist for later use.
+                    await page.get_by_text('Home Assistant inputs',exact=True).click()
                     await page.locator('#dynamic-profile').select_option('inkplate_6')
                     assert await page.locator('#dynamic-orientation').input_value()=='landscape'
                     assert await page.locator('#dynamic-palette').input_value()=='gray8'
@@ -110,6 +117,14 @@ screen.text("Hello World", {{x:400,y:300,font:"{font_id}",fontSize:40,color:pale
                     await page.locator('#dynamic-save').click()
                     await page.locator('#notice').filter(has_text='Dynamic image and target saved.').wait_for()
                     await page.locator('#dynamic-render-status').filter(has_text='Ready').wait_for(timeout=90000)
+                    await page.get_by_text('Home Assistant inputs',exact=True).click()
+                    assert await page.locator('#dynamic-calendar-days').input_value()=='30'
+                    assert not await page.locator('#dynamic-calendar-day-start').is_checked()
+                    await page.locator('#dynamic-calendars').fill('calendar.geburtstage')
+                    await page.locator('#dynamic-preview').click()
+                    await page.locator('#notice').filter(has_text='Calendar rendering requires').wait_for()
+                    await page.locator('#dynamic-calendars').fill('')
+                    await page.get_by_text('Home Assistant inputs',exact=True).click()
                     await page.locator('#dynamic-timings summary').wait_for()
                     await page.locator('#dynamic-timings summary').click()
                     await page.wait_for_timeout(2200)

@@ -31,7 +31,7 @@ English management interface through HA Ingress.
   ESPHome `greyscale: false`.
 - Hide already assigned motifs in each device’s Add images picker.
 
-**Experimental 0.6.5.** Automated and browser testing are separate from real-device
+**Experimental 0.7.0.** Automated and browser testing are separate from real-device
 acceptance. Installation on Home Assistant Green and display quality on a physical
 frame still need verification. The new OpenPaper 7 profile is validated in software;
 physical acceptance on its 7.3-inch Spectra 6 hardware remains pending. Inkplate 6

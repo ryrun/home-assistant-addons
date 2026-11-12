@@ -15,6 +15,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import aiohttp
+import calendar_snapshot
 from media import COLORS, GRAY8, digest, validate_variant
 from profiles import PROFILES, view_size
 
@@ -122,6 +123,9 @@ def definition(data, old=None):
         "interval",
         "timezone",
         "entities",
+        "calendars",
+        "calendar_days",
+        "calendar_start_of_day",
         "modified",
         "targets",
     }:
@@ -160,6 +164,7 @@ def definition(data, old=None):
     )
     if len(result["entities"]) > 64:
         raise ValueError("At most 64 Home Assistant entities can be read per image.")
+    result.update(calendar_snapshot.settings(result))
     return result
 
 
@@ -358,7 +363,15 @@ class DynamicImages:
             raise ValueError("Selected Home Assistant snapshot exceeds 256 KiB.")
         return result
 
-    async def generate(self, document, target, states, now):
+    async def calendar_snapshot(self, document, now):
+        return await calendar_snapshot.snapshot(
+            self.session,
+            os.environ.get("SUPERVISOR_TOKEN"),
+            document,
+            now,
+        )
+
+    async def generate(self, document, target, states, now, calendars=None):
         started = time.perf_counter()
         if not self.isolation:
             raise ValueError(
@@ -392,6 +405,7 @@ class DynamicImages:
             "width": size[0],
             "height": size[1],
             "states": states,
+            "calendars": calendars or {},
             "palette": {k: "palette:" + k for k in palette},
             "now": {
                 "hour": clock.hour,
@@ -506,9 +520,14 @@ class DynamicImages:
                 now = time.time()
                 snapshot_started = time.perf_counter()
                 states = await self.snapshot(document["entities"])
+                calendars = await self.calendar_snapshot(document, now)
                 snapshot_seconds = time.perf_counter() - snapshot_started
                 result = await self.generate(
-                    {**document, "id": "preview"}, target, states, now,
+                    {**document, "id": "preview"},
+                    target,
+                    states,
+                    now,
+                    calendars,
                 )
                 result["timings"]["snapshot_seconds"] = snapshot_seconds
                 return result
@@ -551,7 +570,9 @@ class DynamicImages:
             if not targets:
                 raise ValueError("Create a target variant before rendering.")
             snapshot_started = time.perf_counter()
-            states, now = await self.snapshot(document["entities"]), time.time()
+            now = time.time()
+            states = await self.snapshot(document["entities"])
+            calendars = await self.calendar_snapshot(document, now)
             timings["snapshot_seconds"] = time.perf_counter() - snapshot_started
             results = {}
             for target in targets:
@@ -559,13 +580,16 @@ class DynamicImages:
                 async with self.lock:
                     queue_seconds = time.perf_counter() - queued
                     results[target["id"]] = await self.generate(
-                        document, target["recipe"], states, now
+                        document, target["recipe"], states, now, calendars
                     )
-                    timings["targets"].append({
-                        "id": target["id"], "name": target["name"],
-                        "queue_seconds": queue_seconds,
-                        **results[target["id"]]["timings"],
-                    })
+                    timings["targets"].append(
+                        {
+                            "id": target["id"],
+                            "name": target["name"],
+                            "queue_seconds": queue_seconds,
+                            **results[target["id"]]["timings"],
+                        }
+                    )
             if self.store.get("asset", identifier)["modified"] != document["modified"]:
                 raise ValueError(
                     "Script changed during rendering; render the saved version again."

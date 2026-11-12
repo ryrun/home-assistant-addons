@@ -139,3 +139,17 @@ is descriptive metadata. Hardware timing/charge calibration remains unverified.
   distribution copyright notices retained. The default-deny filter is installed
   with `PR_SET_NO_NEW_PRIVS`; startup self-tests must pass before script execution.
   macOS development uses the system Seatbelt API and is tested separately.
+
+## Calendar API snapshot extension (0.7.0)
+
+Checked 2026-11-12 against official Home Assistant sources:
+- [CalendarEventView](https://github.com/home-assistant/core/blob/master/homeassistant/components/calendar/__init__.py):
+  read-only GET `/api/calendars/{entity_id}` with offset-aware `start`/`end` query
+  values; calls the calendar entity's `async_get_events`.
+- [api_event_dict_factory](https://github.com/home-assistant/core/blob/dev/homeassistant/components/calendar/helper.py):
+  REST event boundaries are `{date: ...}` or `{dateTime: ...}` objects.
+
+The manager independently normalizes selected fields, calculates local calendar
+date differences and bounds acquisition. It does not copy recurrence expansion
+code or introduce calendar write/service calls. These upstream branches are
+mutable; tests pin the inspected response shape as fixtures.

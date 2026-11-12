@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.6.5**; locally tested, with Green,
+Status: experimental implementation **0.7.0**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -1058,3 +1058,18 @@ in RAM, including failed-attempt total duration; retain last-good output.
 - Fix long heading/dialog/queue/picker overflow and narrow navigation. Use
   consistent mobile action placement and concise visible ID labels.
 - Preserve a repeatable Playwright audit with screenshots and overflow findings.
+
+## 24. Read-only Home Assistant calendar snapshots (0.7.0)
+
+- Explicit calendar selection (max 8), 1–366-day look-ahead, local-midnight
+  start by default; use the dynamic image time zone.
+- Fetch once per render batch before QuickJS, with existing parent Core access.
+  Expose immutable synchronous `ha.calendarEvents(id)` arrays, not host handles.
+- Normalize calendar/summary/start/end/allDay/startDate/daysUntil, sort by start
+  instant, calculate date differences across DST/year/leap transitions, and
+  retain separate integration-expanded recurring occurrences.
+- Bound requests, time, bytes and event counts. Empty returns []; errors abort
+  the batch and retain all last-good outputs. Keep snapshots/generated data in
+  RAM. Preserve existing firmware and fixed image/JSON endpoints.
+- Include editor controls, combined next-two-event example, error handling and
+  tests for empty/failing calendars, timezone boundaries and shared snapshots.
