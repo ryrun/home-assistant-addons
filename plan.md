@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.6.2**; locally tested, with Green,
+Status: experimental implementation **0.6.3**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -1033,3 +1033,11 @@ generation intervals to device polls.
   limits, native output formats, and RAM-only generated images.
 - Compute media assignment counts in one pass and reuse existing dynamic hashes
   when delivery does not rotate the image.
+
+## 21. Dynamic rendering measurements (0.6.3)
+
+Measure monotonic elapsed wall time for draft requests and saved render attempts.
+Show per-target script/startup, resource loading, render worker/validation and
+its drawing, source PNG and optimization/native-output subdivisions. Separate
+queue waiting and Home Assistant snapshots. Store only the latest measurements
+in RAM, including failed-attempt total duration; retain last-good output.

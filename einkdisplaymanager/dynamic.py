@@ -359,6 +359,7 @@ class DynamicImages:
         return result
 
     async def generate(self, document, target, states, now):
+        started = time.perf_counter()
         if not self.isolation:
             raise ValueError(
                 self.isolation_error or "Dynamic image isolation is not ready."
@@ -408,6 +409,7 @@ class DynamicImages:
             {"mode": "commands", "source": document["script"], "input": inputs},
             timeout=6,
         )
+        script_done = time.perf_counter()
         images, fonts = {}, {}
         resource_bytes = 0
         for command in result["commands"]:
@@ -450,6 +452,7 @@ class DynamicImages:
                 ).decode()
             except (KeyError, OSError):
                 continue  # Renderer implements the agreed missing-resource fallbacks.
+        resources_done = time.perf_counter()
         result = await worker(
             {
                 "mode": "render",
@@ -479,6 +482,13 @@ class DynamicImages:
             "hash": digest(output),
             "bytes": len(output) + len(source),
             "warnings": result["warnings"],
+            "timings": {
+                "total_seconds": time.perf_counter() - started,
+                "script_seconds": script_done - started,
+                "resources_seconds": resources_done - script_done,
+                "render_worker_seconds": time.perf_counter() - resources_done,
+                **result.get("timings", {}),
+            },
             "rendered_at": now,
             "asset_id": document["id"],
         }
@@ -494,12 +504,14 @@ class DynamicImages:
         try:
             async with self.lock:
                 now = time.time()
-                return await self.generate(
-                    {**document, "id": "preview"},
-                    target,
-                    await self.snapshot(document["entities"]),
-                    now,
+                snapshot_started = time.perf_counter()
+                states = await self.snapshot(document["entities"])
+                snapshot_seconds = time.perf_counter() - snapshot_started
+                result = await self.generate(
+                    {**document, "id": "preview"}, target, states, now,
                 )
+                result["timings"]["snapshot_seconds"] = snapshot_seconds
+                return result
         finally:
             self.pending -= 1
 
@@ -528,7 +540,9 @@ class DynamicImages:
         status = self.statuses.setdefault(
             identifier, {"last_success": None, "warnings": []}
         )
+        started = time.perf_counter()
         status.update(running=True, error=None, last_attempt=time.time())
+        timings = {"targets": []}
         try:
             document = self.store.get("asset", identifier)
             targets = [
@@ -536,13 +550,22 @@ class DynamicImages:
             ]
             if not targets:
                 raise ValueError("Create a target variant before rendering.")
+            snapshot_started = time.perf_counter()
             states, now = await self.snapshot(document["entities"]), time.time()
+            timings["snapshot_seconds"] = time.perf_counter() - snapshot_started
             results = {}
             for target in targets:
+                queued = time.perf_counter()
                 async with self.lock:
+                    queue_seconds = time.perf_counter() - queued
                     results[target["id"]] = await self.generate(
                         document, target["recipe"], states, now
                     )
+                    timings["targets"].append({
+                        "id": target["id"], "name": target["name"],
+                        "queue_seconds": queue_seconds,
+                        **results[target["id"]]["timings"],
+                    })
             if self.store.get("asset", identifier)["modified"] != document["modified"]:
                 raise ValueError(
                     "Script changed during rendering; render the saved version again."
@@ -576,6 +599,8 @@ class DynamicImages:
             status["error"] = "Rendering failed; the last good image is retained."
             raise ValueError(status["error"]) from None
         finally:
+            timings["total_seconds"] = time.perf_counter() - started
+            status["timings"] = timings
             status["running"] = False
             with contextlib.suppress(KeyError):
                 self.due[identifier] = (

@@ -6,6 +6,7 @@ import json
 import math
 import struct
 import sys
+import time
 from pathlib import Path
 
 import quickjs
@@ -454,9 +455,12 @@ def main():
         font = ImageFont.truetype(io.BytesIO(base64.b64decode(payload["data"])), 32)
         result = {"valid": bool(font.getbbox("Font validation"))}
     else:
+        started = time.perf_counter()
         image, warnings, exact, exact_mask = draw(payload)
+        drawn = time.perf_counter()
         source = io.BytesIO()
         image.save(source, "PNG")
+        encoded = time.perf_counter()
         data, mime = optimize(
             image, payload["recipe"], payload["profile"], exact, exact_mask
         )
@@ -466,6 +470,11 @@ def main():
             "mime": mime,
             "warnings": warnings,
             "isolation": isolation,
+            "timings": {
+                "drawing_seconds": drawn - started,
+                "source_encoding_seconds": encoded - drawn,
+                "optimization_seconds": time.perf_counter() - encoded,
+            },
         }
     sys.stdout.write(json.dumps(result, separators=(",", ":")))
 

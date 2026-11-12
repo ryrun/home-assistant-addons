@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.3
+
+- Measure elapsed render time with a monotonic clock for dynamic images and draft previews.
+- Show the last attempt duration in the library and expandable per-target timings for script/startup, resources, drawing, source PNG, optimization/output, render worker/validation, and queue waiting. Show Home Assistant snapshot time separately.
+- Retain total duration on failed attempts without replacing the last good image. Keep timing data in RAM only; existing resource limits and render scheduling stay unchanged.
+
 ## 0.6.2
 
 - Show selectable readonly ID and device URL fields; hide clipboard buttons on insecure HTTP and retain keyboard copying.

@@ -92,3 +92,5 @@ dialog.dynamic-editor{width:min(1450px,96vw);max-width:96vw}
 .font-row .copy-field{width:min(260px,100%);margin:0}
 .resource-ids>div{align-items:flex-end}.resource-ids .copy-field{width:min(260px,60%);margin:0}
 @media(max-width:720px){.font-row .actions{width:100%;flex-wrap:wrap}.font-row .copy-field{flex:1}.dynamic-card .card-meta{flex-wrap:wrap}.dynamic-card .copy-field{flex-basis:100%}}
+
+.timing-scroll{overflow-x:auto;max-width:100%}.timing-scroll table{font-size:.75rem;white-space:nowrap}.timing-scroll th,.timing-scroll td{padding:.4rem;text-align:left}

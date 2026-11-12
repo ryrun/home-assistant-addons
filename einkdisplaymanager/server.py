@@ -55,7 +55,7 @@ from profiles import (
 )
 from storage import Store, new_id
 
-VERSION = '0.6.2'
+VERSION = '0.6.3'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -360,6 +360,7 @@ class Manager:
         return web.json_response(variant,status=200 if old else 201)
 
     async def dynamic_preview(self, request):
+        started = time.perf_counter()
         data = await self.json(request)
         result = await self.dynamic.preview(data)
         target = recipe(data['recipe'])
@@ -369,7 +370,8 @@ class Manager:
         return web.json_response({'source':base64.b64encode(result['source']).decode(),
                                   'preview':base64.b64encode(preview).decode(),
                                   'output':base64.b64encode(result['output']).decode(),
-                                  'mime':result['mime'],'warnings':result['warnings']})
+                                  'mime':result['mime'],'warnings':result['warnings'],
+                                  'timings':{**result['timings'],'request_seconds':time.perf_counter()-started}})
 
     async def dynamic_render(self, request):
         item = self.store.get('asset',request.match_info['item'])

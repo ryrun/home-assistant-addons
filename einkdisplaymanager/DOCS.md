@@ -1252,3 +1252,24 @@ returned strings containing NUL. Output parity tests cover every input byte,
 palette ties and colors outside the palette. CPU/memory and isolation limits stay
 unchanged. Library assignment counts are computed in one pass, and unrotated
 dynamic delivery reuses the cached content hash.
+
+### Dynamic render timings (0.6.3)
+
+Dynamic-image cards show the last attempt duration. In the editor, expand
+**Render timings** after rendering a draft or a saved image. Durations are elapsed
+wall-clock seconds measured with a monotonic clock, rather than CPU usage.
+
+Saved-render totals include the Home Assistant snapshot, queue waiting and all
+targets. Draft totals include server-side request processing and preview creation,
+but exclude browser/network download time. Each target lists script execution
+including worker startup, resource loading, and the render worker including
+transport and output validation. Drawing, source PNG encoding, and optimization
+including native output encoding are subdivisions of that render worker; do not
+add these overlapping columns together. Queue waiting is separate from target
+render time. A slow snapshot indicates HA input latency; a long optimization
+phase indicates the target's matching/dithering workload.
+
+The last attempt replaces timing metadata even on failure; completed target
+measurements remain available, while an interrupted target has no successful
+stage breakdown. The last good image remains available. Measurements live only
+in RAM and reset on restart; no history is written to storage.
