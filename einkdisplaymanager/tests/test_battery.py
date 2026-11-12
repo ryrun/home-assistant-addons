@@ -43,14 +43,21 @@ async def test_optional_profiles_and_generic_voltage_reporting_do_not_change_fir
     assert public['battery_status']['estimated_percent'] == 50
     assert public['health']['battery_estimate'] is None  # No completed image delivery.
     payload = manager.mqtt.payload(manager.store.get('device', device['id']))
-    assert payload['charge_estimate'] == 50 and payload['charge_attributes']['estimated']
+    assert payload['battery_estimate'] == 50 and payload['battery_attributes']['source'] == 'linear_voltage'
+    assert payload['battery_attributes']['measurement_time']
+    assert 'charge_estimate' not in payload and 'charge_attributes' not in payload
     messages = manager.mqtt.desired(manager.mqtt.config)
     configs = [json.loads(data[0]) for topic, data in messages.items() if topic.endswith('/config')]
-    charge = next(c for c in configs if c['name'] == 'Estimated charge from voltage')
+    charge = next(c for c in configs if c['name'] == 'Battery Level')
+    assert len([c for c in configs if c.get('device_class') == 'battery']) == 1
     assert charge['device_class'] == 'battery' and charge['unit_of_measurement'] == '%'
-    # Turning estimation off retains raw voltage, while charge becomes unknown.
+    # Turning estimation off retains raw voltage and falls back to activity health.
     await admin.put(endpoint, json={'battery': {'enabled': False}})
     public = await (await admin.get(endpoint)).json()
     assert public['battery_status']['estimated_percent'] is None
     assert public['telemetry']['battery_millivolts'] == cells * 1400
     assert not any(topic.endswith('/charge_estimate/config') for topic in manager.mqtt.desired(manager.mqtt.config))
+
+    payload = manager.mqtt.payload(manager.store.get('device', device['id']))
+    assert payload['battery_estimate'] is None
+    assert payload['battery_attributes']['source'] == 'image_fetch_watchdog'

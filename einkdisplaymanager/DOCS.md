@@ -126,14 +126,13 @@ and LiFePO₄) limit accuracy. Selecting a chemistry does not install a calibrat
 nonlinear discharge curve. No report means unknown; a retained old report keeps
 its receipt timestamp visible. Capacity in mAh alone cannot infer charge from voltage.
 
-This **Estimated charge from voltage** is separate from **Estimated battery ·
-activity only**, which remains an explicitly simulated image-fetch watchdog with
-an optional gradual decline. Configuring cells never changes charging, invents
-voltage, queries sleeping hardware, or resets
-fetch health. Raw voltage and receipt time remain available if estimation is off.
-MQTT discovers a separate charge sensor while estimation is enabled, with estimated
-source/time/chemistry attributes. Voltage/timestamp sensors are discovered for
-Inkplate, configured profiles, or any device that has actually reported voltage.
+Device status distinguishes this calibrated voltage estimate from the simulated
+image-fetch watchdog. MQTT publishes only one percentage, **Battery Level**:
+use the calibrated estimate when available, otherwise the activity estimate.
+Configuring cells never changes charging, invents voltage, queries sleeping
+hardware, or resets fetch health. Raw voltage and receipt time remain available
+if estimation is off. Voltage/timestamp sensors are discovered for Inkplate,
+configured profiles, or any device that has actually reported voltage.
 
 All authenticated non-browser device GETs may supply the generic
 `X-Display-Battery-Millivolts` or the compatible
@@ -212,8 +211,9 @@ previews and rejected credentials cannot update this telemetry.
 Voltage and receipt time persist, appear in device status, and publish as separate
 **Battery voltage** (V) and **Battery measured at** MQTT discovery sensors. Old values
 retain their measurement timestamp; no chemistry-independent charge percentage is
-inferred. The existing Estimated battery sensor remains an explicitly synthetic
-image-delivery watchdog. A voltage report alone does not reset that watchdog.
+inferred. **Battery Level** uses voltage only with an enabled calibrated battery
+profile; otherwise it falls back to the image-delivery watchdog. A voltage report
+alone does not reset that watchdog.
 
 The example requests JSON unconditionally on each wake: deep sleep loses ordinary
 RAM caches, so a cold client must not persist validators without the matching body.
@@ -405,7 +405,7 @@ are excluded from published state and configuration. Backups contain MQTT creden
 
 | Entity | Meaning |
 |---|---|
-| Estimated battery | Simulated activity percentage with an optional gradual decline after missed image fetches |
+| Battery Level | Calibrated voltage-based percentage when available; otherwise the simulated activity percentage |
 | Image update overdue | Problem binary sensor; turns on after the grace and decline periods finish |
 | Image fetch status | `waiting`, `on_schedule`, `late`, `overdue`, `paused`, `disabled`, or `no_images` |
 | Last contact | Latest authenticated frame image/settings GET, not browser previews |
@@ -417,14 +417,32 @@ are excluded from published state and configuration. Backups contain MQTT creden
 | Image interval | Desired image interval in seconds |
 | Image transfer status | Idle/preparing/sending/completed/unchanged/interrupted/failed; latest error is an attribute |
 | Battery voltage / measured at | Raw report and timestamp for supported/configured/reporting devices |
-| Estimated charge from voltage | Optional user-calibrated linear estimate, distinct from the activity indicator |
 
-Diagnostic entities use Home Assistant's diagnostic category. The battery entity
-has `%` and the battery device class so existing dashboards can display it, but
-its name and attributes identify an **activity estimate**, not a measured charge.
-There is no numeric state class creating long-term battery statistics.
+Diagnostic entities use Home Assistant's diagnostic category. **Battery Level**
+has `%` and the battery device class. It is the only discovered battery-percentage
+sensor and has no numeric state class creating long-term battery statistics.
 
-### Estimated battery and deadline rules
+The sensor uses the last reported voltage if the device battery profile is
+configured/enabled and a percentage can be calculated. A voltage-derived **0%**
+is a valid value and takes precedence. Its attributes identify `linear_voltage`,
+chemistry and measurement time. Stored readings retain their original timestamp;
+a request without a voltage header does not erase the previous reading. No extra
+expiry is inferred. Without a reading or with calibration disabled, it uses the
+activity estimate with source `image_fetch_watchdog` and deadline attributes.
+If both sources are unavailable, the sensor is unknown. Turning calibration on
+or off switches the chosen source on the next MQTT synchronization.
+
+The existing `battery_estimate` discovery key/unique ID and state field are kept
+to preserve existing HA entity identity. Only its default display name changes.
+The obsolete `charge_estimate` discovery topic is cleared automatically on broker
+synchronization, including after an offline restart. Voltage and measurement-time
+sensors remain separate diagnostics. Image-fetch status and overdue problems are
+always computed independently of the chosen battery source.
+
+### Activity fallback and deadline rules
+
+These rules govern the activity watchdog and its fallback percentage. They do
+not override a calibrated voltage-based Battery Level:
 
 - After a completed image HTTP response, the estimate is **100%**. A successful
   **304** counts; a settings-only request, HEAD, browser preview, failed token, or
@@ -456,7 +474,7 @@ There is no numeric state class creating long-term battery statistics.
 - Each device has independent timing. The watch start and successful delivery
   timestamp survive add-on restarts, so restarting does not falsely restore 100%.
 
-A 0% value is a signal that the frame may need attention: depleted batteries,
+A 0% **activity fallback** value is a signal that the frame may need attention: depleted batteries,
 WiFi/network loss, a powered-off frame, or firmware/configuration issues can all
 produce it. Settings may be requested without a successful image transfer. Any percentage
 says nothing about actual remaining charge and HTTP success does not confirm

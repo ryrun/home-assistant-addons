@@ -280,7 +280,7 @@ async def test_real_broker_discovery_activity_estimate_birth_and_graceful_offlin
         assert manager.store.get('device', d['id'])['token'] not in str(observed.latest)
         assert 'http://' not in json.dumps(configs)
         assert len({tuple(c['device']['identifiers']) for c in configs.values()}) == 1
-        assert next(c for c in configs.values() if c['name'] == 'Estimated battery')['entity_category'] == 'diagnostic'
+        assert next(c for c in configs.values() if c['name'] == 'Battery Level')['entity_category'] == 'diagnostic'
         await (await frames.get(path(d['urls']['image']))).read()
         manager.mqtt.wake.set()
         await observed.until(lambda: json.loads(observed.latest[topic])['battery_estimate'] == 100)
@@ -473,3 +473,46 @@ async def test_switching_brokers_preserves_new_availability_and_retries_old_clea
             await current.until(lambda: current.latest.get(new_base + '/availability') == b'')
     finally:
         await second.stop()
+
+
+async def test_single_battery_level_prefers_voltage_and_cleans_old_charge_discovery(system, broker):
+    from mqtt_bridge import destination
+    from test_battery import PROFILE
+
+    manager, admin, frames = system
+    d = await device(admin, [await upload(admin)])
+    config = validate_config({'enabled':True, 'broker':'127.0.0.1', 'port':broker.port},manager.mqtt.config)
+    old_topic = f"homeassistant/sensor/{manager.mqtt.instance}_{destination(config)}_{d['id']}/charge_estimate/config"
+    manager.store.save('mqtt_registration', {'id':destination(config), 'config':config, 'topics':{old_topic:True}})
+    async with Observe(broker.port) as observed:
+        await observed.client.publish(old_topic,json.dumps({'name':'Estimated charge from voltage'}),qos=1,retain=True)
+        base = await enable(manager,admin,broker)
+        state_topic = f"{base}/{d['id']}/state"
+        await observed.until(lambda: observed.latest.get(old_topic)==b'' and state_topic in observed.latest)
+        configs = [json.loads(p) for t,p in observed.latest.items() if t.endswith('/config') and p]
+        batteries = [c for c in configs if c.get('device_class')=='battery']
+        assert len(batteries)==1 and batteries[0]['name']=='Battery Level'
+        assert batteries[0]['unique_id'].endswith('_battery_estimate')  # Preserve existing HA identity.
+        assert old_topic not in manager.store.get('mqtt_registration',destination(config))['topics']
+        await (await frames.get(path(d['urls']['image']))).read()
+        manager.mqtt.wake.set()
+        await observed.until(lambda: json.loads(observed.latest[state_topic])['battery_estimate']==100)
+        endpoint='/api/devices/'+d['id']
+        assert (await admin.put(endpoint,json={'battery':PROFILE})).status==200
+        await frames.get(path(d['urls']['settings']),headers={'X-Display-Battery-Millivolts':'5600'})
+        manager.mqtt.wake.set()
+        await observed.until(lambda: json.loads(observed.latest[state_topic])['battery_estimate']==50)
+        payload=json.loads(observed.latest[state_topic])
+        assert payload['battery_attributes']['source']=='linear_voltage'
+        assert payload['battery_attributes']['measurement_time']
+        assert 'charge_estimate' not in payload
+        await frames.get(path(d['urls']['settings']),headers={'X-Display-Battery-Millivolts':'4800'})
+        manager.mqtt.wake.set()
+        await observed.until(lambda: json.loads(observed.latest[state_topic])['battery_estimate']==0)
+        assert manager.mqtt.health(manager.store.get('device',d['id']))['battery_estimate']==100
+        assert (await admin.put(endpoint,json={'battery':{'enabled':False}})).status==200
+        manager.mqtt.wake.set()
+        await observed.until(lambda: json.loads(observed.latest[state_topic])['battery_estimate']==100)
+        payload=json.loads(observed.latest[state_topic])
+        assert payload['battery_attributes']['source']=='image_fetch_watchdog'
+        assert payload['battery_voltage']==4.8

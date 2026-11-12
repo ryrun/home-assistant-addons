@@ -1,4 +1,4 @@
-"""MQTT discovery with separate activity health and calibrated voltage estimates."""
+"""MQTT discovery with one battery percentage and independent activity health."""
 
 import asyncio
 import contextlib
@@ -24,7 +24,7 @@ DEFAULTS = {'enabled': False, 'broker': '', 'port': 1883, 'username': '', 'passw
             'discovery_retain': True, 'grace_seconds': 120, 'battery_decay_seconds': 0}
 FRAME_STATES = ['waiting', 'on_schedule', 'late', 'overdue', 'paused', 'disabled', 'no_images']
 ENTITIES = {
-    'battery_estimate': ('sensor', 'Estimated battery', {'device_class': 'battery', 'unit_of_measurement': '%'}),
+    'battery_estimate': ('sensor', 'Battery Level', {'device_class': 'battery', 'unit_of_measurement': '%'}),
     'update_overdue': ('binary_sensor', 'Image update overdue', {'device_class': 'problem', 'payload_on': 'ON', 'payload_off': 'OFF'}),
     'frame_status': ('sensor', 'Image fetch status', {'device_class': 'enum', 'options': FRAME_STATES}),
     'last_contact': ('sensor', 'Last contact', {'device_class': 'timestamp'}),
@@ -39,7 +39,6 @@ ENTITIES = {
 VOLTAGE_ENTITIES = {
     'battery_voltage': ('sensor', 'Battery voltage', {'device_class': 'voltage', 'unit_of_measurement': 'V', 'state_class': 'measurement'}),
     'battery_measured_at': ('sensor', 'Battery measured at', {'device_class': 'timestamp'}),
-    'charge_estimate': ('sensor', 'Estimated charge from voltage', {'device_class': 'battery', 'unit_of_measurement': '%'}),
 }
 
 
@@ -198,21 +197,26 @@ class MQTTBridge:
             image_name = None
         telemetry = self.manager.telemetry(device['id'])
         voltage = telemetry.get('battery_millivolts')
-        return {key: health[key] for key in ('frame_status', 'battery_estimate', 'update_overdue')} | {
+        charge = battery.status(device, telemetry)
+        use_voltage = charge['estimated_percent'] is not None
+        attributes = ({**charge, 'measurement_time': iso(telemetry.get('measured_at')),
+                       'meaning': 'Charge estimated from the last reported voltage and configured per-cell endpoints.'}
+                      if use_voltage else {
+                          'estimated': True, 'source': 'image_fetch_watchdog',
+                          'meaning': 'Activity estimate: falls toward 0 after a missed image fetch; 0 means overdue, not measured empty.',
+                          'grace_seconds': self.config['grace_seconds'],
+                          'battery_decay_seconds': self.config['battery_decay_seconds'],
+                          'decline_starts_at': iso(health['decline_starts_at']), 'overdue_at': iso(health['overdue_at'])})
+        return {key: health[key] for key in ('frame_status', 'update_overdue')} | {
+            'battery_estimate': charge['estimated_percent'] if use_voltage else health['battery_estimate'],
+            'battery_attributes': attributes,
             'battery_voltage': voltage / 1000 if voltage is not None else None,
-            'charge_estimate': battery.status(device, telemetry)['estimated_percent'],
-            'charge_attributes': {**battery.status(device, telemetry), 'measurement_time': iso(telemetry.get('measured_at'))},
             'battery_measured_at': iso(telemetry.get('measured_at')),
             'last_contact': iso(max(state.get('last_image_request') or 0, state.get('last_settings_request') or 0)),
             'last_image_delivery': iso(state.get('last_served_at')), 'next_expected_image': iso(health['expected_at']),
             'next_connection': iso(scheduling.view(device, time.time())['next_connection_at']),
             'selected_image': image_name, 'image_count': sum(e['enabled'] for e in device['entries']),
             'update_interval': device['interval'], 'transfer_status': self.manager.diagnostics.transfer(device['id'])['status'],
-            'battery_attributes': {'estimated': True, 'source': 'image_fetch_watchdog',
-                                   'meaning': 'Activity estimate: falls toward 0 after a missed image fetch; 0 means overdue, not measured empty.',
-                                   'grace_seconds': self.config['grace_seconds'],
-                                   'battery_decay_seconds': self.config['battery_decay_seconds'],
-                                   'decline_starts_at': iso(health['decline_starts_at']), 'overdue_at': iso(health['overdue_at'])},
             'transfer_attributes': {'last_error': state.get('last_error'), 'physical_refresh_confirmed': False}}
 
     def base(self, config):
@@ -229,8 +233,7 @@ class MQTTBridge:
             if not config['discovery']:
                 continue
             voltage_supported = device['profile'] == 'inkplate_6' or battery.config(device)['enabled'] or self.manager.telemetry(identifier).get('measured_at')
-            entities = ENTITIES | ({key: value for key, value in VOLTAGE_ENTITIES.items()
-                                  if key != 'charge_estimate' or battery.config(device)['enabled']} if voltage_supported else {})
+            entities = ENTITIES | (VOLTAGE_ENTITIES if voltage_supported else {})
             for key, (domain, name, extra) in entities.items():
                 discovery = {'name': name, 'unique_id': f'einkdisplaymanager_{self.instance}_{identifier}_{key}',
                              'state_topic': state_topic, 'value_template': '{{ value_json.' + key + ' }}',
@@ -243,10 +246,8 @@ class MQTTBridge:
                     discovery['entity_category'] = 'diagnostic'
                 if key == 'update_overdue':
                     discovery['value_template'] = "{{ 'ON' if value_json.update_overdue else 'OFF' }}"
-                if key in VOLTAGE_ENTITIES or key == 'next_connection':
+                if key in VOLTAGE_ENTITIES or key in ('next_connection', 'battery_estimate'):
                     discovery['value_template'] = '{{ value_json.' + key + " if value_json." + key + " is not none else 'unknown' }}"
-                if key == 'charge_estimate':
-                    discovery.update(json_attributes_topic=state_topic, json_attributes_template='{{ value_json.charge_attributes | tojson }}')
                 if key in ('battery_estimate', 'transfer_status'):
                     discovery.update(json_attributes_topic=state_topic,
                                      json_attributes_template='{{ value_json.' + ('battery_attributes' if key == 'battery_estimate' else 'transfer_attributes') + ' | tojson }}')

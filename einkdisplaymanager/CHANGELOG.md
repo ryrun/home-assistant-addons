@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.1
+
+- Publish a single MQTT battery percentage named Battery Level. Prefer the last reported voltage converted with the enabled per-device calibration; otherwise use the activity-based estimate. Preserve genuine 0% voltage estimates.
+- Report the selected source and its applicable timestamp/calibration or watchdog attributes on that sensor. Keep raw voltage, measurement time and image-fetch health/problem sensors independent.
+- Preserve the existing battery unique ID and automatically remove the obsolete retained charge-from-voltage discovery topic on broker synchronization.
+- Verify source switching, unknown fallback, zero values and migration with a real temporary MQTT broker.
+
 ## 0.7.0
 
 - Add synchronous read-only `ha.calendarEvents(entityId)` snapshots, fetched once before script execution and shared by all target variants. No network or credentials are exposed to QuickJS.

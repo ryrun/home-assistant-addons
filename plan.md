@@ -64,7 +64,7 @@ Future work: additional read-only metadata and multiple accounts. Write tools re
 
 # E-Ink Display Manager — development and acceptance plan
 
-Status: experimental implementation **0.7.0**; locally tested, with Green,
+Status: experimental implementation **0.7.1**; locally tested, with Green,
 container-build, physical-device, and Supervisor backup acceptance still pending.
 Project directory: `einkdisplaymanager/`.
 
@@ -1073,3 +1073,12 @@ in RAM, including failed-attempt total duration; retain last-good output.
   RAM. Preserve existing firmware and fixed image/JSON endpoints.
 - Include editor controls, combined next-two-event example, error handling and
   tests for empty/failing calendars, timezone boundaries and shared snapshots.
+
+## 25. Unified MQTT battery percentage (0.7.1)
+
+- Publish one Battery Level percentage using calibrated reported voltage when
+  available (including zero), with the activity watchdog as fallback. Unknown
+  when neither source is available. Attribute the active source and timing.
+- Keep raw voltage/measurement time and overdue/fetch diagnostics independent.
+- Preserve the old battery discovery identity and remove obsolete retained
+  charge-from-voltage discovery through the existing topic registry cleanup.
