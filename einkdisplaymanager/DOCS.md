@@ -1480,22 +1480,33 @@ rotation, orientation and variant/device assignments. You can adjust individual
 settings after applying a preset. These are starting points, not a guarantee of
 the best output for every image.
 
-### Voltage-based remaining-life forecast (0.8.2)
+### Voltage-based remaining-life forecast (0.8.3)
 
 Playback status shows **Estimated remaining battery life** only when calibrated
-voltage measurements establish a reliable downward trend. It reports approximate
+voltage measurements show a measurable downward trend. It reports approximate
 remaining days and refreshes. Battery Level MQTT attributes include the same
 `forecast` object when voltage estimation is enabled; unavailable forecasts are null.
 No extra battery percentage entity is created.
 
 Observations remain in RAM: at most one per hour over 90 days per device.
-Daily medians need at least five observed days spanning four days, a decline of
-at least 3% of the configured voltage range, and a linear fit with R² ≥ 0.8.
-Predictions cannot exceed three times the observation span or 365 days.
+A **Preliminary estimate** can appear after two observations at least 30 minutes
+apart, with a voltage drop of at least 5 mV or 0.2% of the configured voltage
+range (whichever is greater) and a linear fit with R² ≥ 0.6. A single voltage,
+flat/rising readings, or excessive noise cannot establish a discharge rate.
+There is no five-day waiting period for preliminary estimates. They may change
+substantially as more observations arrive; confidence is not a guarantee that
+accuracy improves monotonically.
+
+An **Established trend** uses daily medians from at least five observed days
+spanning four days, a decline of at least 3% of the voltage range, and R² ≥ 0.8.
+Both stages reject forecasts above 365 days rather than silently capping them.
 Measurements older than the greater of two refresh intervals or two days hide
 the prediction. Charging/replacement (a rise above the recent median by over 10%
 of the voltage range) and calibration changes restart collection. Add-on restarts
 lose the history. Paused/disabled devices do not show a forecast.
+Reported USB connection or charging clears the discharge history. Measurements
+are excluded until both last-reported power flags allow battery operation.
+Calibration must be enabled with meaningful full/empty per-cell endpoints.
 
 Days extrapolate the observed voltage trend to the configured empty voltage.
 Refresh counts use the current schedule including anchors and quiet hours;
@@ -1504,3 +1515,37 @@ remaining energy, and temperature, WiFi and workload changes affect the estimate
 Changing the schedule updates the refresh count, but the day estimate needs new
 measurements to reflect any changed consumption. HTTP fetches do not confirm
 physical display refreshes. Synthetic activity percentages never feed this model.
+
+
+### OpenPaper request telemetry (0.8.3)
+
+The offline firmware now sends status with image and Settings JSON requests.
+See the [upstream firmware change](https://github.com/paperlesspaper/paperlesspaper-firmware-offline/commit/eadccca11d0bcba26cf2d8b4f9c08e0ef5f12d9a).
+No extra polling or frame wake-up is required.
+
+| Request header | Device status / MQTT diagnostic |
+|---|---|
+| `X-OpenPaper-Battery-Millivolts` | Measured battery voltage; existing Battery Level calibration and forecast |
+| `X-OpenPaper-USB-Connected` | USB power (`0` / `1`) |
+| `X-OpenPaper-Charging` | Battery charging (`0` / `1`) |
+| `X-OpenPaper-Firmware-Version` | Firmware version, also MQTT device software version |
+| `X-OpenPaper-Display` | Reported display (`epd7` / `epd13`) |
+| `X-OpenPaper-Wakeup` | Wake-up reason (`timer`, `button`, `motion`, `reset`) |
+| `X-OpenPaper-WiFi-RSSI` | WiFi signal in dBm |
+| `X-OpenPaper-Orientation` | Sensor side (`0`–`3`) |
+
+Only authenticated device GETs record telemetry, including unchanged **304**
+responses. Browser previews, HEAD and failed authentication cannot update it.
+Fields are independently validated and allowlisted; malformed values do not
+block settings or image delivery. Missing fields retain their last value and
+original timestamp, rather than becoming a false disconnection or zero reading.
+The Devices section **Reported device status** shows per-field report times;
+MQTT diagnostic attributes expose `field_updated_at` timestamps. These are
+last-reported values, not live status. Raw headers and unknown fields are not stored.
+Only diagnostics actually reported by a device are discovered. The existing
+`X-Display-Battery-Millivolts` Inkplate header remains supported.
+
+Battery voltage is sampled by the firmware at wake-up before WiFi is enabled.
+Sensor sides 0/2 and 1/3 are opposite; the pairs differ by 90°. Telemetry never
+automatically changes the configured model or mounting orientation. Firmware
+status reflects the wake-up snapshot, not confirmation of applied JSON settings.

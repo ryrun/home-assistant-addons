@@ -94,7 +94,10 @@ class Forecast:
             daily.setdefault(int(timestamp // 86400), []).append((timestamp, voltage))
         points = [(median(t for t, _ in values) / 86400, median(v for _, v in values))
                   for _, values in sorted(daily.items())]
-        if len(points) < 5 or points[-1][0] - points[0][0] < 4:
+        established = len(points) >= 5 and points[-1][0] - points[0][0] >= 4
+        if not established:
+            points = sorted((timestamp / 86400, voltage) for timestamp, voltage in samples)
+        if len(points) < 2 or points[-1][0] - points[0][0] < 1 / 48:
             return None
         mean_x = sum(x for x, _ in points) / len(points)
         mean_y = sum(y for _, y in points) / len(points)
@@ -103,12 +106,15 @@ class Forecast:
         xy = sum((x - mean_x) * (y - mean_y) for x, y in points)
         slope = xy / xx
         span = 1000 * settings['series_cells'] * (settings['full_voltage'] - settings['empty_voltage'])
-        if slope >= 0 or yy == 0 or xy * xy / (xx * yy) < .8 or -slope * (points[-1][0] - points[0][0]) < span * .03:
+        fit = xy * xy / (xx * yy) if yy else 0
+        decline = -slope * (points[-1][0] - points[0][0])
+        if slope >= 0 or fit < .6 or decline < max(5, span * .002):
             return None
+        established = established and fit >= .8 and decline >= span * .03
         empty = settings['empty_voltage'] * settings['series_cells'] * 1000
         remaining = (mean_y + slope * (now / 86400 - mean_x) - empty) / -slope
-        # Do not extrapolate distant horizons from a short observation period.
-        if not 0 < remaining <= min(365, 3 * (points[-1][0] - points[0][0])):
+        # Avoid unbounded projections; short observations remain explicitly preliminary.
+        if not 0 < remaining <= 365:
             return None
         cutoff = now + remaining * 86400
         cursor, refreshes = now, 0
@@ -122,4 +128,6 @@ class Forecast:
         else:
             refreshes = round(remaining * 86400 / ((cursor - now) / refreshes))
         return {'remaining_days': round(remaining, 1), 'remaining_refreshes': refreshes,
-                'estimated': True, 'source': 'voltage_trend'}
+                'estimated': True, 'source': 'voltage_trend',
+                'confidence': 'established' if established else 'preliminary',
+                'sample_count': len(samples), 'observation_days': round(points[-1][0] - points[0][0], 2)}

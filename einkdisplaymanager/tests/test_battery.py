@@ -91,7 +91,7 @@ def test_forecast_requires_reliable_data_and_is_ram_only():
     assert forecast.estimate(device, now + 3600) is None
 
 
-@pytest.mark.parametrize('slope,count', [(0, 11), (-10, 11), (40, 3), (1, 11)])
+@pytest.mark.parametrize('slope,count', [(0, 11), (-10, 11), (40, 1), (0.1, 11)])
 def test_forecast_hides_flat_rising_short_and_small_changes(slope, count):
     device = forecast_device()
     forecast = battery.Forecast()
@@ -137,3 +137,30 @@ async def test_forecast_is_exposed_in_device_status_and_mqtt_attributes(system, 
     assert payload['battery_attributes']['forecast']['remaining_refreshes'] == 60
     await admin.delete(endpoint)
     assert stored['id'] not in manager.battery_forecast.histories
+
+
+def test_forecast_starts_early_and_reports_confidence():
+    device = forecast_device(interval=3600)
+    forecast = battery.Forecast()
+    now = 1800000000
+    forecast.record(device, 5800, now)
+    assert forecast.estimate(device, now) is None
+    forecast.record(device, 5790, now + 3600)
+    result = forecast.estimate(device, now + 3600)
+    assert result['confidence'] == 'preliminary'
+    assert result['sample_count'] == 2
+    assert result['remaining_days'] == 4.1
+    mature = battery.Forecast()
+    end = discharge(mature, device)
+    assert mature.estimate(device, end)['confidence'] == 'established'
+
+
+def test_forecast_requires_separation_and_measurable_drop():
+    device = forecast_device()
+    forecast = battery.Forecast()
+    now = 1800000000
+    forecast.record(device, 5800, now)
+    forecast.record(device, 5790, now + 60)
+    assert forecast.estimate(device, now + 60) is None
+    forecast.record(device, 5791, now + 3600)
+    assert forecast.estimate(device, now + 3600) is None

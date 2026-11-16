@@ -145,6 +145,12 @@ async def main():
                         for day in range(11):
                             manager.battery_forecast.record(stored, 5800 - day * 40, now - (10 - day) * 86400)
                         assert manager.battery_status(stored)['forecast']
+                        manager.store.save('telemetry', {
+                            'id': stored['id'], 'battery_millivolts': 5400, 'measured_at': now,
+                            'reported_at': now, 'usb_connected': False, 'charging': False,
+                            'firmware_version': '0.1.35-development-build-' + 'a' * 38,
+                            'reported_display': 'epd13', 'wakeup_reason': 'timer',
+                            'wifi_rssi': -67, 'sensor_orientation': 0})
 
                     manager.diagnostics.event(
                         device["id"],
@@ -232,6 +238,13 @@ async def main():
                         for device in devices:
                             await route("devices/" + device["id"])
                             await page.locator("#device-form").wait_for()
+                            if device['profile'] == 'openpaper_l':
+                                assert await page.locator('#device-reported-status').is_visible()
+                                assert 'Side 0' in await page.locator('#device-reported-values').inner_text()
+                                assert '-67 dBm' in await page.locator('#device-reported-values').inner_text()
+                                assert 'Established trend' in await page.locator('#device-battery-forecast').inner_text()
+                            else:
+                                assert await page.locator('#device-reported-status').is_hidden()
                             await page.locator("main details").evaluate_all(
                                 "(nodes)=>nodes.forEach(el=>el.open=true)"
                             )

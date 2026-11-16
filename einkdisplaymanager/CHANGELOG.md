@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.3
+
+- Process the offline firmware's OpenPaper status headers: voltage, USB power, charging, firmware version, reported display, wake-up reason, WiFi RSSI, and sensor orientation. Show last-reported values and their timestamps in Devices, with matching MQTT diagnostics.
+- Allow preliminary battery-life estimates from two separated, measurably declining voltage observations instead of requiring five days. Label preliminary and established trends explicitly; keep history bounded and RAM-only.
+- Exclude USB-powered/charging periods from discharge forecasts and restart observation when power is connected. Retain generic Inkplate voltage reporting and the single Battery Level sensor.
+
 ## 0.8.2
 
 - Estimate remaining battery days and scheduled refreshes from a reliable, calibrated voltage discharge trend. Keep the bounded observation history in RAM only.

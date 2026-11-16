@@ -20,6 +20,7 @@ from urllib.parse import unquote, urlsplit
 
 import battery
 import scheduling
+import telemetry
 from aiohttp import web
 from correction import rotate_delivery
 from diagnostics import Diagnostics
@@ -56,7 +57,7 @@ from profiles import (
 )
 from storage import Store, new_id
 
-VERSION = '0.8.2'
+VERSION = '0.8.3'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -830,11 +831,20 @@ class Manager:
         # must not turn a supplied header into a reported hardware measurement.
         if request.method != 'GET' or browser_request(request):
             return
-        value = request.headers.get('X-Display-Battery-Millivolts', request.headers.get('X-OpenPaper-Battery-Millivolts', ''))
-        if not (1 <= len(value) <= 6 and value.isascii() and value.isdecimal() and 500 <= int(value) <= 200000):
-            return  # Missing/malformed telemetry must not prevent image updates.
-        self.store.save('telemetry', {'id': device['id'], 'battery_millivolts': int(value), 'measured_at': time.time()})
-        self.battery_forecast.record(device, int(value), time.time())
+        values = telemetry.parse(request.headers)
+        if not values:
+            return
+        now = time.time()
+        current = self.telemetry(device['id'])
+        updated = current | values | {'id': device['id'], 'reported_at': now,
+                                     'field_updated_at': current.get('field_updated_at', {}) | dict.fromkeys(values, now)}
+        if 'battery_millivolts' in values:
+            updated['measured_at'] = now
+        self.store.save('telemetry', updated)
+        if updated.get('usb_connected') or updated.get('charging'):
+            self.battery_forecast.histories.pop(device['id'], None)
+        elif 'battery_millivolts' in values:
+            self.battery_forecast.record(device, values['battery_millivolts'], now)
         self.mqtt.wake.set()
 
     async def settings_json(self, request):

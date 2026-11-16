@@ -41,6 +41,16 @@ VOLTAGE_ENTITIES = {
     'battery_measured_at': ('sensor', 'Battery measured at', {'device_class': 'timestamp'}),
 }
 
+TELEMETRY_ENTITIES = {
+    'usb_connected': ('binary_sensor', 'USB power', {'device_class': 'plug', 'payload_on': 'ON', 'payload_off': 'OFF'}),
+    'charging': ('binary_sensor', 'Battery charging', {'device_class': 'battery_charging', 'payload_on': 'ON', 'payload_off': 'OFF'}),
+    'wifi_rssi': ('sensor', 'WiFi signal', {'device_class': 'signal_strength', 'unit_of_measurement': 'dBm', 'state_class': 'measurement'}),
+    'firmware_version': ('sensor', 'Firmware version', {'icon': 'mdi:chip'}),
+    'reported_display': ('sensor', 'Reported display', {'icon': 'mdi:monitor'}),
+    'wakeup_reason': ('sensor', 'Wake-up reason', {'device_class': 'enum', 'options': ['timer', 'button', 'motion', 'reset']}),
+    'sensor_orientation': ('sensor', 'Sensor orientation', {'icon': 'mdi:screen-rotation'}),
+}
+
 
 def validate_config(data, old):
     if not isinstance(data, dict) or set(data) - (set(DEFAULTS) | {'clear_password'}):
@@ -212,6 +222,8 @@ class MQTTBridge:
             'battery_attributes': attributes,
             'battery_voltage': voltage / 1000 if voltage is not None else None,
             'battery_measured_at': iso(telemetry.get('measured_at')),
+            **{key: telemetry.get(key) for key in TELEMETRY_ENTITIES},
+            'telemetry_attributes': {'field_updated_at': {key: iso(value) for key, value in telemetry.get('field_updated_at', {}).items()}},
             'last_contact': iso(max(state.get('last_image_request') or 0, state.get('last_settings_request') or 0)),
             'last_image_delivery': iso(state.get('last_served_at')), 'next_expected_image': iso(health['expected_at']),
             'next_connection': iso(scheduling.view(device, time.time())['next_connection_at']),
@@ -233,7 +245,9 @@ class MQTTBridge:
             if not config['discovery']:
                 continue
             voltage_supported = device['profile'] == 'inkplate_6' or battery.config(device)['enabled'] or self.manager.telemetry(identifier).get('measured_at')
-            entities = ENTITIES | (VOLTAGE_ENTITIES if voltage_supported else {})
+            reported = self.manager.telemetry(identifier)
+            entities = ENTITIES | (VOLTAGE_ENTITIES if voltage_supported else {}) | {
+                key: value for key, value in TELEMETRY_ENTITIES.items() if key in reported}
             for key, (domain, name, extra) in entities.items():
                 discovery = {'name': name, 'unique_id': f'einkdisplaymanager_{self.instance}_{identifier}_{key}',
                              'state_topic': state_topic, 'value_template': '{{ value_json.' + key + ' }}',
@@ -242,12 +256,19 @@ class MQTTBridge:
                                         'name': device['name'], 'manufacturer': display_profile(device['profile']).get('manufacturer', 'paperlesspaper'), 'model': display_profile(device['profile'])['name']},
                              'origin': {'name': 'E-Ink Display Manager', 'sw_version': self.version,
                                         'support_url': 'https://github.com/ryrun/home-assistant-addons'}, **extra}
+                if reported.get('firmware_version'):
+                    discovery['device']['sw_version'] = reported['firmware_version']
                 if key != 'selected_image':
                     discovery['entity_category'] = 'diagnostic'
                 if key == 'update_overdue':
                     discovery['value_template'] = "{{ 'ON' if value_json.update_overdue else 'OFF' }}"
-                if key in VOLTAGE_ENTITIES or key in ('next_connection', 'battery_estimate'):
+                if key in TELEMETRY_ENTITIES:
+                    discovery.update(json_attributes_topic=state_topic,
+                                     json_attributes_template='{{ value_json.telemetry_attributes | tojson }}')
+                if key in VOLTAGE_ENTITIES or key in TELEMETRY_ENTITIES or key in ('next_connection', 'battery_estimate'):
                     discovery['value_template'] = '{{ value_json.' + key + " if value_json." + key + " is not none else 'unknown' }}"
+                if key in ('usb_connected', 'charging'):
+                    discovery['value_template'] = "{{ 'unknown' if value_json." + key + " is none else ('ON' if value_json." + key + " else 'OFF') }}"
                 if key in ('battery_estimate', 'transfer_status'):
                     discovery.update(json_attributes_topic=state_topic,
                                      json_attributes_template='{{ value_json.' + ('battery_attributes' if key == 'battery_estimate' else 'transfer_attributes') + ' | tojson }}')
