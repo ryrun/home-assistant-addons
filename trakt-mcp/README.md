@@ -1,6 +1,6 @@
 # Trakt MCP Server
 
-Experimental Home Assistant add-on (0.3.7) for personal movie and series data from Trakt.tv.
+Experimental Home Assistant add-on (0.4.0) for personal movie and series data from Trakt.tv.
 AI assistants receive read-only access through authenticated MCP Streamable HTTP
 at `http://homeassistant.local:8765/mcp`.
 
@@ -10,6 +10,9 @@ latency, cache efficiency, errors, and process resources. No separate dashboard
 port is published. The server has no chatbot or built-in LLM.
 
 ## Features
+
+- Read-only Smart List recipes, filtered/sorted matches and official templates
+- Personal recommendation filters, seasonal themes and resolved/open story endings
 
 - Watched movies with play counts and last viewing dates
 - Series search, status, seasons, episodes, cast/crew, related series, and ratings
@@ -43,7 +46,8 @@ Resource measurements and Green acceptance: [PERFORMANCE.md](PERFORMANCE.md).
 
 All API data is fetched from Trakt. External movie scores are returned only when
 Trakt supplies them; no additional rating or streaming service is contacted.
-Streaming favorites express preferences; movie availability is not provided.
+Streaming favorites express preferences. Optional Smart List streaming filters
+use Trakt data and access permissions; no live streaming-offer lookup is provided.
 
 All Trakt media/library operations are read-only. Collection entries do not prove
 current access, playback positions require a player that reports to Trakt, and

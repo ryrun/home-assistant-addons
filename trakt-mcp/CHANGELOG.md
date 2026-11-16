@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.0
+
+- Add read-only Smart List definitions, dynamically filtered/sorted items and
+  official templates with bounded previews: 44 default tools, 46 with auth tools.
+- Add validated genre, year, runtime, rating, people, studio, award, parental and
+  optional streaming filters for Smart List items. Filters only narrow the saved
+  recipe; streaming preferences/region belong to its owner.
+- Extend personal movie/show recommendations with common filters, seasonal themes
+  and watch windows. Optionally select concluded/open story endings for shows,
+  rejecting unknown endings when a specific ending is requested.
+- Keep private definitions/items out of persistent public caches. No list writes,
+  new credentials, third-party requests or restricted streaming endpoints.
+- Include the new runtime module in Docker and its build-context allowlist; add
+  regression and real MCP transport tests for discovery schemas and privacy.
+- Translate the remaining candidate-source validation message into English.
+
 ## 0.3.7
 
 - Apply OAuth HTTP 429 cooldowns to device-code requests and token refreshes,

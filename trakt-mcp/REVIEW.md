@@ -1,8 +1,39 @@
 # Technical review and comparison
 
-Reviewed on 2026-11-01. This assessment covers source code, specifications, and
+Reviewed on 2026-11-16. This assessment covers source code, specifications, and
 local tests. It does not replace acceptance testing with a Trakt account,
 Zed/Codex, and Home Assistant Green.
+
+## Discovery extension review, version 0.4.0
+
+Three read-only Smart List tools add saved recipes, filtered/sorted dynamic items
+and official templates. Nested filter schemas reject unknown fields, reversed
+ranges, excessive arrays and unsafe values. Definitions/items use live OAuth
+requests and bypass the public disk cache; public templates retain normal caching.
+Personal templates never infer totals or expose preview results. Streaming filters
+use the saved list owner's preferences and region and do not establish live offers.
+No restricted streaming, native Mixtape or other unverified API route is called.
+
+Movie and show recommendations retain existing defaults and exclusion behavior;
+optional filters forward documented query fields. A local show-ending selection
+rejects unknown endings instead of equating production status with story closure.
+The new module is included in both Docker COPY and the build-context allowlist.
+
+Local validation passed: 200 tests (including real MCP SDK transport in auto and
+legacy modes), a dual-listener TCP smoke test, unauthenticated MCP/Ingress rejection,
+concurrent status calls, coordinated shutdown, dependency consistency, JavaScript
+syntax and a 10,000-movie synthetic cache benchmark. The latter measured 81.8 MiB
+peak RSS on macOS ARM64; it is not a Green measurement. No dependencies were added.
+Actual access to Smart Lists and optional streaming filters still needs validation
+with the user's app/account. Docker is unavailable locally. The known up-next
+pagination discrepancy remains open pending numeric response diagnostics.
+
+API references checked on 2026-11-16:
+
+- [Smart Lists contract](https://github.com/trakt/trakt-api/blob/master/projects/api/src/contracts/smart_lists/index.ts)
+- [Common media filters](https://github.com/trakt/trakt-api/blob/master/projects/api/src/contracts/_internal/request/mediaFilterParamsSchema.ts)
+- [Recommendation contract](https://github.com/trakt/trakt-api/blob/master/projects/api/src/contracts/recommendations/index.ts)
+- [Show ending data](https://github.com/trakt/trakt-api/blob/master/projects/api/src/contracts/_internal/response/showResponseSchema.ts)
 
 ## Rate-limit review, version 0.3.7
 

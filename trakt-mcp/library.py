@@ -332,10 +332,13 @@ class LibraryReader:
         return result
 
     @consistent_account
-    async def show_recommendations(self, limit=10, exclude_started=True, exclude_watchlist=False, exclude_hidden=True):
+    async def show_recommendations(self, limit=10, exclude_started=True, exclude_watchlist=False, exclude_hidden=True, filters=None, ending=None):
+        if ending is not None:
+            choice(ending, ('concluded', 'open'))
         activity_before = await self._activity() if (exclude_started or exclude_watchlist or exclude_hidden) else None
         data = json_data(await self.client.get('/recommendations/shows',
-            {'limit': 100, 'extended': 'full', 'ignore_watchlisted': str(exclude_watchlist).lower()}, personal=True))
+            {'limit': 100, 'extended': 'full', 'ignore_watchlisted': str(exclude_watchlist).lower(),
+             **(filters.query() if filters else {})}, personal=True))
         if not isinstance(data, list):
             raise TraktError('Trakt returned invalid show recommendations.')
         excluded = set()
@@ -365,7 +368,7 @@ class LibraryReader:
             value = show.get('ids', {}).get('trakt')
             if value is None:
                 raise TraktError('Missing Trakt show ID in recommendations.')
-            if value not in excluded and value not in seen:
+            if value not in excluded and value not in seen and (ending is None or show.get('ending') == ending):
                 seen.add(value)
                 selected.append({**{k: v for k, v in show.items() if k not in ('favorited_by', 'recommended_by')}, 'recommendation_rank': rank})
         if activity_before is not None and activity_before != await self._activity():
@@ -373,6 +376,7 @@ class LibraryReader:
         return {'items': selected[:limit], 'candidates_received': len(data), 'available_after_exclusions': len(selected),
                 'selection_truncated': len(selected) > limit, 'source': 'trakt:/recommendations/shows',
                 'excluded_started': exclude_started, 'excluded_watchlist': exclude_watchlist, 'excluded_hidden': exclude_hidden,
+                'ending_filter': ending, 'requested_filters': filters.model_dump(exclude_none=True) if filters else {},
                 'note': 'Trakt personal order preserved. At most 100 upstream candidates; fewer may remain after exclusions.'}
 
     async def _activity(self):

@@ -19,7 +19,8 @@ async def main():
             assert 'trakt_get_user_preferences' in tools
             assert {'trakt_get_show_progress', 'trakt_get_history', 'trakt_get_collection',
                     'trakt_get_playback', 'trakt_get_user_stats', 'trakt_get_lists'} <= tools
-            assert len(tools) == 41
+            assert {'trakt_get_smart_list', 'trakt_get_smart_list_items', 'trakt_get_smart_list_templates'} <= tools
+            assert len(tools) == 44
             assert not any(name in tools for name in ('trakt_get_streaming_shortlist', 'trakt_get_streaming_providers', 'trakt_get_movie_streaming'))
             results = await asyncio.gather(*(client.call_tool('trakt_get_status', {}) for _ in range(4)))
             for result in results:

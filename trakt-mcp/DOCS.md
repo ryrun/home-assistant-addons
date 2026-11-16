@@ -251,11 +251,101 @@ legacy negotiation modes are covered by local tests.
 | `trakt_get_user_preferences` | Explicit favorite/disliked genres, streaming country, and favorite streaming source identifiers from Trakt settings |
 | `trakt_get_recommendation_candidates` | Filtered `popular`, `trending`, or `related` movies with optional personal-list exclusions |
 
+### Smart Lists and discovery (0.4.0)
+
+| Tool | Result |
+| --- | --- |
+| `trakt_get_smart_list` | Saved definition, source and filter recipe for a global Smart List slug or ID |
+| `trakt_get_smart_list_items` | Current dynamic matches with bounded pages, optional type, sorting and narrowing filters |
+| `trakt_get_smart_list_templates` | Official templates, with at most three public preview items each |
+
+Use the slug or ID from a Smart List's Trakt URL. Smart Lists are distinct from
+ordinary personal lists: `trakt_get_lists` and `trakt_get_list_items` keep their
+existing meaning. This release does not enumerate or create Smart Lists. Private
+Smart Lists require authorization as the owner. Definitions and item queries use
+live authenticated requests, never the public disk cache; public templates can
+use the existing metadata cache. Follow `next_page` with unchanged parameters.
+Dynamic lists can change between calls; pagination does not create a snapshot.
+
+`trakt_get_smart_list_items` takes `media_type` (`all`, `movies`, `shows`),
+`sort_by` (e.g. `rank`, `released`, `runtime`, `imdb_rating`) and `sort_how`
+(`asc` or `desc`). Trakt recommendation-source lists always retain rank order;
+`added` applies to watchlist-source lists. Random order is deliberately excluded
+so repeated page requests do not randomly reshuffle titles.
+
+Its optional `filters` object supports:
+
+- `genres`, `subgenres`, `countries`, `statuses`, `certifications`: bounded lists
+  of values. Smart List values can be prefixed with `-` to exclude them.
+- `years`, `runtimes`, `ratings`: `min-max` ranges; either bound can be omitted.
+  Trakt `ratings` uses **0–100**, e.g. `70-100` means at least 7/10; runtime is minutes.
+- `imdb_ratings`, `tmdb_ratings` (0–10), `metascores` (0–100), `votes`, `imdb_votes`.
+  All are supplied by Trakt; no direct external rating service is contacted.
+- `released_within_days` (1–3650), `studios`, `people`, `people_operator`
+  (`and`/`or`), `people_role` (`any`, `cast`, `directing`, `writing`, `producing`).
+- `awards`, `award_years`, `award_won`; the latter two require `awards`.
+- `parental_nudity`, `parental_violence`, `parental_profanity`, `parental_alcohol`,
+  `parental_frightening` (0–3 ranges), `parental_include_unrated`.
+- `ignore_watched`, `ignore_watchlisted` and optional `watchnow`, `watchnow_country`.
+
+For example, call `trakt_get_smart_list_items` with:
+
+```json
+{
+  "list_id": "YOUR-SMART-LIST-SLUG",
+  "media_type": "movies",
+  "sort_by": "imdb_rating",
+  "sort_how": "desc",
+  "filters": {
+    "genres": ["mystery", "-horror"],
+    "ratings": "70-100",
+    "runtimes": "-120",
+    "ignore_watched": true
+  }
+}
+```
+
+Query filters **narrow**, rather than replace, the saved recipe. The saved source
+and streaming region remain authoritative. `watchnow` accepts values such as
+`["favorites"]`, `["free"]`, `["subscriptions"]` or `["netflix", "-disney-plus"]`;
+`watchnow_country` uses a lowercase two-letter country code. Favorites refer to the
+**list owner**, not necessarily the caller, and are not verified subscriptions.
+These are Trakt-side filters, not live offer lookups. Their availability depends
+on Trakt granting the app access; permission failures remain errors. No restricted
+`watchnow` offer endpoint, provider catalog or direct TMDb integration is added.
+
+Personal templates have `total: null` and no preview results here. They are
+recipes, not empty personal recommendations. This release does not invoke a
+preview evaluation endpoint or save a list on your behalf.
+
+The existing `trakt_get_personal_recommendations` and
+`trakt_get_show_recommendations` accept optional `filters` with the common media
+filters above (`genres`, `subgenres`, `years`, `ratings`, `runtimes`, `countries`,
+`statuses`, `certifications`, parental ranges), plus `theme` (e.g. `christmas`) and
+`watch_window` in days. Smart-List-only options such as people, IMDb or streaming
+filters are not accepted by recommendation tools. Unknown themes may be ignored
+by Trakt. Returned `requested_filters` describe the submitted request, not a local
+verification of every returned metadata field. Existing personal exclusions remain
+in force; at most 100 candidates are examined.
+
+For series, `ending="concluded"` keeps only candidates explicitly marked with a
+resolved story; `ending="open"` keeps explicitly open endings. Unknown/missing
+endings are excluded when this option is set. This is distinct from production
+`status`: an ended or canceled show is not automatically a concluded story.
+`trakt_get_show_details` already forwards the optional `ending`, `last_aired` and
+approximate `total_runtime` metadata supplied by Trakt. Explicit disliked genres
+remain available from `trakt_get_user_preferences`; no preferences are invented.
+
+Mixtape, native "Why this?", Reality Check, soundtracks and season recap tools
+remain outside this release because usable public API access was not verified.
+The previously reported up-next pagination discrepancy is still unresolved; this
+extension does not weaken completeness checks or claim to fix that issue.
+
 ### Series and personal library tools
 
-Version 0.3.0 adds the following tools. There are 41 tools by default, including
+Version 0.3.0 adds the following tools. There are now 44 tools by default, including
 local status/cache operations; two optional authorization tools bring the total
-to 43. Every operation on Trakt movie/series/library data is read-only. Existing
+to 46. Every operation on Trakt movie/series/library data is read-only. Existing
 movie tools keep their names and behavior, and no new API credentials or HA
 configuration options are needed.
 
@@ -372,7 +462,7 @@ statistics shown in the service monitor.
 
 After installing an update, reconnect the MCP client and start a new assistant thread.
 If an old tool list persists in Zed/Codex, fully quit and reopen Zed before starting
-the new thread. Confirm `server_version: 0.3.7` via `trakt_get_status` and check
+the new thread. Confirm `server_version: 0.4.0` via `trakt_get_status` and check
 that `trakt_get_show_progress` and `trakt_get_history` are available. Stored Trakt
 authorization stays valid; no new device authorization is normally required.
 

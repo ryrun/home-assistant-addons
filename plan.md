@@ -2,7 +2,12 @@
 
 Goal: a personal, read-only movie and series Trakt MCP server as a standalone Home Assistant add-on.
 Codex/Zed handles analysis and recommendations. Existing add-ons remain unchanged.
-Status: experimental version 0.3.7.
+Status: experimental version 0.4.0.
+
+Trakt MCP 0.4.0 adds read-only Smart List definitions, filtered matches and templates,
+plus optional personal recommendation filters and concluded/open show endings.
+Local validation passed 200 tests and the dual-listener HTTP smoke test.
+Real-account Smart List access and optional streaming filters still need acceptance.
 
 Setup uses the existing Home Assistant interface through configuration and logs,
 or alternatively MCP tools. Home Assistant displays process status and logs.

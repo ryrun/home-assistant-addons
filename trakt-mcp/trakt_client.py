@@ -362,12 +362,13 @@ class TraktClient:
                 'note': 'Factual selection only: high >= 8, low <= 4. Interpret preferences in the assistant.'}
 
     @consistent_account
-    async def recommendations(self, limit=10, exclude_watched=True, exclude_watchlist=False):
+    async def recommendations(self, limit=10, exclude_watched=True, exclude_watchlist=False, filters=None):
         # This endpoint uses limit, not standard page-based pagination. Fetch up to
         # its documented maximum and apply fresh local exclusions before truncation.
         response = await self.get('/recommendations/movies',
                                   {'limit': 100, 'extended': 'full',
-                                   'ignore_watchlisted': str(exclude_watchlist).lower()}, personal=True)
+                                   'ignore_watchlisted': str(exclude_watchlist).lower(),
+                                   **(filters.query() if filters else {})}, personal=True)
         movies = json_data(response)
         if not isinstance(movies, list):
             raise TraktError('Unexpected personal Trakt recommendation format.')
@@ -393,6 +394,7 @@ class TraktClient:
         return {'items': items[:limit], 'source': 'trakt:/recommendations/movies',
                 'candidates_received': len(movies), 'eligible_candidates': len(items),
                 'exclude_watched': exclude_watched, 'exclude_watchlist': exclude_watchlist,
+                'requested_filters': filters.model_dump(exclude_none=True) if filters else {},
                 'note': 'Personal Trakt ranking; enjoyment or streaming availability is not guaranteed. '
                         'At most 100 Trakt candidates are checked; exclusions may leave fewer results.'}
 
@@ -402,7 +404,7 @@ class TraktClient:
         if year_from is not None and year_to is not None and year_from > year_to:
             raise TraktError('year_from must not exceed year_to.')
         if source not in ('popular', 'trending', 'related'):
-            raise TraktError('Unbekannte Kandidatenquelle.')
+            raise TraktError('Unknown candidate source.')
         if source == 'related' and not seed_movie_id:
             raise TraktError('Specify seed_movie_id for related candidates.')
         path = '/movies/' + movie_id(seed_movie_id) + '/related' if source == 'related' else '/movies/' + source

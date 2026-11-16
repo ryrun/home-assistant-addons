@@ -5,6 +5,7 @@
 !server.py
 !trakt_client.py
 !library.py
+!discovery.py
 !version.py
 !run.sh
 !setup_flow.py
