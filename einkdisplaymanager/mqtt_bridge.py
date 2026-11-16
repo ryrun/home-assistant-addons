@@ -210,7 +210,7 @@ class MQTTBridge:
         charge = self.manager.battery_status(device)
         use_voltage = charge['estimated_percent'] is not None
         attributes = ({**charge, 'measurement_time': iso(telemetry.get('measured_at')),
-                       'meaning': 'Charge estimated from the last reported voltage and configured per-cell endpoints.'}
+                       'meaning': 'Charge estimated from the last reported voltage and selected per-cell estimation method.'}
                       if use_voltage else {
                           'estimated': True, 'source': 'image_fetch_watchdog',
                           'meaning': 'Activity estimate: falls toward 0 after a missed image fetch; 0 means overdue, not measured empty.',

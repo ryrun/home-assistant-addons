@@ -152,6 +152,13 @@ async def main():
                             'reported_display': 'epd13', 'wakeup_reason': 'timer',
                             'wifi_rssi': -67, 'sensor_orientation': 0})
 
+                    if profile != 'openpaper_l':
+                        stored = manager.store.get('device', device['id'])
+                        stored['battery'] = {'enabled': True, 'chemistry': 'alkaline' if profile == 'openpaper_7' else 'li_ion',
+                                             'series_cells': 4 if profile == 'openpaper_7' else 1,
+                                             'method': 'chemistry' if profile == 'openpaper_7' else 'custom',
+                                             'curve': [[round(3 + i * 1.2 / 31, 4), round(i * 100 / 31, 4)] for i in range(32)]}
+                        manager.store.save('device', stored)
                     manager.diagnostics.event(
                         device["id"],
                         "image_interrupted",

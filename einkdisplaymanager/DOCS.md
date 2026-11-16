@@ -113,18 +113,20 @@ Every supported model has a **Battery profile**, disabled by default. Enter:
 - **Cells in series**: divide total pack voltage by this count. Defaults are four
   for OpenPaper L/7 and one for Inkplate 6; adjust for your actual hardware.
   Parallel capacity does not multiply the voltage or the series count.
-- **Cell chemistry**: descriptive metadata, independent of charger settings.
-- **Empty/full voltage per cell** in volts, calibrated or taken from suitable
-  manufacturer data under the device's load. Full must exceed empty. No universal
-  voltage thresholds are silently assumed.
+- **Estimation method**: Chemistry profile, Linear, or Custom curve.
+- **Cell chemistry**: selects a reference curve in Chemistry profile mode; otherwise
+  descriptive metadata. It does not configure the hardware charger.
+- **Linear** requires empty/full voltage per cell in volts; full must exceed empty.
+- **Custom curve** requires 2–32 strictly increasing voltage/percentage pairs,
+  starting at 0% and ending at 100%. Use volts per cell, not total pack voltage.
 
-The estimate is linear between those per-cell endpoints and clamped to 0–100%.
-For a synthetic example, a four-cell pack at 5.6 V is 1.4 V per cell; user-selected
-endpoints of 1.2/1.6 V give 50%. Those example endpoints are not a chemistry-specific
-recommendation. Temperature, load, aging, and flat discharge curves (notably NiMH
-and LiFePO₄) limit accuracy. Selecting a chemistry does not install a calibrated
-nonlinear discharge curve. No report means unknown; a retained old report keeps
-its receipt timestamp visible. Capacity in mAh alone cannot infer charge from voltage.
+All methods clamp outside their endpoints to 0–100%. Existing devices and API
+clients without a method retain **Linear**; choosing a chemistry alone does not
+change a legacy profile's method. Select **Chemistry profile** explicitly to
+switch. Temperature, load, aging, cell differences, and flat voltage curves
+(notably NiMH and LiFePO₄) limit accuracy. No report means unknown; retained old
+reports keep their receipt timestamps. Capacity in mAh alone cannot infer charge
+from voltage. See **Battery estimation methods** below for ranges and sources.
 
 Device status distinguishes this calibrated voltage estimate from the simulated
 image-fetch watchdog. MQTT publishes only one percentage, **Battery Level**:
@@ -424,8 +426,8 @@ sensor and has no numeric state class creating long-term battery statistics.
 
 The sensor uses the last reported voltage if the device battery profile is
 configured/enabled and a percentage can be calculated. A voltage-derived **0%**
-is a valid value and takes precedence. Its attributes identify `linear_voltage`,
-chemistry and measurement time. Stored readings retain their original timestamp;
+is a valid value and takes precedence. Its attributes identify `linear_voltage`, `chemistry_curve`, or `custom_curve`,
+the selected method, chemistry and measurement time. Stored readings retain their original timestamp;
 a request without a voltage header does not erase the previous reading. No extra
 expiry is inferred. Without a reading or with calibration disabled, it uses the
 activity estimate with source `image_fetch_watchdog` and deadline attributes.
@@ -1490,15 +1492,15 @@ No extra battery percentage entity is created.
 
 Observations remain in RAM: at most one per hour over 90 days per device.
 A **Preliminary estimate** can appear after two observations at least 30 minutes
-apart, with a voltage drop of at least 5 mV or 0.2% of the configured voltage
-range (whichever is greater) and a linear fit with R² ≥ 0.6. A single voltage,
+apart, with a measured voltage span of at least 5 mV, an estimated capacity decline
+of at least 0.2 percentage points, and a linear fit with R² ≥ 0.6. A single voltage,
 flat/rising readings, or excessive noise cannot establish a discharge rate.
 There is no five-day waiting period for preliminary estimates. They may change
 substantially as more observations arrive; confidence is not a guarantee that
 accuracy improves monotonically.
 
 An **Established trend** uses daily medians from at least five observed days
-spanning four days, a decline of at least 3% of the voltage range, and R² ≥ 0.8.
+spanning four days, a decline of at least 3 percentage points of estimated capacity, and R² ≥ 0.8.
 Both stages reject forecasts above 365 days rather than silently capping them.
 Measurements older than the greater of two refresh intervals or two days hide
 the prediction. Charging/replacement (a rise above the recent median by over 10%
@@ -1506,9 +1508,11 @@ of the voltage range) and calibration changes restart collection. Add-on restart
 lose the history. Paused/disabled devices do not show a forecast.
 Reported USB connection or charging clears the discharge history. Measurements
 are excluded until both last-reported power flags allow battery operation.
-Calibration must be enabled with meaningful full/empty per-cell endpoints.
+Battery estimation must be enabled with a valid method/profile.
 
-Days extrapolate the observed voltage trend to the configured empty voltage.
+Days extrapolate the unrounded capacity trend to 0%, using the selected
+voltage-to-capacity curve for every observation. Forecast source is
+`capacity_trend`; changing method, curve, chemistry, or calibration restarts collection.
 Refresh counts use the current schedule including anchors and quiet hours;
 large counts use a bounded cadence sample. Voltage is not a linear measure of
 remaining energy, and temperature, WiFi and workload changes affect the estimate.
@@ -1549,3 +1553,64 @@ Battery voltage is sampled by the firmware at wake-up before WiFi is enabled.
 Sensor sides 0/2 and 1/3 are opposite; the pairs differ by 90°. Telemetry never
 automatically changes the configured model or mounting orientation. Firmware
 status reflects the wake-up snapshot, not confirmation of applied JSON settings.
+
+
+### Battery estimation methods (0.8.4)
+
+**Devices → Device settings → Battery profile → Estimation method** offers:
+
+| Method | Behavior |
+|---|---|
+| Chemistry profile | Select a typical built-in reference for the chosen chemistry; no manual empty/full endpoints needed. |
+| Linear | Preserve the previous mapping between configured empty/full voltage per cell. |
+| Custom curve | Interpolate user-supplied voltage/percentage points; chemistry is descriptive. |
+
+Chemistry profiles are coarse engineering approximations, not standardized SOC
+calibrations or exact digitizations of a manufacturer's cell measurements. The
+reference voltage-to-capacity relationship assumes broadly room-temperature,
+rested/light-load readings. They are starting points, not guaranteed improvements
+for every cell or load. Display charging flags and raw voltage remain separate.
+These settings neither control charging nor replace device protection thresholds.
+
+| Chemistry | Per-cell reference range | Intended scope |
+|---|---|---|
+| Alkaline | 1.0–1.6 V | Typical primary AA/AAA alkaline; cell brand and recovery affect results. |
+| NiMH | 1.0–1.4 V | Rested NiMH; the flat plateau makes voltage-only percentages particularly uncertain. |
+| Li-ion / LiPo | 3.0–4.2 V | Conventional rechargeable 4.2 V cells, not 4.35/4.4 V cells or regulated 1.5 V AA replacements. |
+| LiFePO₄ | 2.8–3.4 V | Rested LFP curve; 3.4 V is a reference at rest, not the charging limit. Plateau estimates are particularly uncertain. |
+
+**OpenPaper L with alkaline cells:** enable voltage estimation, select
+**Chemistry profile**, **Alkaline**, and **4** cells, then **Save settings**.
+Previously configured linear endpoints are preserved but unused in this mode.
+Built-in points are available through the authenticated state API as
+`battery_curves`; selecting Custom curve with an empty editor seeds the currently
+selected chemistry's points for adjustment. Custom curves are stored only as
+configuration, not as generated measurement history.
+
+Example custom curve (illustrative, not a universal calibration):
+
+```text
+1.0, 0
+1.3, 55
+1.6, 100
+```
+
+One pair per line, decimal points for volts, and 2–32 points. Both voltage and
+percentage must increase strictly; the first percentage is 0 and the last 100.
+Values must be finite, within 0.1–6 V and 0–100%. Duplicate or reversed points
+are rejected without changing the stored configuration. Interpolation between
+points is linear; the overall curve can be nonlinear. Using individual-cell
+values allows the same profile to work with different series counts.
+
+Physical background (no figures or proprietary profile datasets are bundled):
+- [Energizer Alkaline Handbook](https://data.energizer.com/pdfs/alkaline_appman.pdf):
+  sloping discharge, load/temperature dependence and recovery.
+- [Panasonic NiMH Handbook](https://energy.panasonic.com/dam/master/pdf/eu/material/Panasonic_Ni-MH_Batteries_Handbook.pdf):
+  flat discharge plateau and dependence on current and temperature.
+- [Texas Instruments SLUAAR1](https://www.ti.com/lit/an/sluaar1/sluaar1.pdf),
+  section 2: SOC versus open-circuit voltage for Li-ion and LiFePO₄.
+
+A well-fitted capacity trend is still a forecast, particularly on flat plateaus.
+A more appropriate curve improves the model's basis, but does not turn voltage
+into a measurement of remaining charge. The same estimate feeds the one existing
+MQTT **Battery Level** entity. Activity-only fallback is unchanged.

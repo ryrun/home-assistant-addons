@@ -634,6 +634,27 @@ async def main():
                         timed=await response.json()
                         assert 60<=timed['timeout']<=2592000
                     await page.locator('#device-charge').filter(has_text='75%').wait_for()
+                    assert await page.get_by_label('Estimation method',exact=True).input_value() == 'linear'
+                    await page.get_by_label('Estimation method',exact=True).select_option('chemistry')
+                    assert await page.get_by_label('Empty voltage per cell (V)',exact=True).is_hidden()
+                    await page.get_by_role('button',name='Save settings',exact=True).click()
+                    await page.locator('#device-save-status').filter(has_text='Settings saved.').wait_for()
+                    async with session.get(ink_json,headers={'X-Display-Battery-Millivolts':'3800'}) as response:
+                        assert response.status == 200
+                    await page.locator('#device-charge').filter(has_text='55% · chemistry curve').wait_for()
+                    await page.get_by_label('Estimation method',exact=True).select_option('custom')
+                    curve_field=page.get_by_label('Custom curve points',exact=False)
+                    assert '4.2, 100' in await curve_field.input_value()
+                    await curve_field.fill('3.0, 0\n3.8, 80\n4.2, 100')
+                    await page.get_by_role('button',name='Save settings',exact=True).click()
+                    await page.locator('#device-save-status').filter(has_text='Settings saved.').wait_for()
+                    await page.locator('#device-charge').filter(has_text='80% · custom curve').wait_for()
+                    assert await page.get_by_label('Estimation method',exact=True).input_value()=='custom'
+                    curve_field=page.get_by_label('Custom curve points',exact=False)
+                    assert '3.8, 80' in await curve_field.input_value()
+                    await curve_field.fill('3.0, 0\n3.0, 100')
+                    assert not await curve_field.evaluate('(field)=>field.checkValidity()')
+                    await curve_field.fill('3.0, 0\n3.8, 80\n4.2, 100')
                     await page.locator('[name=anchor_time]').fill('04:00')
                     await page.wait_for_timeout(2300)
                     assert await page.locator('[name=anchor_time]').input_value()=='04:00'

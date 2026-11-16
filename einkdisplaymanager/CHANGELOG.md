@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.4
+
+- Add Chemistry profile, Linear, and Custom curve battery estimation methods. Include approximate per-cell profiles for alkaline, NiMH, conventional 4.2 V Li-ion/LiPo, and LiFePO4; validate 2–32 custom voltage/percentage points.
+- Keep existing profiles linear until explicitly changed. Show method-specific controls and status, with unchanged single Battery Level MQTT discovery.
+- Forecast remaining days/refreshes from unrounded estimated capacity rather than extending raw voltage linearly. Keep observation history in bounded RAM and restart collection after method/curve changes.
+
 ## 0.8.3
 
 - Process the offline firmware's OpenPaper status headers: voltage, USB power, charging, firmware version, reported display, wake-up reason, WiFi RSSI, and sensor orientation. Show last-reported values and their timestamps in Devices, with matching MQTT diagnostics.

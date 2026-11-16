@@ -1,4 +1,5 @@
 import json
+from itertools import pairwise
 
 import battery
 import pytest
@@ -164,3 +165,88 @@ def test_forecast_requires_separation_and_measurable_drop():
     assert forecast.estimate(device, now + 60) is None
     forecast.record(device, 5791, now + 3600)
     assert forecast.estimate(device, now + 3600) is None
+
+
+@pytest.mark.parametrize('chemistry,voltage,expected', [
+    ('alkaline', 1.30, 55), ('nimh', 1.25, 40), ('li_ion', 3.80, 55), ('lifepo4', 3.30, 60),
+])
+def test_chemistry_profiles_are_nonlinear_and_per_cell(chemistry, voltage, expected):
+    settings = battery.validate({'enabled': True, 'chemistry': chemistry, 'method': 'chemistry', 'series_cells': 4})
+    device = forecast_device(battery=settings)
+    result = battery.status(device, {'battery_millivolts': round(voltage * 4000)})
+    assert result['estimated_percent'] == expected
+    assert result['source'] == 'chemistry_curve'
+    assert result['method'] == 'chemistry'
+    assert battery.capacity(settings, 0) == 0
+    assert battery.capacity(settings, 200000) == 100
+    values = [battery.capacity(settings, millivolts) for millivolts in range(500, 20001, 5)]
+    assert all(a <= b for a, b in pairwise(values))
+
+
+def test_custom_curve_interpolation_and_legacy_defaults():
+    legacy = battery.validate(PROFILE)
+    assert legacy['method'] == 'linear'
+    assert battery.capacity(legacy, 5600) == pytest.approx(50)
+    custom = battery.validate(PROFILE | {'method': 'custom', 'curve': [[1.0, 0], [1.3, 80], [1.6, 100]]})
+    assert battery.capacity(custom, 4600) == pytest.approx(40)
+    assert battery.capacity(custom, 5800) == pytest.approx(90)
+    assert battery.status(forecast_device(battery=custom), {'battery_millivolts': 5800})['source'] == 'custom_curve'
+
+
+@pytest.mark.parametrize('points', [
+    None, {}, 'curve', [], [[1.0, 0]], [[1.0, 1], [1.6, 100]], [[1.0, 0], [1.6, 99]],
+    [[1.0, 0], [1.0, 100]], [[1.6, 0], [1.0, 100]], [[1.0, 0], [1.3, 80], [1.6, 70], [1.7, 100]],
+    [[1.0, 0], [1.6, True]], [[False, 0], [1.6, 100]], [[1.0, 0], [float('nan'), 100]],
+    [[1.0, 0], [float('inf'), 100]], [[1.0, 0], [10**400, 100]], [[1.0, 0], [6.1, 100]],
+    [[1.0, 0], [1.6, 100, 2]], [[1 + i / 100, i * 100 / 32] for i in range(33)],
+])
+def test_invalid_custom_curves_are_rejected(points):
+    with pytest.raises(ValueError):
+        battery.validate(PROFILE | {'method': 'custom', 'curve': points})
+
+
+@pytest.mark.parametrize('change', [{'method': 'unknown'}, {'method': []}, {'method': 'chemistry', 'chemistry': 'custom'}])
+def test_invalid_estimation_method(change):
+    with pytest.raises(ValueError):
+        battery.validate(PROFILE | change)
+
+
+def test_forecast_uses_unrounded_capacity_curve_and_resets_after_method_change():
+    settings = PROFILE | {'method': 'custom', 'curve': [[1.0, 0], [1.3, 80], [1.6, 100]]}
+    device = forecast_device(battery=settings, interval=3600)
+    forecast = battery.Forecast()
+    now = 1800000000
+    forecast.record(device, 5800, now)
+    forecast.record(device, 5760, now + 86400)
+    # 90% -> 89 1/3% per day: 134 days, unlike raw voltage extrapolation (44 days).
+    result = forecast.estimate(device, now + 86400)
+    assert result['remaining_days'] == pytest.approx(134)
+    assert result['source'] == 'capacity_trend'
+    assert result['method'] == 'custom'
+    changed = device | {'battery': settings | {'curve': [[1.0, 0], [1.3, 70], [1.6, 100]]}}
+    assert forecast.estimate(changed, now + 86400) is None
+    forecast.record(changed, 5720, now + 2 * 86400)
+    assert len(forecast.histories[device['id']]['samples']) == 1
+
+
+async def test_curve_settings_api_migration_and_single_mqtt_battery(system):
+    manager, admin, frames = system
+    device = await (await admin.post('/api/devices', json={'name': 'Curve frame', 'profile': 'openpaper_l'})).json()
+    endpoint = '/api/devices/' + device['id']
+    await admin.put(endpoint, json={'battery': PROFILE})
+    assert (await (await admin.get(endpoint)).json())['battery']['method'] == 'linear'
+    response = await admin.put(endpoint, json={'battery': {'method': 'chemistry', 'chemistry': 'alkaline'}})
+    assert response.status == 200
+    await frames.get(path(device['urls']['settings']), headers={'X-OpenPaper-Battery-Millivolts': '5200'})
+    stored = manager.store.get('device', device['id'])
+    payload = manager.mqtt.payload(stored)
+    assert payload['battery_estimate'] == 55
+    assert payload['battery_attributes']['source'] == 'chemistry_curve'
+    response = await admin.put(endpoint, json={'battery': {'method': 'custom', 'curve': [[1.0, 0], [1.3, 80], [1.6, 100]]}})
+    assert response.status == 200
+    assert (await response.json())['battery_status']['estimated_percent'] == 80
+    invalid = await admin.put(endpoint, json={'battery': {'curve': [[1, 0], [1, 100]]}})
+    assert invalid.status == 400
+    assert (await (await admin.get(endpoint)).json())['battery']['curve'] == [[1.0, 0], [1.3, 80], [1.6, 100]]
+    configs = [json.loads(data[0]) for topic, data in manager.mqtt.desired(manager.mqtt.config).items() if topic.endswith('/config')]
+    assert len([item for item in configs if item.get('device_class') == 'battery']) == 1

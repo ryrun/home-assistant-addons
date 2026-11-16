@@ -1,11 +1,51 @@
-"""User-calibrated pack voltage estimates, kept separate from fetch health."""
+"""Per-cell capacity curves and RAM-only forecasts, separate from fetch health."""
 
 import math
+from itertools import pairwise
 
 from profiles import display_profile
 
 CHEMISTRIES = {'custom', 'alkaline', 'nimh', 'li_ion', 'lifepo4'}
-DEFAULTS = {'enabled': False, 'chemistry': 'custom', 'series_cells': 1, 'empty_voltage': None, 'full_voltage': None}
+# Coarse engineering reference profiles, not standardized cell calibrations.
+# Source context and limitations: DOCS.md, "Battery estimation methods".
+CURVES = {
+    'alkaline': ((1.00, 0), (1.10, 10), (1.20, 25), (1.25, 40), (1.30, 55),
+                 (1.35, 70), (1.40, 80), (1.45, 90), (1.50, 95), (1.60, 100)),
+    'nimh': ((1.00, 0), (1.10, 5), (1.18, 10), (1.22, 20), (1.25, 40),
+             (1.28, 60), (1.31, 80), (1.35, 90), (1.40, 100)),
+    'li_ion': ((3.00, 0), (3.30, 5), (3.50, 10), (3.60, 20), (3.70, 35),
+               (3.80, 55), (3.90, 75), (4.00, 85), (4.10, 95), (4.20, 100)),
+    'lifepo4': ((2.80, 0), (3.10, 5), (3.20, 10), (3.25, 20), (3.28, 40),
+                (3.30, 60), (3.32, 80), (3.35, 90), (3.40, 100)),
+}
+DEFAULTS = {'enabled': False, 'chemistry': 'custom', 'series_cells': 1,
+            'empty_voltage': None, 'full_voltage': None, 'method': 'linear', 'curve': []}
+
+
+def curve(settings):
+    if settings['method'] == 'chemistry':
+        return CURVES[settings['chemistry']]
+    if settings['method'] == 'custom':
+        return settings['curve']
+    return ((settings['empty_voltage'], 0), (settings['full_voltage'], 100))
+
+
+def signature(settings):
+    return tuple((key, tuple(tuple(point) for point in value) if key == 'curve' else value)
+                 for key, value in sorted(settings.items()))
+
+
+def capacity(settings, millivolts):
+    """Unrounded percentage; clamp outside the selected per-cell curve."""
+    voltage = millivolts / 1000 / settings['series_cells']
+    points = curve(settings)
+    if voltage <= points[0][0]:
+        return 0.0
+    for (low_v, low_p), (high_v, high_p) in pairwise(points):
+        if voltage <= high_v:
+            return low_p + (high_p - low_p) * (voltage - low_v) / (high_v - low_v)
+    return 100.0
+
 
 
 def config(device):
@@ -16,19 +56,39 @@ def validate(value):
     if not isinstance(value, dict) or set(value) - set(DEFAULTS):
         raise ValueError('Unsupported battery profile setting.')
     result = DEFAULTS | value
-    if type(result['enabled']) is not bool or result['chemistry'] not in CHEMISTRIES:
+    if type(result['enabled']) is not bool or not isinstance(result['chemistry'], str) or result['chemistry'] not in CHEMISTRIES:
         raise ValueError('Choose a supported battery chemistry and enable switch.')
     count = result['series_cells']
     if type(count) is not int or not 1 <= count <= 32:
         raise ValueError('Use between 1 and 32 cells in series. Parallel cells do not increase this count.')
+    if result['method'] not in ('linear', 'chemistry', 'custom'):
+        raise ValueError('Choose Chemistry profile, Linear, or Custom curve.')
+    if result['enabled'] and result['method'] == 'chemistry' and result['chemistry'] not in CURVES:
+        raise ValueError('Choose a supported cell chemistry for the chemistry profile.')
     for key in ('empty_voltage', 'full_voltage'):
         number = result[key]
-        if number is None and not result['enabled']:
+        if number is None and (not result['enabled'] or result['method'] != 'linear'):
             continue
         if type(number) not in (int, float) or not 0.1 <= number <= 6 or not math.isfinite(number):
             raise ValueError('Enter the empty and full voltage per cell, between 0.1 and 6 V.')
     if result['empty_voltage'] is not None and result['full_voltage'] is not None and result['empty_voltage'] >= result['full_voltage']:
         raise ValueError('Full voltage must be greater than empty voltage.')
+    points = result['curve']
+    if not isinstance(points, list) or len(points) > 32:
+        raise ValueError('Use 2 to 32 custom curve points.')
+    if points or (result['enabled'] and result['method'] == 'custom'):
+        if len(points) < 2:
+            raise ValueError('Use 2 to 32 custom curve points.')
+        for point in points:
+            if (not isinstance(point, (list, tuple)) or len(point) != 2
+                    or any(type(number) not in (int, float) or not 0 <= number <= 6_000 or not math.isfinite(number)
+                           for number in point)
+                    or not .1 <= point[0] <= 6 or not 0 <= point[1] <= 100):
+                raise ValueError('Each curve point must contain voltage per cell (0.1–6 V) and percent (0–100).')
+        if points[0][1] != 0 or points[-1][1] != 100:
+            raise ValueError('The curve must start at 0% and end at 100%.')
+        if any(a[0] >= b[0] or a[1] >= b[1] for a, b in pairwise(points)):
+            raise ValueError('Curve voltage and percentage must both increase strictly, without duplicates.')
     return result
 
 
@@ -38,10 +98,11 @@ def status(device, telemetry):
     cell_voltage = millivolts / 1000 / settings['series_cells'] if millivolts is not None else None
     percentage = None
     if settings['enabled'] and cell_voltage is not None:
-        percentage = round(max(0, min(100, (cell_voltage - settings['empty_voltage']) /
-                                      (settings['full_voltage'] - settings['empty_voltage']) * 100)))
+        percentage = round(capacity(settings, millivolts))
     return {'estimated_percent': percentage, 'cell_voltage': cell_voltage,
-            'measured_at': telemetry.get('measured_at'), 'source': 'linear_voltage',
+            'measured_at': telemetry.get('measured_at'),
+            'source': {'linear': 'linear_voltage', 'chemistry': 'chemistry_curve', 'custom': 'custom_curve'}[settings['method']],
+            'method': settings['method'],
             'chemistry': settings['chemistry'], 'estimated': True}
 
 
@@ -58,11 +119,12 @@ class Forecast:
         if not settings['enabled']:
             self.histories.pop(device['id'], None)
             return
-        signature = tuple(settings[key] for key in sorted(settings))
+        current_signature = signature(settings)
         history = self.histories.get(device['id'])
-        span = 1000 * settings['series_cells'] * (settings['full_voltage'] - settings['empty_voltage'])
-        if history is None or history['signature'] != signature:
-            history = {'signature': signature, 'samples': {}}
+        points = curve(settings)
+        span = 1000 * settings['series_cells'] * (points[-1][0] - points[0][0])
+        if history is None or history['signature'] != current_signature:
+            history = {'signature': current_signature, 'samples': {}}
             self.histories[device['id']] = history
         samples = history['samples']
         recent = [v for t, v in samples.values() if now - t < 3 * 86400]
@@ -84,19 +146,19 @@ class Forecast:
         history = self.histories.get(device['id'])
         settings = config(device)
         if (not history or not settings['enabled'] or device.get('paused') or not device.get('enabled', True)
-                or history['signature'] != tuple(settings[key] for key in sorted(settings))):
+                or history['signature'] != signature(settings)):
             return None
         samples = list(history['samples'].values())
         if not samples or now - max(t for t, _ in samples) > max(2 * device['interval'], 2 * 86400):
             return None
         daily = {}
         for timestamp, voltage in samples:
-            daily.setdefault(int(timestamp // 86400), []).append((timestamp, voltage))
+            daily.setdefault(int(timestamp // 86400), []).append((timestamp, capacity(settings, voltage)))
         points = [(median(t for t, _ in values) / 86400, median(v for _, v in values))
                   for _, values in sorted(daily.items())]
         established = len(points) >= 5 and points[-1][0] - points[0][0] >= 4
         if not established:
-            points = sorted((timestamp / 86400, voltage) for timestamp, voltage in samples)
+            points = sorted((timestamp / 86400, capacity(settings, voltage)) for timestamp, voltage in samples)
         if len(points) < 2 or points[-1][0] - points[0][0] < 1 / 48:
             return None
         mean_x = sum(x for x, _ in points) / len(points)
@@ -105,14 +167,12 @@ class Forecast:
         yy = sum((y - mean_y) ** 2 for _, y in points)
         xy = sum((x - mean_x) * (y - mean_y) for x, y in points)
         slope = xy / xx
-        span = 1000 * settings['series_cells'] * (settings['full_voltage'] - settings['empty_voltage'])
         fit = xy * xy / (xx * yy) if yy else 0
         decline = -slope * (points[-1][0] - points[0][0])
-        if slope >= 0 or fit < .6 or decline < max(5, span * .002):
+        if slope >= 0 or fit < .6 or decline < .2 or max(v for _, v in samples) - min(v for _, v in samples) < 5:
             return None
-        established = established and fit >= .8 and decline >= span * .03
-        empty = settings['empty_voltage'] * settings['series_cells'] * 1000
-        remaining = (mean_y + slope * (now / 86400 - mean_x) - empty) / -slope
+        established = established and fit >= .8 and decline >= 3
+        remaining = (mean_y + slope * (now / 86400 - mean_x)) / -slope
         # Avoid unbounded projections; short observations remain explicitly preliminary.
         if not 0 < remaining <= 365:
             return None
@@ -128,6 +188,6 @@ class Forecast:
         else:
             refreshes = round(remaining * 86400 / ((cursor - now) / refreshes))
         return {'remaining_days': round(remaining, 1), 'remaining_refreshes': refreshes,
-                'estimated': True, 'source': 'voltage_trend',
+                'estimated': True, 'source': 'capacity_trend', 'method': settings['method'],
                 'confidence': 'established' if established else 'preliminary',
                 'sample_count': len(samples), 'observation_days': round(points[-1][0] - points[0][0], 2)}

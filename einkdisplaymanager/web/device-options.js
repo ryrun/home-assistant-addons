@@ -28,22 +28,45 @@ export function deviceOptionsHTML(device){
   <p class="help">Quiet hours can cross midnight. Anchored slots are skipped; relative refreshes move to the end of the window. Manual selections and first setup can still be delivered. Settings apply on the next wake-up.</p></fieldset>
   <fieldset class="device-option-group"><legend>Battery profile <span>Optional</span></legend>
   <label class="check"><input name="charge_enabled" type="checkbox" ${b.enabled?'checked':''}>Estimate charge from reported voltage</label>
-  <div data-battery-fields class="stack"><label class="field">Cell chemistry<select name="charge_chemistry"><option value="custom" ${b.chemistry==='custom'?'selected':''}>${chemistries.custom}</option>${optionGroups([['Primary cells',['alkaline']],['Rechargeable cells',['nimh','li_ion','lifepo4']]].map(([label,keys])=>[label,keys.map(key=>`<option value="${key}" ${key===b.chemistry?'selected':''}>${chemistries[key]}</option>`).join('')]))}</select></label>
+  <div data-battery-fields class="stack"><label class="field">Estimation method<select aria-label="Estimation method" name="charge_method" data-default-chemistry="${device.profile==='inkplate_6'?'li_ion':'alkaline'}"><option value="chemistry" ${b.method==='chemistry'?'selected':''}>Chemistry profile</option><option value="linear" ${!b.method||b.method==='linear'?'selected':''}>Linear</option><option value="custom" ${b.method==='custom'?'selected':''}>Custom curve</option></select></label><p class="help" data-charge-method-help></p><label class="field">Cell chemistry<select name="charge_chemistry"><option value="custom" ${b.chemistry==='custom'?'selected':''}>${chemistries.custom}</option>${optionGroups([['Primary cells',['alkaline']],['Rechargeable cells',['nimh','li_ion','lifepo4']]].map(([label,keys])=>[label,keys.map(key=>`<option value="${key}" ${key===b.chemistry?'selected':''}>${chemistries[key]}</option>`).join('')]))}</select></label>
   <label class="field">Cells in series<input name="charge_cells" type="number" min="1" max="32" step="1" value="${b.series_cells}"><small>OpenPaper L/7: four cells. Inkplate 6: one Li-ion cell. Parallel cells do not increase pack voltage.</small></label>
-  <div class="form-pair"><label class="field">Empty voltage per cell (V)<input name="charge_empty" type="number" min="0.1" max="6" step="0.001" value="${b.empty_voltage??''}" placeholder="Your calibrated value"></label><label class="field">Full voltage per cell (V)<input name="charge_full" type="number" min="0.1" max="6" step="0.001" value="${b.full_voltage??''}" placeholder="Your calibrated value"></label></div></div>
-  <p class="help">Uses total pack voltage divided by cells in series and a linear empty-to-full estimate. Enter values calibrated for your cells and load. Chemistry is descriptive; flat discharge curves reduce accuracy. No voltage report means unknown. Charging and the separate activity indicator stay independent.</p></fieldset>`;
+  <div class="form-pair" data-charge-linear><label class="field">Empty voltage per cell (V)<input name="charge_empty" type="number" min="0.1" max="6" step="0.001" value="${b.empty_voltage??''}" placeholder="Your calibrated value"></label><label class="field">Full voltage per cell (V)<input name="charge_full" type="number" min="0.1" max="6" step="0.001" value="${b.full_voltage??''}" placeholder="Your calibrated value"></label></div>
+  <label class="field" data-charge-custom>Custom curve points<textarea aria-label="Custom curve points" name="charge_curve" rows="8" maxlength="4096" spellcheck="false" placeholder="1.0, 0&#10;1.3, 55&#10;1.6, 100">${escape((b.curve||[]).map(point=>point.join(', ')).join('\n'))}</textarea><small>One voltage-per-cell, percent pair per line, using decimal points. Use 2–32 points in ascending order, from 0% to 100%. Changing this curve restarts forecast collection.</small></label></div>
+  <p class="help">Pack voltage is divided by cells in series. Reference profiles are approximate, not standardized calibrations. NiMH and LiFePO₄ percentages are especially uncertain because of their flat voltage curves. Changing the estimation method restarts forecast collection. Estimates do not configure charging or protect batteries.</p></fieldset>`;
 }
 
-export function bindDeviceOptions(form){
+export function parseCurveText(text){
+  return text.trim().split(/\n/).filter(line=>line.trim()).map(line=>line.trim().split(/[,\s]+/).map(Number));
+}
+
+export function bindDeviceOptions(form,curves={}){
   const fields=key=>form.elements.namedItem(key);
   const update=()=>{
     for(const [selector,on] of [['[data-anchor-fields]',fields('anchor_enabled').checked],['[data-quiet-fields]',fields('quiet_enabled').checked],['[data-battery-fields]',fields('charge_enabled').checked]]){
       const group=form.querySelector(selector);group.hidden=!on;
-      group.querySelectorAll('input,select').forEach(control=>{control.disabled=!on;control.required=on;});
+      group.querySelectorAll('input,select,textarea').forEach(control=>{control.disabled=!on;control.required=on;});
     }
+    const enabled=fields('charge_enabled').checked,method=fields('charge_method').value;
+    for(const [selector,active] of [['[data-charge-linear]',method==='linear'],['[data-charge-custom]',method==='custom']]){
+      const group=form.querySelector(selector);group.hidden=!active;
+      group.querySelectorAll('input,textarea').forEach(control=>{control.disabled=!enabled||!active;control.required=enabled&&active;});
+    }
+    const profile=curves[fields('charge_chemistry').value];
+    fields('charge_chemistry').setCustomValidity(enabled&&method==='chemistry'&&!profile?'Choose a supported chemistry for the chemistry profile.':'');
+    form.querySelector('[data-charge-method-help]').textContent=method==='linear'?'Maps your empty/full voltages to 0–100%. Existing profiles retain this method until you change it.':method==='custom'?'Interpolates your own per-cell voltage/percentage points.':profile?`Typical ${chemistries[fields('charge_chemistry').value]} reference: ${profile[0][0]}–${profile.at(-1)[0]} V per cell.${fields('charge_chemistry').value==='li_ion'?' For conventional 4.2 V cells, not high-voltage or regulated 1.5 V cells.':fields('charge_chemistry').value==='lifepo4'?' Uses rested voltage, not the charging ceiling.':''}`:'Choose a supported chemistry.';
+    const points=parseCurveText(fields('charge_curve').value);
+    const valid=points.length>=2&&points.length<=32&&points.every((point,i)=>point.length===2&&point.every(Number.isFinite)&&point[0]>=.1&&point[0]<=6&&point[1]>=0&&point[1]<=100&&(!i||(point[0]>points[i-1][0]&&point[1]>points[i-1][1])))&&points[0][1]===0&&points.at(-1)[1]===100;
+    fields('charge_curve').setCustomValidity(enabled&&method==='custom'&&!valid?'Enter 2–32 increasing voltage, percent pairs, starting at 0% and ending at 100%.':'');
     form.querySelector('[data-zone-field]').hidden=!(fields('anchor_enabled').checked||fields('quiet_enabled').checked);
   };
   for(const name of ['anchor_enabled','quiet_enabled','charge_enabled'])fields(name).addEventListener('change',update);
+  fields('charge_method').addEventListener('change',()=>{
+    if(fields('charge_method').value==='chemistry'&&fields('charge_chemistry').value==='custom')fields('charge_chemistry').value=fields('charge_method').dataset.defaultChemistry;
+    if(fields('charge_method').value==='custom'&&!fields('charge_curve').value.trim())fields('charge_curve').value=(curves[fields('charge_chemistry').value]||[]).map(point=>point.join(', ')).join('\n');
+    update();
+  });
+  fields('charge_chemistry').addEventListener('change',update);
+  fields('charge_curve').addEventListener('input',update);
   fields('interval').addEventListener('input',()=>{form.querySelector('[data-interval-label]').textContent=intervalLabel(Number(fields('interval').value));});
   update();
 }
@@ -55,6 +78,7 @@ export function readDeviceOptions(form){
     ...(anchor?{anchor_time:f('anchor_time').value,anchor_date:f('anchor_date').value}:{}),
     ...(quiet?{quiet_start:f('quiet_start').value,quiet_end:f('quiet_end').value}:{}),
     ...(anchor||quiet?{timezone:f('schedule_timezone').value.trim()}: {})},
-  battery:{enabled:charge,...(charge?{chemistry:f('charge_chemistry').value,series_cells:Number(f('charge_cells').value),
-    empty_voltage:f('charge_empty').value===''?null:Number(f('charge_empty').value),full_voltage:f('charge_full').value===''?null:Number(f('charge_full').value)}:{})}};
+  battery:{enabled:charge,...(charge?{chemistry:f('charge_chemistry').value,series_cells:Number(f('charge_cells').value),method:f('charge_method').value,
+    ...(f('charge_method').value==='custom'?{curve:parseCurveText(f('charge_curve').value)}:{}),
+    ...(f('charge_method').value==='linear'?{empty_voltage:f('charge_empty').value===''?null:Number(f('charge_empty').value),full_voltage:f('charge_full').value===''?null:Number(f('charge_full').value)}:{})}:{})}};
 }

@@ -57,7 +57,7 @@ from profiles import (
 )
 from storage import Store, new_id
 
-VERSION = '0.8.3'
+VERSION = '0.8.4'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -300,7 +300,7 @@ class Manager:
                                   'settings': self.settings, 'version': VERSION, 'csrf': self.csrf,
                                   'mqtt': self.mqtt.public(),
                                   'network': self.network,
-                                  'profiles': list(PROFILES.values()),
+                                  'profiles': list(PROFILES.values()), 'battery_curves': battery.CURVES,
                                   'storage_bytes': self.store.usage(), 'storage_limit': self.store.quota,
                                   'base_url_locked': bool(self.options.get('lan_base_url'))})
 
