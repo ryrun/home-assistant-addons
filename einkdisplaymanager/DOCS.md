@@ -86,13 +86,14 @@ allowing for the frame’s subsequent processing. A transfer crossing an anchor
 boundary must not replace a previously issued short sleep with a later grid slot.
 A desired interval change cannot imply the frame has already applied it. The
 next connection is unknown before first contact. It is an expectation, not a connection reservation or physical panel
-acknowledgement; disabled devices have no expected connection. The device detail
-also shows its next schedule slot and whether quiet hours are currently active.
+acknowledgement; disabled devices have no expected connection. The summary below the device name shows **Battery Level**, **Next expected
+connection**, and **Last image delivery**. **Playback status** shows the next
+scheduled slot and whether quiet hours are active.
 MQTT publishes a separate next-connection timestamp.
 
 ## Original and variant comparison
 
-Device cards and the detail preview preserve the complete native viewing ratio;
+Desktop device cards and the detail preview preserve the complete native viewing ratio;
 there is no fixed-height crop or artificial picture-frame border. A saved variant
 shows a diagonal split: **Original** uses the same source rotation, fit/crop, focus,
 and mounting before tone optimization; **Variant** uses the delivered output.
@@ -104,7 +105,8 @@ Left/Right choose an image and Escape restores the split.
 The comparison does not modify stored media or device output. Original-mode
 entries show only their output preview. OpenPaper original-mode fitting and
 physical ink colors remain approximations. Status polling retains the chosen
-preview mode and unsaved forms. Mobile controls wrap rather than hiding buttons.
+preview mode and unsaved forms. On mobile, device cards use a compact thumbnail
+when an image has been delivered. Open the device to use the full comparison.
 
 ## Optional voltage-based battery estimate
 
@@ -128,9 +130,9 @@ switch. Temperature, load, aging, cell differences, and flat voltage curves
 reports keep their receipt timestamps. Capacity in mAh alone cannot infer charge
 from voltage. See **Battery estimation methods** below for ranges and sources.
 
-Device status distinguishes this calibrated voltage estimate from the simulated
-image-fetch watchdog. MQTT publishes only one percentage, **Battery Level**:
-use the calibrated estimate when available, otherwise the activity estimate.
+The device summary and MQTT each show one **Battery Level**. A voltage-based
+estimate takes precedence, including 0%. The activity estimate is the fallback
+when a voltage-based percentage is unavailable.
 Configuring cells never changes charging, invents voltage, queries sleeping
 hardware, or resets fetch health. Raw voltage and receipt time remain available
 if estimation is off. Voltage/timestamp sensors are discovered for Inkplate,
@@ -278,6 +280,8 @@ contracts, but no new physical OpenPaper 7 or HA Ingress acceptance is claimed.
 Each device page shows **Transfer status** and a **Device log**, updated every two
 seconds while the page is visible. Polling updates only status fields, previews,
 and log rows; it does not replace the settings form or discard unsaved edits.
+The **Device log** starts collapsed. Its latest recorded error is visible above
+the log. Expand **Device log** to view the event history.
 
 Transfer states distinguish preparation, HTTP sending, completion, `304` unchanged,
 and interruption/failure. Progress counts bytes written by the server, not bytes
@@ -685,6 +689,14 @@ profiles/encoders; other display models need their own validated native contract
 selected viewing area while cropping edges; horizontal/vertical crop positions
 move the visible area within those edges. Neither mode stretches the source.
 
+Open an image card's **Image ID** disclosure to reveal its reference for scripts.
+Focus the read-only field to select the ID and copy it with Ctrl+C or Command+C.
+A **Copy** button is available in secure browser contexts.
+
+In the image editor, open **Color and dithering** for palette, matching, dithering,
+and tone adjustments. **Update preview** and the save action remain in the editor
+footer while the settings scroll.
+
 ### OpenPaper L image-quality starting point
 
 For a controlled comparison, use the same original, crop, physical mounting, and
@@ -698,7 +710,7 @@ starting points, not an objectively optimal profile for every photo or panel.
 
 Make sure the device entry selects the prepared variant. An entry set to
 **Original** bypasses this optimizer and lets the frame process the source.
-After changing a recipe, **Update full-resolution preview → Save changes**, then
+After changing a recipe, **Update preview → Save changes**, then
 wake the frame and let the complete refresh finish. Existing saved BMPs are not
 reprocessed by an add-on update. For a diagnostic comparison you can also prepare
 the same source in the upstream Web UI and assign that compatible BMP as an
@@ -1484,8 +1496,9 @@ the best output for every image.
 
 ### Voltage-based remaining-life forecast (0.8.3)
 
-Playback status shows **Estimated remaining battery life** only when calibrated
-voltage measurements show a measurable downward trend. It reports approximate
+The device summary shows **Estimated remaining battery life** below **Battery
+Level** once voltage measurements show a measurable downward trend. The estimate
+stays hidden while the readings are insufficient. It reports approximate
 remaining days and refreshes. Battery Level MQTT attributes include the same
 `forecast` object when voltage estimation is enabled; unavailable forecasts are null.
 No extra battery percentage entity is created.

@@ -9,16 +9,16 @@ English management interface through HA Ingress.
   Automatic optimization uses the same `epdoptimize` library as the upstream Web UI.
 - Save display-ready variants and edit them while retaining device assignments.
 - Give each device an independent image list, settings JSON, and fixed image URL.
-- Publish device status through MQTT and Home Assistant discovery, including an
-  explicitly simulated battery indicator with an optional gradual decline after
-  missed image fetches and a delayed overdue alarm.
+- View Battery Level, next expected contact, and last image delivery in the device
+  summary. Publish these values through MQTT and Home Assistant discovery.
 - Correct upside-down mounting per device without editing shared variants.
 - Optionally align refreshes to a local anchor time and skip daily quiet hours.
   Device cards show the next expected connection; JSON supplies the remaining sleep.
 - Compare the original composition and prepared output diagonally, with buttons,
   keyboard, and touch controls; previews retain the complete image and native ratio.
-- Configure optional cells-in-series and calibrated per-cell voltage endpoints for
-  a separate, explicitly approximate charge estimate.
+- Estimate Battery Level from reported voltage with a chemistry profile, linear
+  endpoints, or a custom curve. Image fetch activity supplies a fallback percentage.
+  With sufficient voltage readings, see estimated battery life and refreshes.
 - Play in order, optionally shuffling after each completed cycle. A sleeping frame
   does not cause images to be skipped in the background.
 - Choose compatible original delivery or a prepared model-specific 4-bit BMP per entry
