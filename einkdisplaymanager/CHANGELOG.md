@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.6
+
+- Preserve unsaved device settings during playback, playlist, and status actions.
+- Preview six planned refresh slots with the current form settings.
+- Poll compact device and dynamic render status. Schedule dynamic renders without scanning the media library in the idle loop.
+- Restart battery forecast collection when the saved refresh cadence changes.
+
 ## 0.8.5
 
 - Move battery and connection status above the frame preview and collapse the device log with its latest error visible.

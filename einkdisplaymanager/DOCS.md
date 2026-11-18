@@ -91,6 +91,14 @@ connection**, and **Last image delivery**. **Playback status** shows the next
 scheduled slot and whether quiet hours are active.
 MQTT publishes a separate next-connection timestamp.
 
+**Upcoming refresh slots** previews six future slots using the interval and
+schedule currently in the form. It uses the same local-time and quiet-hours rules
+as playback. **Next expected connection** still reflects the device's last issued
+sleep duration. The preview leaves the saved schedule intact.
+
+Playback actions, playlist edits, and **Refresh status** preserve unsaved settings
+on the device page. Click **Save settings** to apply the draft.
+
 ## Original and variant comparison
 
 Desktop device cards and the detail preview preserve the complete native viewing ratio;
@@ -1525,13 +1533,13 @@ Battery estimation must be enabled with a valid method/profile.
 
 Days extrapolate the unrounded capacity trend to 0%, using the selected
 voltage-to-capacity curve for every observation. Forecast source is
-`capacity_trend`; changing method, curve, chemistry, or calibration restarts collection.
+`capacity_trend`; changing method, curve, chemistry, or calibration restarts collection. Saving a
+new interval or active schedule also restarts collection, so remaining days use
+measurements taken under the new cadence.
 Refresh counts use the current schedule including anchors and quiet hours;
 large counts use a bounded cadence sample. Voltage is not a linear measure of
 remaining energy, and temperature, WiFi and workload changes affect the estimate.
-Changing the schedule updates the refresh count, but the day estimate needs new
-measurements to reflect any changed consumption. HTTP fetches do not confirm
-physical display refreshes. Synthetic activity percentages never feed this model.
+HTTP fetches do not confirm physical display refreshes. Synthetic activity percentages never feed this model.
 
 
 ### OpenPaper request telemetry (0.8.3)

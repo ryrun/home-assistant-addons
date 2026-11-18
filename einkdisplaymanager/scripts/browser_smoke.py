@@ -377,8 +377,11 @@ async def main():
                     await expect(page.locator('#device-battery-estimate')).to_have_text('100% · activity estimate')
                     assert await page.locator('#device-battery-fallback-help').is_visible()
                     assert await page.locator('#device-battery-forecast').is_hidden()
+                    await page.get_by_label('Name',exact=True).fill('Unsaved device draft')
                     await page.get_by_role('button', name='Next image', exact=True).click()
                     await page.get_by_text('Selection updated.', exact=False).wait_for()
+                    await expect(page.get_by_label('Name',exact=True)).to_have_value('Unsaved device draft')
+                    await page.get_by_label('Name',exact=True).fill('Studio frame')
                     assert await page.locator('#image-url').input_value() == url
                     async with session.get(url) as response:
                         assert response.content_type == 'image/bmp'
@@ -686,6 +689,7 @@ async def main():
                     await page.locator('[name=anchor_time]').fill('04:00')
                     await page.wait_for_timeout(2300)
                     assert await page.locator('[name=anchor_time]').input_value()=='04:00'
+                    await expect(page.locator('[data-schedule-slots] li')).to_have_count(6)
                     # All daily slots blocked by quiet hours must give inline feedback.
                     await page.get_by_label('Update interval (seconds)').fill('86400')
                     await page.locator('[name=anchor_time]').fill('03:00')
@@ -694,7 +698,9 @@ async def main():
                     assert await page.get_by_label('Update interval (seconds)').input_value()=='86400'
                     await page.locator('#refresh-device').click()
                     await page.get_by_role('heading',name='Inkplate desk',exact=True).wait_for()
-                    await expect(page.get_by_label('Update interval (seconds)')).to_have_value('21600')
+                    await expect(page.get_by_label('Update interval (seconds)')).to_have_value('86400')
+                    await expect(page.locator('[data-schedule-status]')).to_contain_text('All anchored refresh slots')
+                    await page.get_by_label('Update interval (seconds)').fill('21600')
                     await page.screenshot(path=str(artifacts/'device-schedule-desktop.png'),full_page=True)
                     await page.set_viewport_size({'width':390,'height':844})
                     await page.screenshot(path=str(artifacts/'inkplate6-mobile.png'),full_page=True)

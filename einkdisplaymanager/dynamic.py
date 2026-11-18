@@ -250,6 +250,9 @@ class DynamicImages:
         self.session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=8), trust_env=False
         )
+        for asset in self.store.all("asset"):
+            if asset.get("dynamic"):
+                self.due.setdefault(asset["id"], 0)
         self.task = asyncio.create_task(self.schedule())
 
     async def stop(self):
@@ -642,13 +645,8 @@ class DynamicImages:
     async def schedule(self):
         while not self.stopping:
             if self.isolation and not self.jobs and self.pending == 0:
-                eligible = [
-                    a
-                    for a in self.store.all("asset")
-                    if a.get("dynamic") and time.monotonic() >= self.due.get(a["id"], 0)
-                ]
-                if eligible:
-                    item = min(eligible, key=lambda a: self.due.get(a["id"], 0))
-                    self.due[item["id"]] = time.monotonic() + item["interval"]
-                    self.launch(item["id"])
+                now = time.monotonic()
+                identifier = min(self.due, key=self.due.get, default=None)
+                if identifier is not None and self.due[identifier] <= now:
+                    self.launch(identifier)
             await asyncio.sleep(1)

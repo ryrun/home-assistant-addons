@@ -203,3 +203,34 @@ async def test_shorter_json_sleep_can_shorten_but_never_postpone_outstanding_ima
     assert (await (await admin.get(endpoint)).json())['health']['battery_estimate'] == 0
     await (await frames.get(path(d['urls']['image']))).read()
     assert (await (await admin.get(endpoint)).json())['health']['battery_estimate'] == 100
+
+
+async def test_draft_schedule_preview_skips_quiet_slot_without_saving(system, monkeypatch):
+    manager, admin, _frames = system
+    created = await admin.post('/api/devices', json={'name': 'Schedule preview'})
+    device = await created.json()
+    endpoint = '/api/devices/' + device['id']
+    before = manager.store.get('device', device['id'])
+    monkeypatch.setattr('server.time.time', lambda: stamp('2026-11-18T00:01'))
+    draft = {'interval': 21600, 'schedule': {'timezone': 'Europe/Berlin', 'anchor_enabled': True,
+             'anchor_time': '00:00', 'quiet_enabled': True, 'quiet_start': '06:00', 'quiet_end': '07:00'}}
+    response = await admin.post(endpoint + '/schedule-preview', json=draft)
+    assert response.status == 200
+    assert (await response.json())['slots'][:4] == [
+        stamp('2026-11-18T12:00'), stamp('2026-11-18T18:00'),
+        stamp('2026-11-19T00:00'), stamp('2026-11-19T12:00')]
+    assert manager.store.get('device', device['id']) == before
+
+
+async def test_cadence_change_restarts_forecast_only_after_save(system):
+    manager, admin, _frames = system
+    created = await admin.post('/api/devices', json={'name': 'Battery schedule'})
+    device = await created.json()
+    identifier = device['id']
+    endpoint = '/api/devices/' + identifier
+    manager.battery_forecast.histories[identifier] = {'samples': {}}
+    assert (await admin.put(endpoint, json={'interval': 1})).status == 400
+    assert (await admin.put(endpoint, json={'name': 'Renamed'})).status == 200
+    assert identifier in manager.battery_forecast.histories
+    assert (await admin.put(endpoint, json={'interval': 21600})).status == 200
+    assert identifier not in manager.battery_forecast.histories

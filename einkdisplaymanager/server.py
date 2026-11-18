@@ -57,7 +57,7 @@ from profiles import (
 )
 from storage import Store, new_id
 
-VERSION = '0.8.5'
+VERSION = '0.8.6'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -400,6 +400,9 @@ class Manager:
         self.dynamic.launch(item['id'])
         return web.json_response({**self.dynamic.status(item['id']),'running':True},status=202)
 
+    async def dynamic_statuses(self, request):
+        return web.json_response({identifier: self.dynamic.status(identifier) for identifier in self.dynamic.due})
+
     async def dynamic_status(self, request):
         item = self.store.get('asset',request.match_info['item'])
         if not item.get('dynamic'):
@@ -662,6 +665,48 @@ class Manager:
             self.diagnostics.event(device['id'], 'device_created', 'Device registered in the add-on.')
             return web.json_response(self.public_device(device, detail=True), status=201)
 
+    async def device_cards(self, request):
+        now = time.time()
+        cards = []
+        for device in self.store.all('device'):
+            state = device['state']
+            entry = next((e for e in device['entries'] if e['id'] == state['last_served_entry']), None)
+            output_hash = None
+            if entry:
+                kind = 'variant' if entry['variant_id'] else 'asset'
+                identifier = entry['variant_id'] or entry['asset_id']
+                try:
+                    item = self.dynamic.cache.get(identifier) or self.store.get(kind, identifier)
+                    output_hash = item['hash']
+                except KeyError:
+                    pass
+            cards.append({key: device[key] for key in ('id', 'name', 'profile', 'enabled', 'paused')} | {
+                'orientation': device_orientation(device), 'upside_down': bool(device_rotation(device)),
+                'schedule': {'timezone': scheduling.config(device)['timezone']},
+                'timing': scheduling.view(device, now), 'transfer': self.diagnostics.transfer(device['id']),
+                'entry': entry, 'output_hash': output_hash,
+                'enabled_count': sum(e['enabled'] for e in device['entries']),
+                'last_contact': max(state['last_image_request'] or 0, state['last_settings_request'] or 0),
+            })
+        return web.json_response(cards)
+
+    async def schedule_preview(self, request):
+        device = self.store.get('device', request.match_info['device'])
+        data = await self.json(request)
+        interval = integer(data.get('interval'), 60, 2592000)
+        changes = data.get('schedule')
+        if not isinstance(changes, dict):
+            raise ValueError('Provide refresh schedule settings as an object.')
+        schedule = scheduling.validate(scheduling.config(device) | changes, interval)
+        draft = device | {'interval': interval, 'schedule': schedule}
+        now = time.time()
+        target = now
+        slots = []
+        for _ in range(6):
+            target = scheduling.next_due(draft, target)
+            slots.append(target)
+        return web.json_response({'slots': slots, 'timezone': schedule['timezone']})
+
     async def get_device(self, request):
         device = self.store.get('device', request.match_info['device'])
         return web.json_response(self.public_device(device, detail=True))
@@ -698,7 +743,11 @@ class Manager:
                 if not isinstance(data['battery'], dict):
                     raise ValueError('Provide battery settings as an object.')
                 device['battery'] = battery.validate(battery.config(device) | data['battery'])
-            if previous_interval != device['interval'] or (previous_schedule != scheduling.config(device) and (scheduling.active(device) or previous_schedule['anchor_enabled'] or previous_schedule['quiet_enabled'])):
+            timing_changed = previous_interval != device['interval'] or (
+                previous_schedule != scheduling.config(device)
+                and (scheduling.active(device) or previous_schedule['anchor_enabled'] or previous_schedule['quiet_enabled'])
+            )
+            if timing_changed:
                 device['state']['deadline'] = scheduling.next_due(device, time.time())
                 if device['state'].get('last_settings_timeout') is None:
                     device['state']['expected_image_at'] = device['state']['deadline']
@@ -755,6 +804,8 @@ class Manager:
                 reconcile(device)
             device['modified'] = max(time.time(), device['modified'] + 1)
             self.store.save('device', device)
+            if timing_changed:
+                self.battery_forecast.histories.pop(identifier, None)
             self.diagnostics.event(identifier, 'settings_saved', 'Device settings or image list saved.')
             return web.json_response(self.public_device(device, detail=True))
 
@@ -1098,6 +1149,7 @@ class Manager:
         admin.router.add_put('/api/dynamic/{item}', self.save_dynamic)
         admin.router.add_post('/api/dynamic-preview', self.dynamic_preview)
         admin.router.add_post('/api/dynamic/{item}/render', self.dynamic_render)
+        admin.router.add_get('/api/dynamic/status', self.dynamic_statuses)
         admin.router.add_get('/api/dynamic/{item}/status', self.dynamic_status)
         admin.router.add_post('/api/dynamic/{item}/targets', self.dynamic_target)
         admin.router.add_put('/api/dynamic/{item}/targets/{target}', self.dynamic_target)
@@ -1109,6 +1161,8 @@ class Manager:
         admin.router.add_get('/api/media/{kind}/{item}/{output}', self.media_file)
         admin.router.add_delete('/api/media/{kind}/{item}', self.delete_media)
         admin.router.add_post('/api/devices', self.add_device)
+        admin.router.add_get('/api/devices', self.device_cards)
+        admin.router.add_post('/api/devices/{device}/schedule-preview', self.schedule_preview)
         admin.router.add_get('/api/devices/{device}', self.get_device)
         admin.router.add_get('/api/devices/{device}/status', self.device_status)
         admin.router.add_put('/api/devices/{device}', self.update_device)

@@ -22,7 +22,7 @@ const deviceWhen=(t,d)=>when(t,d.timing?.enabled?d.schedule?.timezone:undefined)
 const asset=id=>state.data.assets.find(a=>a.id===id);
 const variant=id=>state.data.variants.find(v=>v.id===id);
 const thumb=(kind,id)=>`api/media/${kind}/${id}/thumbnail`;
-const entryImage=(entry,device)=>{if(!entry)return '';const prepared=entry.mode==='variant',item=prepared?variant(entry.variant_id):asset(entry.asset_id),url=thumb(prepared?'variant':'asset',prepared?entry.variant_id:entry.asset_id);return `${url}?device=${device.id}&v=${item?.hash||'missing'}_${device.orientation}_${device.upside_down?1:0}`;};
+const entryImage=(entry,device)=>{if(!entry)return '';const prepared=entry.mode==='variant',item=prepared?variant(entry.variant_id):asset(entry.asset_id),url=thumb(prepared?'variant':'asset',prepared?entry.variant_id:entry.asset_id);return `${url}?device=${device.id}&v=${device.output_hash||item?.hash||'missing'}_${device.orientation}_${device.upside_down?1:0}`;};
 const reportedTelemetryHTML=t=>{
   const fields=[['usb_connected','USB power',v=>v?'Connected':'Disconnected'],['charging','Charging',v=>v?'Yes':'No'],['firmware_version','Firmware version',String],['reported_display','Reported display',v=>v==='epd13'?'OpenPaper L · epd13':'OpenPaper 7 · epd7'],['wakeup_reason','Wake-up reason',String],['wifi_rssi','WiFi signal',v=>`${v} dBm`],['sensor_orientation','Sensor orientation',v=>`Side ${v}`]];
   return fields.filter(([key])=>t?.[key]!=null).map(([key,label,format])=>`<div><dt>${label}</dt><dd>${escape(format(t[key]))}</dd><small>Reported ${escape(when(t.field_updated_at?.[key]||t.reported_at))}</small></div>`).join('');
@@ -81,7 +81,7 @@ async function render(){
   const current=route();
   document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('active',current.startsWith(a.dataset.tab)));
   if(current.startsWith('devices/'))await deviceView(current.split('/')[1]);
-  else if(current==='devices')devicesView();
+  else if(current==='devices')await devicesView();
   else if(current==='settings')settingsView();
   else libraryView();
 }
@@ -258,17 +258,20 @@ async function openEditor(id, options={}){
   });
 }
 
-function devicesView(){
+async function devicesView(){
+  const cards=await api('devices');
+  if(route()!=='devices')return;
+  $('#device-count').textContent=cards.length;
   content.innerHTML=heading('Your displays','Devices','Independent image lists. Shared library.',
     '<button class="primary" id="add-device">＋ Add device</button>')+
-    (state.data.devices.length?`<div class="device-grid">${state.data.devices.map(d=>{
-      const e=d.entries.find(e=>e.id===d.state.last_served_entry);
+    (cards.length?`<div class="device-grid">${cards.map(d=>{
+      const e=d.entry;
       return `<article class="device-card" data-device="${d.id}"><div class="device-card-wide-preview">${previewHTML(e,d,`card-preview-${d.id}`)}</div>
-      ${e?`<a class="device-card-thumbnail" href="#devices/${d.id}" aria-label="Open ${escape(d.name)}"><img loading="lazy" src="${entryImage(e,d)}" alt=""></a>`:''}<div class="card-meta"><h2>${escape(d.name)}</h2><span class="badge ${d.enabled&&!d.paused?'active':''}">${transferActive(d.transfer)?'Sending image':!d.enabled?'Disabled':d.paused?'Paused':d.timing?.quiet_now?'Quiet hours':'Playing'}</span></div><p class="help">${escape(d.orientation||'portrait')} · ${escape(displayProfile(d.profile).name)} · ${d.entries.filter(e=>e.enabled).length} enabled images</p><dl class="device-times"><div><dt>Last contact</dt><dd>${deviceWhen(Math.max(d.state.last_image_request||0,d.state.last_settings_request||0),d)}</dd></div><div><dt>Next expected connection</dt><dd data-next-connection>${!d.enabled?'Disabled':d.timing?.next_connection_at?deviceWhen(d.timing.next_connection_at,d):'Awaiting first contact'}</dd></div></dl><div class="actions"><a class="button" href="#devices/${d.id}">Manage device</a><button class="small" data-quick-next="${d.id}" ${transferActive(d.transfer)?'disabled':''}>Next image</button></div></article>`;
+      ${e?`<a class="device-card-thumbnail" href="#devices/${d.id}" aria-label="Open ${escape(d.name)}"><img loading="lazy" src="${entryImage(e,d)}" alt=""></a>`:''}<div class="card-meta"><h2>${escape(d.name)}</h2><span class="badge ${d.enabled&&!d.paused?'active':''}">${transferActive(d.transfer)?'Sending image':!d.enabled?'Disabled':d.paused?'Paused':d.timing?.quiet_now?'Quiet hours':'Playing'}</span></div><p class="help">${escape(d.orientation||'portrait')} · ${escape(displayProfile(d.profile).name)} · ${d.enabled_count} enabled images</p><dl class="device-times"><div><dt>Last contact</dt><dd>${deviceWhen(d.last_contact,d)}</dd></div><div><dt>Next expected connection</dt><dd data-next-connection>${!d.enabled?'Disabled':d.timing?.next_connection_at?deviceWhen(d.timing.next_connection_at,d):'Awaiting first contact'}</dd></div></dl><div class="actions"><a class="button" href="#devices/${d.id}">Manage device</a><button class="small" data-quick-next="${d.id}" ${transferActive(d.transfer)?'disabled':''}>Next image</button></div></article>`;
     }).join('')}</div>`:'<div class="empty"><h2>Meet your first frame</h2><p>Add an OpenPaper L, OpenPaper 7, or Inkplate 6, choose images from your library, and connect it using its settings URL.</p><button id="first-device">Add your first device</button></div>');
-  content.querySelectorAll('.device-card').forEach(card=>{const device=state.data.devices.find(d=>d.id===card.dataset.device);bindComparisons(card,()=>viewSize(displayProfile(device.profile),device.orientation));});
+  content.querySelectorAll('.device-card').forEach(card=>{const device=cards.find(d=>d.id===card.dataset.device);bindComparisons(card,()=>viewSize(displayProfile(device.profile),device.orientation));});
   $('#add-device').onclick=()=>deviceDialog();$('#first-device')?.addEventListener('click',()=>deviceDialog());
-  document.querySelectorAll('[data-quick-next]').forEach(b=>b.onclick=()=>run(async()=>{await api(`devices/${b.dataset.quickNext}/next`,{method:'POST'});await refresh();devicesView();notice('Next image selected. The frame will fetch it on its next wake-up.');}));
+  document.querySelectorAll('[data-quick-next]').forEach(b=>b.onclick=()=>run(async()=>{await api(`devices/${b.dataset.quickNext}/next`,{method:'POST'});await devicesView();notice('Next image selected. The frame will fetch it on its next wake-up.');}));
 }
 
 function deviceDialog(copyFrom){
@@ -280,24 +283,44 @@ function deviceSummary(d){
   return `<div><dt>Battery Level</dt><dd id="device-battery-estimate">${batteryLevelLabel(d.battery_status,d.health)}</dd><div id="device-battery-forecast" hidden><dl><dt>Estimated remaining battery life</dt><dd id="device-battery-forecast-value"></dd></dl><small>Capacity trend at the current refresh schedule; approximate, especially with few readings. RAM history resets on restart.</small></div><p id="device-battery-fallback-help" class="help" hidden>Based on image fetch activity until a voltage estimate is available.</p></div><div><dt>Next expected connection</dt><dd id="device-next-connection">${deviceWhen(d.timing?.next_connection_at,d)}</dd></div><div><dt>Last image delivery</dt><dd id="device-last-served">${when(d.state.last_served_at)}</dd></div>`;
 }
 
-async function deviceView(id){
+function formValues(form){
+  return Object.fromEntries([...form.elements].filter(field=>field.name).map(field=>[
+    field.name,field.type==='checkbox'?field.checked:field.value
+  ]));
+}
+
+async function deviceView(id,{keepDraft=false}={}){
   const d=await api(`devices/${id}`),selected=d.entries.find(e=>e.id===d.state.selected);
   if(route()!==`devices/${id}`)return;
+  const previousForm=keepDraft&&state.deviceDetail?.id===id?$('#device-form'):null;
+  const draft=previousForm?.isConnected?Object.entries(formValues(previousForm))
+    .filter(([name,value])=>value!==previousForm.savedValues?.[name]):[];
+  const referenceOpen=previousForm?.querySelector('.option-details')?.open;
   state.deviceDetail=d;
+  const index=state.data.devices.findIndex(device=>device.id===id);
+  if(index>=0)state.data.devices[index]={...state.data.devices[index],name:d.name,orientation:d.orientation};
   content.innerHTML=`<div class="breadcrumbs"><a href="#devices">Devices</a> / ${escape(d.name)}</div>`+
     heading(displayProfile(d.profile).name,escape(d.name),'Selection changes arrive when the frame next fetches an image.',
       '<button id="refresh-device">Refresh status</button>')+
     `<dl class="device-summary" aria-label="Device status">${deviceSummary(d)}</dl>`+
     `<div class="detail-layout"><div><section class="panel"><h2>Frame preview</h2>${previewHTML(selected,d,'device-frame-preview')}<p class="help">${escape(d.orientation||'portrait')} · ${sizeLabel(d.profile,d.orientation)} viewing area. ${d.upside_down?'Mounted view with 180° delivery correction. ':''}Selected output; the frame fetches it on wake-up. ${selected?.mode==='variant'?'Use the buttons below to switch views. Original shows the same crop before optimization.':'Original-mode preview.'} Physical ink colors and OpenPaper original-mode fitting remain approximate.</p></section><section class="panel"><div class="page-head"><div><h2>Image list</h2><p id="device-list-position">${d.entries.length} entries · Cycle ${d.state.cycle}</p></div><button class="primary" id="add-images">＋ Add images</button></div><p class="help">Arrange the base order below. With shuffle enabled, a new order is made only after the current cycle finishes.</p><ol class="queue">${d.entries.map((e,index)=>`<li draggable="true" data-entry="${e.id}" class="${e.id===d.state.selected?'current':''}"><img src="${entryImage(e,d)}" alt=""><div class="entry-text"><strong>${index+1}. ${escape(asset(e.asset_id)?.name||'Unavailable image')}</strong><small>${e.mode==='variant'?escape(variant(e.variant_id)?.name||'Saved variant'):d.profile==='inkplate_6'?'Original · fitted to eight grayscale levels by add-on':'Original · processed by frame'}<span data-selected-tag="${e.id}" ${e.id===d.state.selected?'':'hidden'}> · Selected</span><span data-served-tag="${e.id}" ${e.id===d.state.last_served_entry?'':'hidden'}> · Last served</span></small></div><label class="check"><input data-enabled="${e.id}" type="checkbox" aria-label="Enable image ${index+1}" ${e.enabled?'checked':''}></label><div class="queue-controls"><button data-up="${index}" aria-label="Move image ${index+1} up" ${index===0?'disabled':''}>↑</button><button data-down="${index}" aria-label="Move image ${index+1} down" ${index===d.entries.length-1?'disabled':''}>↓</button><button data-choose="${e.id}" ${e.enabled?'':'disabled'}>Show next</button><button data-remove="${e.id}" aria-label="Remove image ${index+1}">×</button></div></li>`).join('')||'<li><p class="help">Add originals or saved variants from the Media Library.</p></li>'}</ol><div class="actions"><button id="previous">Previous</button><button id="pause">${d.paused?'Resume':'Pause'}</button><button id="next">Next image</button></div></section><section class="panel"><h2>Transfer status</h2><div id="transfer-status"></div><p id="activity-poll-status" class="help" role="status">Live status updates every 2 seconds.</p></section><section class="panel device-log"><p id="device-log-error" class="device-log-error" hidden></p><details><summary>Device log</summary><p class="help">Last 100 events for this device, newest first. Entries survive add-on restarts; URLs, credentials, and raw request data are not recorded.</p><div class="device-event-scroll"><table class="device-events"><thead><tr><th>Time</th><th>Event</th><th>HTTP</th><th>Transfer</th></tr></thead><tbody id="device-events"></tbody></table></div></details></section><section class="panel" id="device-reported-status" hidden><h2>Reported device status</h2><div class="facts" id="device-reported-values"></div><p class="help">Last reported values, not live readings. Sensor sides 0/2 and 1/3 are opposite; the pairs differ by 90°. Reported orientation does not change mounting settings.</p></section><section class="panel"><h2>Playback status</h2><div class="facts"><div><dt>Image fetch status</dt><dd id="device-fetch-health">${escape(d.health?.frame_status||'waiting')}</dd></div><div><dt>Selected image</dt><dd id="device-selected-name">${escape(selected?asset(selected.asset_id)?.name:'Placeholder')}</dd></div><div><dt>Next scheduled slot</dt><dd id="device-next-slot">${deviceWhen(d.timing?.next_slot_at,d)}</dd></div><div><dt>Next eligible change</dt><dd id="device-next-change">${d.paused?'Paused':when(d.state.deadline)}</dd></div><div><dt>Measured battery voltage</dt><dd id="device-voltage">${voltageLabel(d.telemetry)}</dd></div><div><dt>Voltage measured at</dt><dd id="device-voltage-time">${when(d.telemetry?.measured_at)}</dd></div><div><dt>Quiet hours</dt><dd id="device-quiet-status">${d.timing?.quiet_now?'Active':'Inactive'}</dd></div><div><dt>Settings last requested</dt><dd id="device-last-settings">${when(d.state.last_settings_request)}</dd></div></div><p id="device-last-error" class="help">${escape(d.state.last_error||'HTTP delivery does not confirm what is physically visible on the screen.')}</p><details><summary>Current playback queue</summary><p class="help">This cycle finishes in the order shown. Additions and changes to the base order apply at the next cycle; removed or disabled entries leave immediately.</p><ol id="device-playback-queue">${playbackQueueHTML(d)}</ol></details></section></div><div><section class="panel"><h2>Device settings</h2><form id="device-form" class="stack"><label class="field">Name<input name="name" maxlength="120" value="${escape(d.name)}" required></label><label class="field">Mounting orientation<select name="orientation">${orientationOptions(d.profile,d.orientation)}</select><small>Controls previews. Use a matching variant; changing mounting does not recrop existing images.</small></label><label class="check"><input name="upside_down" type="checkbox" ${d.upside_down?'checked':''}>Mounted upside down · correct by 180°</label><small>Automatically rotates delivery for this device and shows the corrected mounted view. Shared variants stay unchanged. Sensor rotation is disabled while correction is on; original JPEGs need another encoding pass.</small><label class="field">Update interval (seconds)<input name="interval" type="number" min="60" max="2592000" value="${d.interval}" required><small><span data-interval-label>${intervalLabel(d.interval)}</span> · 60 seconds to 30 days. Early fetches retain the current selection.</small></label><label class="check"><input name="enabled" type="checkbox" ${d.enabled?'checked':''}>Device enabled</label><label class="check"><input name="shuffle" type="checkbox" ${d.shuffle?'checked':''}>Shuffle after a complete cycle</label><label class="check"><input name="motionWakeup" type="checkbox" ${d.settings.motionWakeup?'checked':''} ${d.profile==='inkplate_6'?'disabled':''}>Wake on movement</label><label class="check"><input name="autoRotation" type="checkbox" ${d.settings.autoRotation&&!d.upside_down?'checked':''} ${d.upside_down||d.profile==='inkplate_6'?'disabled':''}>Automatic sensor rotation</label><label class="check"><input name="chargerMode" type="checkbox" ${d.settings.chargerMode?'checked':''} ${d.profile==='inkplate_6'?'disabled':''}>Charge NiMH batteries over USB</label><small>${d.profile==='inkplate_6'?'These three OpenPaper options do not apply to Inkplate. Configure its hardware in ESPHome.':'Enable charging only with NiMH batteries. Leave off for other battery types.'}</small>${deviceOptionsHTML(d)}<button class="primary" id="save-device-settings">Save settings</button><p id="device-save-status" class="save-status help" role="status" aria-live="polite"></p></form></section><section class="panel"><h2>Connect your frame</h2>${d.urls.image?`<label class="field">Settings JSON URL<div class="url-row"><input readonly data-select-copy id="settings-url" value="${escape(d.urls.settings)}"><button class="small" data-copy="settings-url">Copy</button></div></label><label class="field">Fixed image URL<div class="url-row"><input readonly data-select-copy id="image-url" value="${escape(d.urls.image)}"><button class="small" data-copy="image-url">Copy</button></div></label><p class="help">${d.profile==='inkplate_6'?'Use this settings URL in the ESPHome example linked below.':'Set the Settings-JSON-URL in the offline firmware Web UI.'} Both URLs stay fixed as images change. Keep these credential-bearing URLs private.</p><details><summary>Settings JSON preview</summary><pre>${escape(JSON.stringify(d.settings_json,null,2))}</pre></details>`:'<p class="help">Set the LAN base URL in <a href="#settings">Settings</a> to generate your device URLs.</p>'}${frameHelp(displayProfile(d.profile))}<div class="actions"><button class="small" id="rotate-token">Rotate access token</button><button class="small" id="duplicate-device">Duplicate device</button><button class="small danger" id="remove-device">Remove device</button></div></section></div></div>`;
   paintDeviceActivity(d.id,{transfer:d.transfer,events:d.events,state:d.state,paused:d.paused,health:d.health,telemetry:d.telemetry,timing:d.timing,battery_status:d.battery_status},d);
-  $('#refresh-device').onclick=()=>run(async()=>{await refresh();await deviceView(id);});
+  $('#refresh-device').onclick=()=>run(async()=>{await refresh();await deviceView(id,{keepDraft:true});});
   $('#add-images').onclick=()=>picker(d);
-  for(const action of ['next','previous'])$(`#${action}`).onclick=()=>run(async()=>{await api(`devices/${id}/${action}`,{method:'POST'});await refresh();await deviceView(id);notice('Selection updated. Waiting for the frame’s next fetch.');});
+  for(const action of ['next','previous'])$(`#${action}`).onclick=()=>run(async()=>{await api(`devices/${id}/${action}`,{method:'POST'});await deviceView(id,{keepDraft:true});notice('Selection updated. Waiting for the frame’s next fetch.');});
   $('#pause').onclick=()=>saveDevice(d,{paused:!d.paused});
   bindComparisons(content,()=>viewSize(displayProfile(d.profile),d.orientation));
   const mountingForm=$('#device-form');
-  bindDeviceOptions(mountingForm,state.data.battery_curves);
+  mountingForm.savedValues=formValues(mountingForm);
+  for(const [name,value] of draft){
+    const field=mountingForm.elements.namedItem(name);
+    if(field.type==='checkbox')field.checked=value;
+    else field.value=value;
+  }
+  if(referenceOpen)mountingForm.querySelector('.option-details').open=true;
+  bindDeviceOptions(mountingForm,state.data.battery_curves,schedule=>api(`devices/${id}/schedule-preview`,{method:'POST',data:schedule}));
   mountingForm.upside_down.onchange=()=>{mountingForm.autoRotation.disabled=d.profile==='inkplate_6'||mountingForm.upside_down.checked;if(mountingForm.upside_down.checked)mountingForm.autoRotation.checked=false;};
+  mountingForm.upside_down.onchange();
   $('#device-form').onsubmit=e=>{e.preventDefault();const f=e.target;const settings={motionWakeup:f.motionWakeup.checked,autoRotation:f.autoRotation.checked,chargerMode:f.chargerMode.checked};let confirm_nimh=false;
     if(settings.chargerMode&&!d.settings.chargerMode){confirm_nimh=confirm('Confirm this frame contains NiMH rechargeable batteries. Charging other battery types is unsafe.');if(!confirm_nimh)return;}
     saveDevice(d,{name:f.elements.namedItem('name').value,orientation:f.elements.namedItem('orientation').value,upside_down:f.upside_down.checked,interval:Number(f.interval.value),enabled:f.enabled.checked,shuffle:f.shuffle.checked,settings,confirm_nimh,...readDeviceOptions(f)},true);};
@@ -306,11 +329,11 @@ async function deviceView(id){
   document.querySelectorAll('[data-down]').forEach(b=>b.onclick=()=>reorder(Number(b.dataset.down),Number(b.dataset.down)+1));
   document.querySelectorAll('[data-enabled]').forEach(b=>b.onchange=()=>saveDevice(d,{entries:d.entries.map(e=>e.id===b.dataset.enabled?{...e,enabled:b.checked}:e)}));
   document.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>saveDevice(d,{entries:d.entries.filter(e=>e.id!==b.dataset.remove)}));
-  document.querySelectorAll('[data-choose]').forEach(b=>b.onclick=()=>run(async()=>{await api(`devices/${id}/choose`,{method:'POST',data:{entry_id:b.dataset.choose}});await refresh();await deviceView(id);}));
+  document.querySelectorAll('[data-choose]').forEach(b=>b.onclick=()=>run(async()=>{await api(`devices/${id}/choose`,{method:'POST',data:{entry_id:b.dataset.choose}});await deviceView(id,{keepDraft:true});}));
   let drag=null;
   document.querySelectorAll('[data-entry]').forEach(row=>{row.ondragstart=e=>{drag=d.entries.findIndex(x=>x.id===row.dataset.entry);e.dataTransfer.effectAllowed='move';};row.ondragover=e=>e.preventDefault();row.ondrop=e=>{e.preventDefault();if(drag!==null)reorder(drag,d.entries.findIndex(x=>x.id===row.dataset.entry));drag=null;};});
   bindCopyFields(content,notice);
-  $('#rotate-token').onclick=()=>run(async()=>{if(!confirm('Rotate this device’s access token? Its existing URLs will stop working. Update the settings URL on the frame afterward.'))return;await api(`devices/${id}/rotate-token`,{method:'POST'});await refresh();await deviceView(id);notice('Token rotated. Reconfigure the settings URL on your frame.');});
+  $('#rotate-token').onclick=()=>run(async()=>{if(!confirm('Rotate this device’s access token? Its existing URLs will stop working. Update the settings URL on the frame afterward.'))return;await api(`devices/${id}/rotate-token`,{method:'POST'});await deviceView(id,{keepDraft:true});notice('Token rotated. Reconfigure the settings URL on your frame.');});
   $('#duplicate-device').onclick=()=>deviceDialog(id);
   $('#remove-device').onclick=()=>run(async()=>{if(!confirm('Remove this device and its playback state? Shared library images will be retained.'))return;await api(`devices/${id}`,{method:'DELETE'});await refresh();location.hash='devices';});
 }
@@ -369,10 +392,10 @@ async function pollDeviceActivity(){
 async function saveDevice(d,changes,feedback=false){return run(async()=>{
   const button=feedback?$('#save-device-settings'):null;
   const status=feedback?$('#device-save-status'):null;
-  const controls=feedback?[...$('#device-form').querySelectorAll('input,select,#apply-preset')]:[];
+  const controls=feedback?[...$('#device-form').querySelectorAll('input,select,textarea')]:[];
   const scrollY=window.scrollY;
   if(button){button.disabled=true;button.textContent='Saving…';formStatus(status,'Saving settings…','saving');controls.forEach(c=>{c.dataset.saveDisabled=String(c.disabled);c.disabled=true;});}
-  try{await api(`devices/${d.id}`,{method:'PUT',data:{...changes,modified:d.modified}});await refresh();await deviceView(d.id);
+  try{await api(`devices/${d.id}`,{method:'PUT',data:{...changes,modified:d.modified}});if(changes.entries)await refresh();await deviceView(d.id,{keepDraft:!feedback});
     if(feedback&&route()===`devices/${d.id}`){window.scrollTo(0,scrollY);formStatus($('#device-save-status'),'Settings saved. The frame will apply them on its next wake-up.');}
   }catch(error){formStatus(status,error.message,'error');throw error;}
   finally{if(button?.isConnected){button.disabled=false;button.textContent='Save settings';controls.forEach(c=>{c.disabled=c.dataset.saveDisabled==='true';delete c.dataset.saveDisabled;});}}
@@ -391,7 +414,7 @@ function picker(device){
       if(latest.entries.some(entry=>entry.asset_id===b.dataset.addAsset)){picker(latest);notice('This image is already assigned to the device.');return;}
       const entry={asset_id:b.dataset.addAsset,mode:representation==='original'?'original':'variant',variant_id:representation==='original'?null:representation,enabled:true};
       await api(`devices/${device.id}`,{method:'PUT',data:{entries:[...latest.entries,entry],modified:latest.modified}});
-      await refresh();await deviceView(device.id);picker(await api(`devices/${device.id}`));notice('Image added to the device list.');
+      await refresh();await deviceView(device.id,{keepDraft:true});if(route()===`devices/${device.id}`)picker(state.deviceDetail);notice('Image added to the device list.');
     }finally{b.disabled=false;}
   }));
 }
@@ -416,7 +439,25 @@ function settingsView(){
 async function run(action){try{return await action();}catch(error){notice(error.message||'The operation failed. Refresh and try again.',true);}}
 const dynamicTools=createDynamicUI({api,modal,notice,refresh,getData:()=>state.data,render});
 window.addEventListener('hashchange',()=>run(render));
-setInterval(()=>{if(!dialog.open&&(route()==='library/dynamic'||route()==='devices'&&!state.search&&!state.selected.size))run(async()=>{await refresh();await render();});},15000);
+let overviewPolling=false;
+setInterval(async()=>{
+  const current=route();
+  if(overviewPolling||dialog.open||document.hidden||!['devices','library/dynamic'].includes(current))return;
+  overviewPolling=true;
+  try{
+    if(current==='devices')await devicesView();
+    else{
+      const statuses=await api('dynamic/status');
+      if(route()!==current||dialog.open)return;
+      for(const asset of state.data.assets){
+        if(asset.dynamic&&statuses[asset.id])asset.render_status=statuses[asset.id];
+      }
+      libraryView();
+    }
+  }catch{
+    // Keep the current view when a background refresh fails.
+  }finally{overviewPolling=false;}
+},15000);
 run(render);
 setInterval(pollDeviceActivity,2000);
 

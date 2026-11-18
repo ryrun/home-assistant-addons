@@ -185,3 +185,8 @@ input,select,textarea{min-width:0}
   .editor-footer { padding: 8px 14px; }
   .editor-footer-actions button { min-height: 36px; }
 }
+
+.schedule-preview { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
+.schedule-preview h3 { margin: 0; font-size: 14px; }
+.schedule-preview ol { margin: 6px 0 0; padding-left: 24px; font-size: 12px; }
+.schedule-preview ol:empty { display: none; }
