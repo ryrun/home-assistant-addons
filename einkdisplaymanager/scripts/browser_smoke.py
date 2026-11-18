@@ -79,7 +79,17 @@ async def main():
                     await page.clock.fast_forward(16000)
                     assert await gallery.evaluate('(node)=>node.isConnected'), 'Polling rebuilt the library'
                     await page.clock.resume()
+                    id_field = page.get_by_label('Image ID for Blue mountain.jpg', exact=True)
+                    assert await id_field.is_hidden()
+                    await page.locator('.media-id summary').click()
+                    await id_field.focus()
+                    assert await id_field.evaluate('(input)=>input.selectionEnd-input.selectionStart===input.value.length')
                     await page.get_by_role('button', name='Open Blue mountain.jpg', exact=True).click()
+                    assert await page.locator('#dither').is_hidden()
+                    await expect(page.locator('.editor-footer #optimize')).to_be_in_viewport()
+                    await page.locator('.dialog-body').evaluate('(body)=>body.scrollTop=body.scrollHeight')
+                    await expect(page.locator('.editor-footer #save-variant')).to_be_in_viewport()
+                    await page.locator('.dialog-body').evaluate('(body)=>body.scrollTop=0')
                     assert await page.locator('#target-profile > optgroup').evaluate_all('(groups)=>groups.map(g=>g.label)') == ['Display models']
                     assert await page.locator('#target-profile > option').count() == 0
                     assert await page.locator('#target-profile').input_value() == 'profile:openpaper_l'
@@ -101,7 +111,7 @@ async def main():
                         starts += 1
                         await route.fulfill(status=503, content_type='text/javascript', body='')
                     await page.route('**/static/optimizer.js', refuse_optimizer)
-                    await page.get_by_role('button', name='Update full-resolution preview').click()
+                    await page.get_by_role('button', name='Update preview').click()
                     await page.locator('#preview-note').filter(has_text='Its browser module could not load').wait_for()
                     assert starts == 2, 'Startup failure was not retried once'
                     assert not await page.locator('#optimize').is_disabled()
@@ -119,9 +129,10 @@ async def main():
                             await route.continue_()
                     await page.route('**/static/optimizer.js', transient_optimizer_failure)
                     assert await page.locator('#palette').input_value() == 'spectra6'
+                    await page.locator('.editor-advanced').evaluate('(details)=>details.open=true')
                     await page.locator('#intent').select_option('vivid')
                     preview_box = await page.locator('.preview-stage').bounding_box()
-                    await page.get_by_role('button', name='Update full-resolution preview').click()
+                    await page.get_by_role('button', name='Update preview').click()
                     await page.get_by_role('button', name='Save as new variant').wait_for(state='visible')
                     await page.locator('#save-variant:not([disabled])').wait_for(timeout=90000)
                     assert starts == 2, 'A transient startup failure did not recover'
@@ -144,7 +155,7 @@ async def main():
                     async def stall_optimizer(route):
                         await route.fulfill(content_type='text/javascript',body="self.onmessage=()=>{};self.postMessage({ready:true});")
                     await page.route('**/static/optimizer.js',stall_optimizer)
-                    await page.get_by_role('button',name='Update full-resolution preview').click()
+                    await page.get_by_role('button',name='Update preview').click()
                     await page.locator('#preview-note').filter(has_text='Starting optimizer').wait_for()
                     await page.get_by_role('button',name='Close dialog').click()
                     await page.unroute('**/static/optimizer.js',stall_optimizer)
@@ -155,12 +166,15 @@ async def main():
                     await page.locator('#orientation').select_option('landscape')
                     await page.locator('#fit').select_option('cover')
                     await page.locator('#rotation').select_option('90')
+                    await page.locator('.editor-advanced').evaluate('(details)=>details.open=true')
                     await page.locator('#palette').select_option('grayscale')
+                    await page.locator('.editor-advanced').evaluate('(details)=>details.open=true')
                     await page.locator('#dither').select_option('atkinson')
+                    await page.locator('.editor-advanced').evaluate('(details)=>details.open=true')
                     await page.locator('#contrast').fill('15')
                     await page.locator('#focusX').fill('80')
                     await page.locator('#variant-name').fill('Monochrome crop')
-                    await page.get_by_role('button', name='Update full-resolution preview').click()
+                    await page.get_by_role('button', name='Update preview').click()
                     await page.locator('#save-variant:not([disabled])').wait_for(timeout=90000)
                     assert await page.locator('#image-preview').evaluate('(img)=>[img.naturalWidth,img.naturalHeight]') == [1600, 1200]
                     preview_bytes = base64.b64decode(await page.locator('#image-preview').evaluate('(img)=>{const canvas=document.createElement("canvas");canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;canvas.getContext("2d").drawImage(img,0,0);return canvas.toDataURL("image/png").split(",")[1];}'))
@@ -184,6 +198,7 @@ async def main():
                     assert await page.locator('#focusX').input_value() == '80'
                     assert await page.locator('#dither').input_value() == 'atkinson'
                     assert await page.get_by_role('button', name='About dithering methods').count() == 0
+                    await page.locator('.editor-advanced summary').click()
                     assert 'predictable baseline' in await page.locator('#matching-tip').inner_text()
                     await page.locator('#processing-preset').select_option('measured')
                     assert await page.locator('#palette').input_value() == 'grayscale'
@@ -359,7 +374,9 @@ async def main():
                     async with session.get(url) as response:
                         assert response.content_type == 'image/jpeg'
                         assert await response.read() == rotate_delivery(sample_image(), 'image/jpeg')
-                    await page.locator('#device-battery-estimate').filter(has_text='100%').wait_for()
+                    await expect(page.locator('#device-battery-estimate')).to_have_text('100% · activity estimate')
+                    assert await page.locator('#device-battery-fallback-help').is_visible()
+                    assert await page.locator('#device-battery-forecast').is_hidden()
                     await page.get_by_role('button', name='Next image', exact=True).click()
                     await page.get_by_text('Selection updated.', exact=False).wait_for()
                     assert await page.locator('#image-url').input_value() == url
@@ -405,9 +422,11 @@ async def main():
                     assert await page.locator('#target-profile option:checked').evaluate('(option)=>option.parentElement.label') == 'My devices'
                     assert (await page.locator('#target-profile').input_value()).startswith('device:')
                     assert '800 × 480' in await page.locator('#output-dimensions').inner_text()
+                    await page.locator('.editor-advanced').evaluate('(details)=>details.open=true')
                     await page.locator('#dither').select_option('stucki')
+                    await page.locator('.editor-advanced').evaluate('(details)=>details.open=true')
                     await page.locator('#matching').select_option('lab')
-                    await page.get_by_role('button',name='Update full-resolution preview').click()
+                    await page.get_by_role('button',name='Update preview').click()
                     await page.locator('#save-variant:not([disabled])').wait_for(timeout=90000)
                     assert await page.locator('#image-preview').evaluate('(img)=>[img.naturalWidth,img.naturalHeight]') == [800,480]
                     await page.get_by_role('button',name='Save as new variant',exact=True).click()
@@ -442,7 +461,7 @@ async def main():
                     await page.locator('#orientation').select_option('portrait')
                     assert await page.locator('#invert-control').is_hidden()
                     assert await page.locator('#invert').is_disabled()
-                    await page.get_by_role('button',name='Update full-resolution preview').click()
+                    await page.get_by_role('button',name='Update preview').click()
                     await page.locator('#save-variant:not([disabled])').wait_for(timeout=90000)
                     small_preview = base64.b64decode(await page.locator('#image-preview').evaluate('(img)=>{const c=document.createElement("canvas");c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext("2d").drawImage(img,0,0);return c.toDataURL("image/png").split(",")[1];}'))
                     assert Image.open(io.BytesIO(small_preview)).size == (480,800)
@@ -505,9 +524,10 @@ async def main():
                     assert await page.locator('#palette').input_value()=='gray8'
                     assert await page.locator('#palette option').count()==2
                     assert await page.locator('#palette optgroup').evaluate_all('(groups)=>groups.map(g=>g.label)') == ['Monochrome']
+                    await page.locator('.editor-advanced summary').click()
                     assert await page.locator('#saturation').is_hidden()
                     assert 'Eight grayscale levels' in await page.locator('#output-dimensions').inner_text()
-                    await page.get_by_role('button',name='Update full-resolution preview').click()
+                    await page.get_by_role('button',name='Update preview').click()
                     await page.locator('#save-variant:not([disabled])').wait_for(timeout=90000)
                     await page.get_by_role('button',name='Save as new variant',exact=True).click()
                     await page.get_by_text('Saved a new variant.',exact=True).wait_for()
@@ -541,10 +561,12 @@ async def main():
                     assert ramp['grayscale']=={'mime':'image/png','levels':[0,255],'nativeWidth':800,'nativeHeight':600,'inverseExact':True,'savedInvert':True}
                     await page.locator(f'[data-edit-variant="{ink_variant["id"]}"]').click()
                     await page.locator('#orientation').select_option('portrait')
+                    await page.locator('.editor-advanced').evaluate('(details)=>details.open=true')
                     await page.locator('#palette').select_option('grayscale')
+                    await page.locator('.editor-advanced').evaluate('(details)=>details.open=true')
                     await page.get_by_label('Invert tones',exact=True).check()
                     assert 'Black and white' in await page.locator('#output-dimensions').inner_text()
-                    await page.get_by_role('button',name='Update full-resolution preview').click()
+                    await page.get_by_role('button',name='Update preview').click()
                     await page.locator('#save-variant:not([disabled])').wait_for(timeout=90000)
                     preview_base64=await page.locator('#image-preview').evaluate('''async img=>{await img.decode();const c=document.createElement('canvas');c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext('2d').drawImage(img,0,0);return c.toDataURL('image/png').split(',')[1];}''')
                     await page.get_by_role('button',name='Save changes',exact=True).click()
@@ -633,7 +655,7 @@ async def main():
                     async with session.get(ink_json,headers={'X-Display-Battery-Millivolts':'3900'}) as response:
                         timed=await response.json()
                         assert 60<=timed['timeout']<=2592000
-                    await page.locator('#device-charge').filter(has_text='75%').wait_for()
+                    await page.locator('#device-battery-estimate').filter(has_text='75%').wait_for()
                     assert await page.get_by_label('Estimation method',exact=True).input_value() == 'linear'
                     await page.get_by_label('Estimation method',exact=True).select_option('chemistry')
                     assert await page.get_by_label('Empty voltage per cell (V)',exact=True).is_hidden()
@@ -641,14 +663,20 @@ async def main():
                     await page.locator('#device-save-status').filter(has_text='Settings saved.').wait_for()
                     async with session.get(ink_json,headers={'X-Display-Battery-Millivolts':'3800'}) as response:
                         assert response.status == 200
-                    await page.locator('#device-charge').filter(has_text='55% · chemistry curve').wait_for()
+                    await page.locator('#device-battery-estimate').filter(has_text='55% · chemistry curve').wait_for()
                     await page.get_by_label('Estimation method',exact=True).select_option('custom')
                     curve_field=page.get_by_label('Custom curve points',exact=False)
                     assert '4.2, 100' in await curve_field.input_value()
                     await curve_field.fill('3.0, 0\n3.8, 80\n4.2, 100')
                     await page.get_by_role('button',name='Save settings',exact=True).click()
                     await page.locator('#device-save-status').filter(has_text='Settings saved.').wait_for()
-                    await page.locator('#device-charge').filter(has_text='80% · custom curve').wait_for()
+                    await page.locator('#device-battery-estimate').filter(has_text='80% · custom curve').wait_for()
+                    assert await page.locator('#device-battery-fallback-help').is_hidden()
+                    assert await page.locator('.device-summary dt').filter(has_text='Battery Level').count() == 1
+                    async with session.get(ink_json,headers={'X-Display-Battery-Millivolts':'3000'}) as response:
+                        assert response.status == 200
+                    await expect(page.locator('#device-battery-estimate')).to_have_text('0% · custom curve')
+                    assert await page.locator('#device-battery-fallback-help').is_hidden()
                     assert await page.get_by_label('Estimation method',exact=True).input_value()=='custom'
                     curve_field=page.get_by_label('Custom curve points',exact=False)
                     assert '3.8, 80' in await curve_field.input_value()
@@ -674,6 +702,8 @@ async def main():
                     await page.goto(origin+'/#devices')
                     await page.locator('.device-card[data-device]').first.wait_for()
                     assert await page.locator('[data-next-connection]').count()==3
+                    assert await page.locator('.device-card-thumbnail:visible').count() >= 1
+                    assert await page.locator('.device-card .comparison-controls:visible').count() == 0
                     assert 'Awaiting first contact' not in await page.locator('[data-device="'+ink['id']+'"] [data-next-connection]').inner_text()
                     await page.screenshot(path=str(artifacts/'devices-next-connection-mobile.png'),full_page=True)
                     assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')

@@ -83,6 +83,9 @@ async def main():
                         await download()
                     await page.locator('[data-transfer-state="interrupted"]').wait_for(timeout=10000)
                     await page.get_by_text('Error category: connection_closed',exact=True).wait_for()
+                    assert await page.locator('#device-events').is_hidden()
+                    assert 'Last error' in await page.locator('#device-log-error').inner_text()
+                    await page.get_by_text('Device log',exact=True).click()
                     assert 'image_interrupted' in await page.locator('#device-events').inner_text()
                     await page.screenshot(path=str(artifacts/'transfer-interrupted.png'),full_page=True)
                     phase['mode'] = 'normal'

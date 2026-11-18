@@ -116,3 +116,72 @@ input,select,textarea{min-width:0}
 .calendar-inputs{margin-top:18px}
 
 .preset-field{margin-bottom:18px;min-width:0}.preset-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;margin-top:6px}.preset-row button{white-space:nowrap}.preset-field .help{margin:6px 0 0}
+
+.device-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0 0 20px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--line);
+}
+.device-summary > div {
+  padding: 12px 16px;
+  background: var(--paper);
+}
+.device-summary dt { color: var(--muted); font-size: 12px; }
+.device-summary dd { margin: 4px 0 0; font-weight: 600; overflow-wrap: anywhere; }
+.device-summary #device-battery-forecast { margin-top: 8px; }
+.device-summary #device-battery-fallback-help { margin: 6px 0 0; }
+.device-log summary, .media-id summary, .editor-advanced summary { cursor: pointer; }
+.device-log summary, .editor-advanced summary { font-weight: 600; }
+.device-log-error { margin: 0 0 10px; color: var(--error); overflow-wrap: anywhere; }
+.media-id { margin-top: 8px; color: var(--muted); font-size: 12px; }
+.media-id .copy-field { margin-top: 6px; }
+.media-id .copy-field > span { display: none; }
+.device-card-thumbnail { display: none; }
+.editor-advanced { margin: 12px 0; border-top: 1px solid var(--line); padding-top: 12px; }
+.editor-advanced > .stack { margin-top: 12px; }
+.editor-footer {
+  flex: none;
+  display: flex;
+  gap: 8px 16px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  padding: 10px 20px;
+  border-top: 1px solid var(--line);
+  background: var(--paper);
+}
+.editor-footer .help { flex: 1 1 220px; margin: 0; overflow-wrap: anywhere; }
+.editor-footer-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+
+@media (max-width: 720px) {
+  .device-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .device-summary > :first-child { grid-column: 1 / -1; }
+  .device-card-wide-preview { display: none; }
+  .device-card-thumbnail {
+    display: block;
+    grid-area: thumbnail;
+    width: 58px;
+    height: 58px;
+    background: var(--bg);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .device-card-thumbnail img { display: block; width: 100%; height: 100%; object-fit: contain; }
+  .device-card:has(.device-card-thumbnail) {
+    display: grid;
+    grid-template-columns: 58px minmax(0, 1fr);
+    grid-template-areas: "thumbnail title" "thumbnail info" "times times" "actions actions";
+    column-gap: 12px;
+  }
+  .device-card > .card-meta { grid-area: title; }
+  .device-card > .help { grid-area: info; }
+  .device-card > .device-times { grid-area: times; }
+  .device-card > .actions { grid-area: actions; }
+  .editor-footer { padding: 8px 14px; }
+  .editor-footer-actions button { min-height: 36px; }
+}

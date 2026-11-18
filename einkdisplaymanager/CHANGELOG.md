@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.5
+
+- Move battery and connection status above the frame preview and collapse the device log with its latest error visible.
+- Use compact device cards on mobile and expose image IDs on demand in the library.
+- Keep preview and save actions visible in the image editor and group color and dithering controls in a collapsible section.
+
+- Show a single Battery Level in device details. Prefer a voltage estimate, including 0%, and fall back to image fetch activity.
+
 ## 0.8.4
 
 - Add Chemistry profile, Linear, and Custom curve battery estimation methods. Include approximate per-cell profiles for alkaline, NiMH, conventional 4.2 V Li-ion/LiPo, and LiFePO4; validate 2–32 custom voltage/percentage points.

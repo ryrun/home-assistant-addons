@@ -59,6 +59,7 @@ async def main():
                     await page.goto(ui_origin)
                     assert not await page.evaluate('window.isSecureContext')
                     image_id=page.get_by_label('Image ID for Backdrop.jpg',exact=True)
+                    await page.locator('.media-id summary').click()
                     await image_id.click()
                     assert await image_id.input_value()==asset
                     assert await image_id.evaluate('(input)=>input.selectionStart===0&&input.selectionEnd===input.value.length')
