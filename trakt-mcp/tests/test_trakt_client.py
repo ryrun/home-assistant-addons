@@ -250,3 +250,20 @@ async def test_inflight_shorter_rate_limit_never_shortens_existing_cooldown():
         with pytest.raises(TraktError):
             await task
         assert client.rate_limit_until >= longer_deadline
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('second_headers', [
+    {},
+    {'X-Pagination-Page': '2', 'X-Pagination-Page-Count': '2'},
+])
+async def test_full_watched_sync_rejects_premature_end_without_item_count(second_headers):
+    def handler(request):
+        page = int(request.url.params['page'])
+        headers = {'X-Pagination-Page': '1', 'X-Pagination-Page-Count': '3'} if page == 1 else second_headers
+        return httpx.Response(200, json=[{'movie': movie(page)}], headers=headers)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = TraktClient(http, FakeAuth(), 'id')
+        with pytest.raises(TraktError, match='pagination disappeared|page count changed'):
+            await client._all_items_live('/sync/watched/movies')

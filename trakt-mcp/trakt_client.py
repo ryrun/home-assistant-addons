@@ -177,6 +177,7 @@ class TraktClient:
     async def _all_items_live(self, path, extended=False):
         items = []
         expected_total = None
+        expected_pages = None
         transferred = 0
         for page in range(1, MAX_PAGES + 1):
             response = await self.get(path, {'page': page, 'limit': 100, **({'extended': 'full'} if extended else {})}, personal=True)
@@ -185,6 +186,12 @@ class TraktClient:
             if transferred > 16 * 1024 * 1024:
                 raise TraktError('Personal sync exceeds the 16 MiB transfer budget. Narrow the request or disable full-list operations.')
             result = self._decode_page(response, page, 100, full=True)
+            if 'X-Pagination-Page-Count' in response.headers:
+                if expected_pages is not None and result['page_count'] != expected_pages:
+                    raise TraktError('Personal list page count changed during retrieval. Please retry.')
+                expected_pages = result['page_count']
+            elif expected_pages is not None:
+                raise TraktError('Personal list pagination disappeared during retrieval. Please retry.')
             if 'X-Pagination-Item-Count' in response.headers:
                 if expected_total is not None and result['total_items'] != expected_total:
                     raise TraktError('Personal list changed during retrieval. Please retry.')

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1
+
+- Reject full personal-list syncs when the upstream page count disappears or
+  changes partway through. This protects cached lists and watched-title exclusions.
+- Give MCP clients clearer starting points for taste profiles, recommendations
+  and watchlist picks, and describe the scope of Smart List streaming filters.
+
 ## 0.4.0
 
 - Add read-only Smart List definitions, dynamically filtered/sorted items and
