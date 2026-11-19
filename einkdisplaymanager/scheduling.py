@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 DEFAULTS = {'anchor_enabled': False, 'anchor_time': '03:00', 'anchor_date': '1970-01-01',
             'quiet_enabled': False, 'quiet_start': '22:00', 'quiet_end': '06:00', 'timezone': 'UTC'}
 DAY = 86400
+MAX_SLEEP_SECONDS = 30 * DAY
 
 
 def config(device):
@@ -156,7 +157,7 @@ def next_due(device, now):
 def sleep_seconds(device, now):
     if not active(device):
         return device['interval']
-    return min(2592000, max(60, math.ceil(next_due(device, now) - now)))
+    return min(MAX_SLEEP_SECONDS, max(60, math.ceil(next_due(device, now) - now)))
 
 
 def view(device, now):

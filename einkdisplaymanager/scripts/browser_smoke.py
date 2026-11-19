@@ -715,6 +715,14 @@ async def main():
                     assert 'Awaiting first contact' not in await page.locator('[data-device="'+ink['id']+'"] [data-next-connection]').inner_text()
                     await page.screenshot(path=str(artifacts/'devices-next-connection-mobile.png'),full_page=True)
                     assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth')
+                    await page.set_viewport_size({'width':1440,'height':1050})
+                    compared_card=page.locator('.device-card:has(.comparison-controls)').first
+                    original_button=compared_card.get_by_role('button',name='Original',exact=True)
+                    await original_button.click()
+                    async with page.expect_response(lambda response: response.url.endswith('/api/devices')):
+                        await page.clock.fast_forward(16000)
+                    await expect(original_button).to_be_focused()
+                    await expect(compared_card.locator('.comparison-preview')).to_have_attribute('data-mode','original')
                     touch=await browser.new_page(viewport={'width':390,'height':844},has_touch=True,is_mobile=True)
                     touch.on('pageerror',lambda error:errors.append(str(error)))
                     await touch.goto(origin+'/#devices/'+ink['id'])

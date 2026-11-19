@@ -84,7 +84,7 @@ export function bindDeviceOptions(form,curves={},loadSchedule){
         const result=await loadSchedule({interval:Number(fields('interval').value),schedule:readSchedule(form)});
         if(!form.isConnected||current!==revision)return;
         const formatter=new Intl.DateTimeFormat(undefined,{
-          timeZone:result.timezone,weekday:'short',month:'short',day:'numeric',
+          timeZone:result.timezone,weekday:'short',month:'short',day:'numeric',year:'numeric',
           hour:'numeric',minute:'2-digit',second:'2-digit',timeZoneName:'short'
         });
         for(const slot of result.slots){
@@ -92,7 +92,20 @@ export function bindDeviceOptions(form,curves={},loadSchedule){
           item.textContent=formatter.format(slot*1000);
           list.append(item);
         }
-        status.textContent='Calculated using these settings from now. Expected device contact is shown above.';
+        const wait=result.first_slot_in_seconds;
+        const hours=Math.floor(wait/3600);
+        const minutes=Math.floor((wait%3600)/60);
+        let firstWait=intervalLabel(wait);
+        if(wait>=86400){
+          firstWait=`about ${(wait/86400).toLocaleString(undefined,{maximumFractionDigits:1})} days`;
+        }else if(hours||minutes){
+          firstWait=`about ${[hours?`${hours} h`:'',minutes?`${minutes} min`:''].filter(Boolean).join(' ')}`;
+        }
+        const gap=result.longest_wait_seconds;
+        const longGap=gap>result.max_sleep_seconds
+          ? ` A planned gap of about ${Math.round(gap/86400).toLocaleString()} days exceeds the 30-day sleep limit. The device can check in before the next scheduled image change.`
+          : '';
+        status.textContent=`First planned refresh in ${firstWait}. Expected device contact is shown above.${longGap}`;
       }catch(error){
         if(form.isConnected&&current===revision)status.textContent=error.message;
       }

@@ -106,6 +106,29 @@ def status(device, telemetry):
             'chemistry': settings['chemistry'], 'estimated': True}
 
 
+MIN_READING_GAP = 1800
+HISTORY_SECONDS = 90 * 86400
+POWER_FIELDS = ('usb_connected', 'charging')
+
+
+def power_status(telemetry, interval, now):
+    """An older power report describes past state, not the current voltage reading."""
+    updated = telemetry.get('field_updated_at', {})
+    measured = telemetry.get('measured_at') or 0
+    stale = []
+    external = False
+    for key in POWER_FIELDS:
+        if telemetry.get(key) is None:
+            continue
+        reported = updated.get(key)
+        if (reported is None or now - reported > max(2 * interval, 2 * 86400)
+                or measured - reported >= MIN_READING_GAP):
+            stale.append(key)
+        elif telemetry[key]:
+            external = True
+    return external, stale
+
+
 class Forecast:
     """Bounded, RAM-only discharge observations; never use synthetic charge."""
 
@@ -127,16 +150,17 @@ class Forecast:
             history = {'signature': current_signature, 'samples': {}}
             self.histories[device['id']] = history
         samples = history['samples']
+        # Keep the first reading from a short burst, even across clock hours.
+        if samples and now - next(reversed(samples)) < MIN_READING_GAP:
+            return
         recent = [v for t, v in samples.values() if now - t < 3 * 86400]
         # Charging or replacement invalidates the previous discharge cycle.
         if recent and millivolts > median(recent) + span * .1:
             samples.clear()
-        # At most one observation per hour, for at most 90 days.
-        hour = int(now // 3600)
-        samples[hour] = (now, millivolts)
-        for key in list(samples):
-            if key < hour - 90 * 24:
-                del samples[key]
+        samples[now] = (now, millivolts)
+        for timestamp in list(samples):
+            if timestamp < now - HISTORY_SECONDS:
+                del samples[timestamp]
 
     def estimate(self, device, now):
         forecast, _ = self.assess(device, now)
@@ -155,7 +179,7 @@ class Forecast:
         ) else []
         span = samples[-1][0] - samples[0][0] if samples else 0
         progress = {'sample_count': len(samples), 'minimum_samples': 2,
-                    'observation_seconds': span, 'minimum_observation_seconds': 1800}
+                    'observation_seconds': span, 'minimum_observation_seconds': MIN_READING_GAP}
 
         def waiting(reason):
             return None, progress | {'reason': reason}

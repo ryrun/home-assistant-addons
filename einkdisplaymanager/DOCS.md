@@ -94,7 +94,9 @@ MQTT publishes a separate next-connection timestamp.
 **Upcoming refresh slots** previews six future slots using the interval and
 schedule currently in the form. It uses the same local-time and quiet-hours rules
 as playback. **Next expected connection** still reflects the device's last issued
-sleep duration. The preview leaves the saved schedule intact.
+sleep duration. The preview also shows the wait to the first slot. If any displayed
+gap exceeds the 30-day sleep limit, the device can contact the manager before the
+next scheduled image change. The preview leaves the saved schedule intact.
 
 Playback actions, playlist edits, and **Refresh status** preserve unsaved settings
 on the device page. Click **Save settings** to apply the draft.
@@ -113,7 +115,7 @@ Left/Right choose an image and Escape restores the split.
 The comparison does not modify stored media or device output. Original-mode
 entries show only their output preview. OpenPaper original-mode fitting and
 physical ink colors remain approximations. Status polling retains the chosen
-preview mode and unsaved forms. On mobile, device cards use a compact thumbnail
+preview mode, keyboard focus, and unsaved forms. On mobile, device cards use a compact thumbnail
 when an image has been delivered. Open the device to use the full comparison.
 
 ## Optional voltage-based battery estimate
@@ -1511,7 +1513,9 @@ it reports approximate remaining days and refreshes. Battery Level MQTT attribut
 `forecast` object when voltage estimation is enabled; unavailable forecasts are null.
 No extra battery percentage entity is created.
 
-Observations remain in RAM: at most one per hour over 90 days per device.
+Observations remain in RAM for 90 days per device. Readings less than 30 minutes
+apart are grouped by keeping the first, including settings and image requests
+that cross a clock-hour boundary.
 A **Preliminary estimate** can appear after two observations at least 30 minutes
 apart, with a measured voltage span of at least 5 mV, an estimated capacity decline
 of at least 0.2 percentage points, and a linear fit with R² ≥ 0.6. A single voltage,
@@ -1528,8 +1532,12 @@ Measurements older than the greater of two refresh intervals or two days hide
 the prediction. Charging/replacement (a rise above the recent median by over 10%
 of the voltage range) and calibration changes restart collection. Add-on restarts
 lose the history. Paused/disabled devices do not show a forecast.
-Reported USB connection or charging clears the discharge history. Measurements
-are excluded until both last-reported power flags allow battery operation.
+A current USB connection or charging report clears the discharge history. Power
+reports become stale when a voltage reading arrives at least 30 minutes later
+without an updated power flag, or when the report is older than two refresh
+intervals or two days, whichever is longer. The device page marks those reports
+as stale. Voltage readings can contribute to the forecast again once no current
+power flag indicates USB or charging.
 Battery estimation must be enabled with a valid method/profile.
 
 Days extrapolate the unrounded capacity trend to 0%, using the selected

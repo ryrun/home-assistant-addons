@@ -23,9 +23,9 @@ const asset=id=>state.data.assets.find(a=>a.id===id);
 const variant=id=>state.data.variants.find(v=>v.id===id);
 const thumb=(kind,id)=>`api/media/${kind}/${id}/thumbnail`;
 const entryImage=(entry,device)=>{if(!entry)return '';const prepared=entry.mode==='variant',item=prepared?variant(entry.variant_id):asset(entry.asset_id),url=thumb(prepared?'variant':'asset',prepared?entry.variant_id:entry.asset_id);return `${url}?device=${device.id}&v=${device.output_hash||item?.hash||'missing'}_${device.orientation}_${device.upside_down?1:0}`;};
-const reportedTelemetryHTML=t=>{
+const reportedTelemetryHTML=(t,stalePower=[])=>{
   const fields=[['usb_connected','USB power',v=>v?'Connected':'Disconnected'],['charging','Charging',v=>v?'Yes':'No'],['firmware_version','Firmware version',String],['reported_display','Reported display',v=>v==='epd13'?'OpenPaper L · epd13':'OpenPaper 7 · epd7'],['wakeup_reason','Wake-up reason',String],['wifi_rssi','WiFi signal',v=>`${v} dBm`],['sensor_orientation','Sensor orientation',v=>`Side ${v}`]];
-  return fields.filter(([key])=>t?.[key]!=null).map(([key,label,format])=>`<div><dt>${label}</dt><dd>${escape(format(t[key]))}</dd><small>Reported ${escape(when(t.field_updated_at?.[key]||t.reported_at))}</small></div>`).join('');
+  return fields.filter(([key])=>t?.[key]!=null).map(([key,label,format])=>`<div><dt>${label}</dt><dd>${escape(format(t[key]))}</dd><small>${stalePower.includes(key)?'Stale report from':'Reported'} ${escape(when(t.field_updated_at?.[key]||t.reported_at))}</small></div>`).join('');
 };
 function batteryLevelLabel(charge,health){
   if(charge?.estimated_percent!=null){
@@ -258,20 +258,101 @@ async function openEditor(id, options={}){
   });
 }
 
+function addDeviceCard(grid,id){
+  grid.insertAdjacentHTML('beforeend',`<article class="device-card" data-device="${id}">
+    <div class="device-card-wide-preview"></div>
+    <a class="device-card-thumbnail" href="#devices/${id}" hidden><img loading="lazy" alt=""></a>
+    <div class="card-meta"><h2></h2><span class="badge"></span></div>
+    <p class="help"></p>
+    <dl class="device-times">
+      <div><dt>Last contact</dt><dd data-last-contact></dd></div>
+      <div><dt>Next expected connection</dt><dd data-next-connection></dd></div>
+    </dl>
+    <div class="actions">
+      <a class="button" href="#devices/${id}">Manage device</a>
+      <button class="small" data-quick-next="${id}">Next image</button>
+    </div>
+  </article>`);
+  const card=grid.lastElementChild;
+  $('[data-quick-next]',card).onclick=()=>run(async()=>{
+    await api(`devices/${id}/next`,{method:'POST'});
+    await devicesView();
+    notice('Next image selected. The frame will fetch it on its next wake-up.');
+  });
+  return card;
+}
+
+function updateDeviceCard(card,device){
+  const {id,entry}=device;
+  const output=entryImage(entry,device);
+  const previewContainer=$('.device-card-wide-preview',card);
+  const preview=$('.comparison-preview',previewContainer);
+  const compare=entry?.mode==='variant';
+  if(preview&&!!$('.preview-output',preview)===!!output&&preview.classList.contains('has-comparison')===compare){
+    if(preview.dataset.source!==output){
+      preview.dataset.source=output;
+      if(output)$('.preview-output',preview).src=output;
+      if(compare)$('.preview-original',preview).src=output+'&comparison=source';
+    }
+    if(preview.dataset.orientation!==device.orientation){
+      preview.dataset.orientation=device.orientation;
+      bindComparisons(previewContainer,()=>viewSize(displayProfile(device.profile),device.orientation));
+    }
+  }else{
+    const wasFocused=previewContainer.contains(document.activeElement);
+    previewContainer.innerHTML=previewHTML(entry,device,`card-preview-${id}`);
+    bindComparisons(previewContainer,()=>viewSize(displayProfile(device.profile),device.orientation));
+    if(wasFocused)$('.comparison-preview',previewContainer).focus({preventScroll:true});
+  }
+
+  const thumbnail=$('.device-card-thumbnail',card);
+  thumbnail.hidden=!output;
+  thumbnail.setAttribute('aria-label',`Open ${device.name}`);
+  const image=$('img',thumbnail);
+  if(output){
+    if(image.getAttribute('src')!==output)image.src=output;
+  }else{
+    image.removeAttribute('src');
+  }
+
+  const sending=transferActive(device.transfer);
+  $('h2',card).textContent=device.name;
+  const badge=$('.badge',card);
+  badge.classList.toggle('active',device.enabled&&!device.paused);
+  badge.textContent=sending?'Sending image':!device.enabled?'Disabled':device.paused?'Paused':device.timing?.quiet_now?'Quiet hours':'Playing';
+  $('.help',card).textContent=`${device.orientation||'portrait'} · ${displayProfile(device.profile).name} · ${device.enabled_count} enabled images`;
+  $('[data-last-contact]',card).textContent=deviceWhen(device.last_contact,device);
+  $('[data-next-connection]',card).textContent=!device.enabled?'Disabled':device.timing?.next_connection_at
+    ?deviceWhen(device.timing.next_connection_at,device):'Awaiting first contact';
+  $('[data-quick-next]',card).disabled=sending;
+}
+
 async function devicesView(){
   const cards=await api('devices');
   if(route()!=='devices')return;
   $('#device-count').textContent=cards.length;
-  content.innerHTML=heading('Your displays','Devices','Independent image lists. Shared library.',
-    '<button class="primary" id="add-device">＋ Add device</button>')+
-    (cards.length?`<div class="device-grid">${cards.map(d=>{
-      const e=d.entry;
-      return `<article class="device-card" data-device="${d.id}"><div class="device-card-wide-preview">${previewHTML(e,d,`card-preview-${d.id}`)}</div>
-      ${e?`<a class="device-card-thumbnail" href="#devices/${d.id}" aria-label="Open ${escape(d.name)}"><img loading="lazy" src="${entryImage(e,d)}" alt=""></a>`:''}<div class="card-meta"><h2>${escape(d.name)}</h2><span class="badge ${d.enabled&&!d.paused?'active':''}">${transferActive(d.transfer)?'Sending image':!d.enabled?'Disabled':d.paused?'Paused':d.timing?.quiet_now?'Quiet hours':'Playing'}</span></div><p class="help">${escape(d.orientation||'portrait')} · ${escape(displayProfile(d.profile).name)} · ${d.enabled_count} enabled images</p><dl class="device-times"><div><dt>Last contact</dt><dd>${deviceWhen(d.last_contact,d)}</dd></div><div><dt>Next expected connection</dt><dd data-next-connection>${!d.enabled?'Disabled':d.timing?.next_connection_at?deviceWhen(d.timing.next_connection_at,d):'Awaiting first contact'}</dd></div></dl><div class="actions"><a class="button" href="#devices/${d.id}">Manage device</a><button class="small" data-quick-next="${d.id}" ${transferActive(d.transfer)?'disabled':''}>Next image</button></div></article>`;
-    }).join('')}</div>`:'<div class="empty"><h2>Meet your first frame</h2><p>Add an OpenPaper L, OpenPaper 7, or Inkplate 6, choose images from your library, and connect it using its settings URL.</p><button id="first-device">Add your first device</button></div>');
-  content.querySelectorAll('.device-card').forEach(card=>{const device=cards.find(d=>d.id===card.dataset.device);bindComparisons(card,()=>viewSize(displayProfile(device.profile),device.orientation));});
-  $('#add-device').onclick=()=>deviceDialog();$('#first-device')?.addEventListener('click',()=>deviceDialog());
-  document.querySelectorAll('[data-quick-next]').forEach(b=>b.onclick=()=>run(async()=>{await api(`devices/${b.dataset.quickNext}/next`,{method:'POST'});await devicesView();notice('Next image selected. The frame will fetch it on its next wake-up.');}));
+  let grid=$('#device-overview');
+  if(!grid){
+    content.innerHTML=heading('Your displays','Devices','Independent image lists. Shared library.',
+      '<button class="primary" id="add-device">＋ Add device</button>')+
+      `<div class="device-grid" id="device-overview"></div>
+      <div class="empty" id="device-overview-empty"><h2>Meet your first frame</h2>
+      <p>Add an OpenPaper L, OpenPaper 7, or Inkplate 6, choose images from your library, and connect it using its settings URL.</p>
+      <button id="first-device">Add your first device</button></div>`;
+    grid=$('#device-overview');
+    $('#add-device').onclick=()=>deviceDialog();
+    $('#first-device').onclick=()=>deviceDialog();
+  }
+  $('#device-overview-empty').hidden=cards.length>0;
+  grid.hidden=!cards.length;
+  const existing=new Map([...grid.children].map(node=>[node.dataset.device,node]));
+  for(const [index,device] of cards.entries()){
+    const card=existing.get(device.id)||addDeviceCard(grid,device.id);
+    existing.delete(device.id);
+    updateDeviceCard(card,device);
+    if(grid.children[index]!==card)grid.insertBefore(card,grid.children[index]);
+  }
+  for(const card of existing.values())card.remove();
 }
 
 function deviceDialog(copyFrom){
@@ -391,7 +472,7 @@ function paintDeviceActivity(id,activity,detail=state.deviceDetail){
     $('#device-battery-estimate').textContent=batteryLevelLabel(activity.battery_status,health);
     $('#device-battery-fallback-help').hidden=activity.battery_status?.estimated_percent!=null;
     if($('#device-voltage')){$('#device-voltage').textContent=voltageLabel(activity.telemetry);$('#device-voltage-time').textContent=when(activity.telemetry?.measured_at);}
-    if($('#device-reported-values')){const reported=reportedTelemetryHTML(activity.telemetry);$('#device-reported-values').innerHTML=reported;$('#device-reported-status').hidden=!reported;}
+    if($('#device-reported-values')){const reported=reportedTelemetryHTML(activity.telemetry,activity.battery_status?.stale_power_fields);$('#device-reported-values').innerHTML=reported;$('#device-reported-status').hidden=!reported;}
     paintBatteryForecast(activity.battery_status);
     if(activity.timing){$('#device-next-connection').textContent=deviceWhen(activity.timing.next_connection_at,detail);$('#device-next-slot').textContent=deviceWhen(activity.timing.next_slot_at,detail);$('#device-quiet-status').textContent=activity.timing.quiet_now?'Active':'Inactive';}
     $('#device-selected-name').textContent=entry?asset(entry.asset_id)?.name||'Unavailable image':'Placeholder';
@@ -406,7 +487,20 @@ function paintDeviceActivity(id,activity,detail=state.deviceDetail){
     document.querySelectorAll('[data-selected-tag]').forEach(node=>{node.hidden=node.dataset.selectedTag!==current.selected;});
     document.querySelectorAll('[data-served-tag]').forEach(node=>{node.hidden=node.dataset.servedTag!==current.last_served_entry;});
     const preview=$('#device-frame-preview'),url=entryImage(entry,detail);
-    if(preview.dataset.source!==url){preview.closest('.comparison-block').outerHTML=previewHTML(entry,detail,'device-frame-preview');bindComparisons(content,()=>viewSize(displayProfile(detail.profile),detail.orientation));}
+    if(preview.dataset.source!==url){
+      const compare=entry?.mode==='variant';
+      if(url&&$('.preview-output',preview)&&preview.classList.contains('has-comparison')===compare){
+        preview.dataset.source=url;
+        $('.preview-output',preview).src=url;
+        if(compare)$('.preview-original',preview).src=url+'&comparison=source';
+      }else{
+        const block=preview.closest('.comparison-block');
+        const wasFocused=block.contains(document.activeElement);
+        block.outerHTML=previewHTML(entry,detail,'device-frame-preview');
+        bindComparisons(content,()=>viewSize(displayProfile(detail.profile),detail.orientation));
+        if(wasFocused)$('#device-frame-preview').focus({preventScroll:true});
+      }
+    }
   }
 }
 let activityPolling=false;

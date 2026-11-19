@@ -8,6 +8,7 @@ import hmac
 import ipaddress
 import json
 import logging
+import math
 import os
 import secrets
 import signal
@@ -15,6 +16,7 @@ import time
 from collections import Counter, OrderedDict, defaultdict
 from contextlib import AsyncExitStack
 from email.utils import formatdate, parsedate_to_datetime
+from itertools import pairwise
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
@@ -57,7 +59,7 @@ from profiles import (
 )
 from storage import Store, new_id
 
-VERSION = '0.8.7'
+VERSION = '0.8.8'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -705,7 +707,12 @@ class Manager:
         for _ in range(6):
             target = scheduling.next_due(draft, target)
             slots.append(target)
-        return web.json_response({'slots': slots, 'timezone': schedule['timezone']})
+        return web.json_response({
+            'slots': slots, 'timezone': schedule['timezone'],
+            'first_slot_in_seconds': math.ceil(slots[0] - now),
+            'longest_wait_seconds': math.ceil(max(end - start for start, end in pairwise([now, *slots]))),
+            'max_sleep_seconds': scheduling.MAX_SLEEP_SECONDS,
+        })
 
     async def get_device(self, request):
         device = self.store.get('device', request.match_info['device'])
@@ -870,11 +877,13 @@ class Manager:
     def battery_status(self, device):
         telemetry = self.telemetry(device['id'])
         charge = battery.status(device, telemetry)
-        forecast, progress = self.battery_forecast.assess(device, time.time())
-        if telemetry.get('usb_connected') or telemetry.get('charging'):
+        now = time.time()
+        forecast, progress = self.battery_forecast.assess(device, now)
+        external_power, stale = battery.power_status(telemetry, device['interval'], now)
+        if external_power:
             forecast = None
             progress['reason'] = 'external_power'
-        return charge | {'forecast': forecast, 'forecast_progress': progress}
+        return charge | {'forecast': forecast, 'forecast_progress': progress, 'stale_power_fields': stale}
 
     def telemetry(self, identifier):
         try:
@@ -897,7 +906,8 @@ class Manager:
         if 'battery_millivolts' in values:
             updated['measured_at'] = now
         self.store.save('telemetry', updated)
-        if updated.get('usb_connected') or updated.get('charging'):
+        external_power, _ = battery.power_status(updated, device['interval'], now)
+        if external_power:
             self.battery_forecast.histories.pop(device['id'], None)
         elif 'battery_millivolts' in values:
             self.battery_forecast.record(device, values['battery_millivolts'], now)

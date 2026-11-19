@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.8
+
+- Retain battery samples at least 30 minutes apart, independent of clock-hour boundaries.
+- Mark older power telemetry as stale and resume collecting voltage-only observations when it no longer describes the current reading.
+- Update device cards in place during polling to preserve preview mode and keyboard focus.
+- Show the wait to the first scheduled refresh and flag gaps beyond the device sleep limit.
+
 ## 0.8.7
 
 - Show battery forecast progress whenever a voltage-based Battery Level is available, including the reading count and why an estimate is pending.

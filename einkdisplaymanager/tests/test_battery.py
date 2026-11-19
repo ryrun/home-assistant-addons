@@ -159,12 +159,21 @@ def test_forecast_starts_early_and_reports_confidence():
 def test_forecast_requires_separation_and_measurable_drop():
     device = forecast_device()
     forecast = battery.Forecast()
-    now = 1800000000
+    now = 1800000000 + 300
     forecast.record(device, 5800, now)
-    forecast.record(device, 5790, now + 60)
-    assert forecast.estimate(device, now + 60) is None
-    forecast.record(device, 5791, now + 3600)
-    assert forecast.estimate(device, now + 3600) is None
+    forecast.record(device, 5800, now + 60)
+    result, progress = forecast.assess(device, now + 60)
+    assert result is None and progress['sample_count'] == 1
+    forecast.record(device, 5790, now + 1800)
+    result, progress = forecast.assess(device, now + 1800)
+    assert result['confidence'] == 'preliminary'
+    assert progress['sample_count'] == 2 and progress['observation_seconds'] == 1800
+
+    # Another settings/image pair straddles the hour boundary but is one wake.
+    forecast = battery.Forecast()
+    forecast.record(device, 5800, now + 3299)
+    forecast.record(device, 5790, now + 3301)
+    assert forecast.assess(device, now + 3301)[1]['sample_count'] == 1
 
 
 @pytest.mark.parametrize('chemistry,voltage,expected', [

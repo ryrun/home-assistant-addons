@@ -234,3 +234,20 @@ async def test_cadence_change_restarts_forecast_only_after_save(system):
     assert identifier in manager.battery_forecast.histories
     assert (await admin.put(endpoint, json={'interval': 21600})).status == 200
     assert identifier not in manager.battery_forecast.histories
+
+
+
+async def test_preview_reports_gap_beyond_device_sleep_limit(system, monkeypatch):
+    _manager, admin, _frames = system
+    device = await (await admin.post('/api/devices', json={'name': 'Long schedule'})).json()
+    now = stamp('2026-11-19T13:05')
+    monkeypatch.setattr('server.time.time', lambda: now)
+    draft = {'interval': 2591940, 'schedule': {
+        'timezone': 'UTC', 'anchor_enabled': True, 'anchor_date': '2026-11-19', 'anchor_time': '00:00',
+        'quiet_enabled': True, 'quiet_start': '23:30', 'quiet_end': '00:15',
+    }}
+    response = await admin.post('/api/devices/' + device['id'] + '/schedule-preview', json=draft)
+    assert response.status == 200
+    preview = await response.json()
+    assert preview['first_slot_in_seconds'] == preview['slots'][0] - now
+    assert preview['longest_wait_seconds'] >= preview['first_slot_in_seconds'] > preview['max_sleep_seconds']

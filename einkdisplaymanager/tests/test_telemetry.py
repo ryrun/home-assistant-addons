@@ -112,3 +112,29 @@ async def test_usb_and_charging_reset_discharge_forecast_without_voltage(system,
     assert len(manager.battery_forecast.histories[stored['id']]['samples']) == 1
     await frames.get(path(device['urls']['settings']), headers={'X-OpenPaper-Charging': '1'})
     assert stored['id'] not in manager.battery_forecast.histories
+
+
+
+@pytest.mark.parametrize('delay', [1800, 7 * 86400])
+async def test_older_usb_report_does_not_block_new_voltage_only_readings(system, monkeypatch, delay):
+    manager, admin, frames = system
+    device = await (await admin.post('/api/devices', json={'name': 'Frame with older power report'})).json()
+    await admin.put('/api/devices/' + device['id'], json={'battery': PROFILE})
+    now = 1800000000
+    monkeypatch.setattr('server.time.time', lambda: now)
+    url = path(device['urls']['settings'])
+    await frames.get(url, headers={'X-OpenPaper-USB-Connected': '1', 'X-OpenPaper-Battery-Millivolts': '5600'})
+    detail_url = '/api/devices/' + device['id']
+    status = (await (await admin.get(detail_url)).json())['battery_status']
+    assert status['forecast_progress']['reason'] == 'external_power'
+    now += delay
+    await frames.get(url, headers={'X-Display-Battery-Millivolts': '5500'})
+    detail = await (await admin.get(detail_url)).json()
+    assert detail['telemetry']['usb_connected'] is True
+    assert detail['battery_status']['stale_power_fields'] == ['usb_connected']
+    assert detail['battery_status']['forecast_progress']['sample_count'] == 1
+    assert detail['battery_status']['forecast_progress']['reason'] == 'collecting'
+    now += 1800
+    await frames.get(url, headers={'X-Display-Battery-Millivolts': '5490'})
+    status = (await (await admin.get(detail_url)).json())['battery_status']
+    assert status['forecast'] and status['forecast_progress']['sample_count'] == 2

@@ -172,7 +172,7 @@ input,select,textarea{min-width:0}
     overflow: hidden;
   }
   .device-card-thumbnail img { display: block; width: 100%; height: 100%; object-fit: contain; }
-  .device-card:has(.device-card-thumbnail) {
+  .device-card:has(.device-card-thumbnail:not([hidden])) {
     display: grid;
     grid-template-columns: 58px minmax(0, 1fr);
     grid-template-areas: "thumbnail title" "thumbnail info" "times times" "actions actions";
