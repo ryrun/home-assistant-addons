@@ -1513,7 +1513,7 @@ it reports approximate remaining days and refreshes. Battery Level MQTT attribut
 `forecast` object when voltage estimation is enabled; unavailable forecasts are null.
 No extra battery percentage entity is created.
 
-Observations remain in RAM for 90 days per device. Readings less than 30 minutes
+The rolling forecast history remains in RAM for 90 days per device. Readings less than 30 minutes
 apart are grouped by keeping the first, including settings and image requests
 that cross a clock-hour boundary.
 A **Preliminary estimate** can appear after two observations at least 30 minutes
@@ -1530,8 +1530,16 @@ Forecasts beyond 365 days show that the trend exceeds the forecast horizon,
 together with the approximate number of scheduled refreshes in the first year.
 Measurements older than the greater of two refresh intervals or two days hide
 the prediction. Charging/replacement (a rise above the recent median by over 10%
-of the voltage range) and calibration changes restart collection. Add-on restarts
-lose the history. Paused/disabled devices do not show a forecast.
+of the voltage range) and calibration changes restart collection. Paused and
+disabled devices do not show a forecast.
+
+After an add-on restart, the last eligible observation can seed the new history
+from its original timestamp. The seed must meet the same freshness limit as a
+forecast. Saving a change to the refresh schedule or battery profile, or
+receiving a current USB or charging report, discards the saved starting point.
+The first eligible reading after upgrading to 0.8.9 is the first one recorded
+for later reuse. Earlier versions saved the voltage for Battery Level without
+tracking whether the reading qualified for a forecast.
 A current USB connection or charging report clears the discharge history. Power
 reports become stale when a voltage reading arrives at least 30 minutes later
 without an updated power flag, or when the report is older than two refresh

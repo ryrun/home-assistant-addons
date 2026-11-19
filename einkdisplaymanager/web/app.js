@@ -387,7 +387,7 @@ function paintBatteryForecast(battery){
   const count=progress?.sample_count??0;
   const minimum=progress?.minimum_samples??2;
   const evidence=count<minimum?`${count} of ${minimum} minimum readings collected`:`${count} readings collected`;
-  $('#device-battery-forecast-progress').textContent=`${evidence} · History resets on restart`;
+  $('#device-battery-forecast-progress').textContent=`${evidence} · Only the last eligible reading is kept on restart`;
 }
 
 function deviceSummary(d){

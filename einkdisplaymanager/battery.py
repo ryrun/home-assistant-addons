@@ -130,10 +130,17 @@ def power_status(telemetry, interval, now):
 
 
 class Forecast:
-    """Bounded, RAM-only discharge observations; never use synthetic charge."""
+    """Bounded in-memory discharge history, optionally seeded with one saved reading."""
 
     def __init__(self):
         self.histories = {}
+
+    def restore(self, device, seed, now):
+        if not seed or device['id'] in self.histories:
+            return
+        age = now - seed['measured_at']
+        if 0 <= age <= max(2 * device['interval'], 2 * 86400):
+            self.record(device, seed['battery_millivolts'], seed['measured_at'])
 
     def record(self, device, millivolts, now):
         from statistics import median
@@ -141,7 +148,7 @@ class Forecast:
         settings = config(device)
         if not settings['enabled']:
             self.histories.pop(device['id'], None)
-            return
+            return False
         current_signature = signature(settings)
         history = self.histories.get(device['id'])
         points = curve(settings)
@@ -152,7 +159,7 @@ class Forecast:
         samples = history['samples']
         # Keep the first reading from a short burst, even across clock hours.
         if samples and now - next(reversed(samples)) < MIN_READING_GAP:
-            return
+            return False
         recent = [v for t, v in samples.values() if now - t < 3 * 86400]
         # Charging or replacement invalidates the previous discharge cycle.
         if recent and millivolts > median(recent) + span * .1:
@@ -161,6 +168,7 @@ class Forecast:
         for timestamp in list(samples):
             if timestamp < now - HISTORY_SECONDS:
                 del samples[timestamp]
+        return True
 
     def estimate(self, device, now):
         forecast, _ = self.assess(device, now)

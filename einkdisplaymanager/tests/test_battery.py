@@ -278,3 +278,62 @@ def test_forecast_progress_explains_flat_readings_and_exposes_slow_trend():
     result, progress = forecast.assess(device, now + 2 * 86400)
     assert result['beyond_horizon'] and result['remaining_days'] == 365
     assert progress['reason'] == 'estimated' and progress['sample_count'] == 3
+
+
+@pytest.mark.parametrize('read_before_fetch', [True, False])
+async def test_fresh_saved_sample_seeds_forecast_after_restart(system, monkeypatch, read_before_fetch):
+    from server import Manager
+
+    manager, admin, frames = system
+    device = await (await admin.post('/api/devices', json={'name': 'Battery restart'})).json()
+    identifier = device['id']
+    endpoint = '/api/devices/' + identifier
+    await admin.put(endpoint, json={'battery': PROFILE, 'interval': 1800})
+    url = path(device['urls']['settings'])
+    now = 1800000000
+    monkeypatch.setattr('server.time.time', lambda: now)
+    await frames.get(url, headers={'X-Display-Battery-Millivolts': '5800'})
+    now += 60
+    await frames.get(url, headers={'X-Display-Battery-Millivolts': '5800'})
+    now += 1740
+    restarted = Manager(manager.store.root, dev=True)
+    try:
+        assert restarted.battery_forecast.histories == {}
+        if read_before_fetch:
+            detail = restarted.battery_status(restarted.store.get('device', identifier))
+            assert detail['forecast'] is None and detail['forecast_progress']['sample_count'] == 1
+        manager.battery_forecast = restarted.battery_forecast
+        await frames.get(url, headers={'X-Display-Battery-Millivolts': '5790'})
+        detail = (await (await admin.get(endpoint)).json())['battery_status']
+        assert detail['forecast']['confidence'] == 'preliminary'
+        assert detail['forecast_progress']['sample_count'] == 2
+        assert detail['forecast_progress']['observation_seconds'] == 1800
+    finally:
+        restarted.store.close()
+
+
+@pytest.mark.parametrize('reset', ['age', 'schedule', 'profile', 'charging'])
+async def test_saved_seed_only_reused_while_eligible(system, monkeypatch, reset):
+    manager, admin, frames = system
+    device = await (await admin.post('/api/devices', json={'name': 'Battery seed validity'})).json()
+    identifier = device['id']
+    endpoint = '/api/devices/' + identifier
+    await admin.put(endpoint, json={'battery': PROFILE, 'interval': 1800})
+    now = 1800000000
+    monkeypatch.setattr('server.time.time', lambda: now)
+    url = path(device['urls']['settings'])
+    await frames.get(url, headers={'X-Display-Battery-Millivolts': '5800'})
+    if reset == 'age':
+        now += 3 * 86400
+    elif reset == 'schedule':
+        await admin.put(endpoint, json={'interval': 7200})
+        await admin.put(endpoint, json={'interval': 1800})
+    elif reset == 'profile':
+        await admin.put(endpoint, json={'battery': {'enabled': False}})
+        await admin.put(endpoint, json={'battery': {'enabled': True}})
+    else:
+        await frames.get(url, headers={'X-OpenPaper-Charging': '1'})
+        await frames.get(url, headers={'X-OpenPaper-Charging': '0'})
+    manager.battery_forecast = battery.Forecast()
+    detail = (await (await admin.get(endpoint)).json())['battery_status']
+    assert detail['estimated_percent'] is not None and detail['forecast_progress']['sample_count'] == 0

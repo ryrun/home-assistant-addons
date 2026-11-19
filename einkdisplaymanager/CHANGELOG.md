@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.9
+
+- Reuse the last eligible battery observation after an add-on restart. Changing battery calibration or refresh timing, or reporting external power, clears the saved starting point.
+
 ## 0.8.8
 
 - Retain battery samples at least 30 minutes apart, independent of clock-hour boundaries.

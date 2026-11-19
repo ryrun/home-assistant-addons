@@ -59,7 +59,7 @@ from profiles import (
 )
 from storage import Store, new_id
 
-VERSION = '0.8.8'
+VERSION = '0.8.9'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -739,6 +739,7 @@ class Manager:
                 if key in data:
                     device[key] = boolean(data[key])
             previous_interval, previous_schedule = device['interval'], scheduling.config(device)
+            previous_battery = battery.config(device)
             if 'interval' in data:
                 device['interval'] = integer(data['interval'], 60, 2592000)
             if 'schedule' in data or 'interval' in data:
@@ -810,8 +811,14 @@ class Manager:
                 device['entries'] = entries
                 reconcile(device)
             device['modified'] = max(time.time(), device['modified'] + 1)
-            self.store.save('device', device)
-            if timing_changed:
+            reset_forecast = timing_changed or previous_battery != battery.config(device)
+            records = [('device', device)]
+            if reset_forecast:
+                telemetry_record = self.telemetry(identifier)
+                if telemetry_record.pop('forecast_seed', None) is not None:
+                    records.append(('telemetry', telemetry_record))
+            self.store.save_many(records)
+            if reset_forecast:
                 self.battery_forecast.histories.pop(identifier, None)
             self.diagnostics.event(identifier, 'settings_saved', 'Device settings or image list saved.')
             return web.json_response(self.public_device(device, detail=True))
@@ -878,8 +885,10 @@ class Manager:
         telemetry = self.telemetry(device['id'])
         charge = battery.status(device, telemetry)
         now = time.time()
-        forecast, progress = self.battery_forecast.assess(device, now)
         external_power, stale = battery.power_status(telemetry, device['interval'], now)
+        if not external_power:
+            self.battery_forecast.restore(device, telemetry.get('forecast_seed'), now)
+        forecast, progress = self.battery_forecast.assess(device, now)
         if external_power:
             forecast = None
             progress['reason'] = 'external_power'
@@ -905,12 +914,15 @@ class Manager:
                                      'field_updated_at': current.get('field_updated_at', {}) | dict.fromkeys(values, now)}
         if 'battery_millivolts' in values:
             updated['measured_at'] = now
-        self.store.save('telemetry', updated)
         external_power, _ = battery.power_status(updated, device['interval'], now)
         if external_power:
+            updated.pop('forecast_seed', None)
             self.battery_forecast.histories.pop(device['id'], None)
         elif 'battery_millivolts' in values:
-            self.battery_forecast.record(device, values['battery_millivolts'], now)
+            self.battery_forecast.restore(device, current.get('forecast_seed'), now)
+            if self.battery_forecast.record(device, values['battery_millivolts'], now):
+                updated['forecast_seed'] = {'measured_at': now, 'battery_millivolts': values['battery_millivolts']}
+        self.store.save('telemetry', updated)
         self.mqtt.wake.set()
 
     async def settings_json(self, request):
