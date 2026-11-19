@@ -139,18 +139,35 @@ class Forecast:
                 del samples[key]
 
     def estimate(self, device, now):
+        forecast, _ = self.assess(device, now)
+        return forecast
+
+    def assess(self, device, now):
+        """Return the forecast and the reason or evidence behind its availability."""
         from statistics import median
 
         import scheduling
 
         history = self.histories.get(device['id'])
         settings = config(device)
-        if (not history or not settings['enabled'] or device.get('paused') or not device.get('enabled', True)
-                or history['signature'] != signature(settings)):
-            return None
-        samples = list(history['samples'].values())
-        if not samples or now - max(t for t, _ in samples) > max(2 * device['interval'], 2 * 86400):
-            return None
+        samples = sorted(history['samples'].values()) if (
+            history and settings['enabled'] and history['signature'] == signature(settings)
+        ) else []
+        span = samples[-1][0] - samples[0][0] if samples else 0
+        progress = {'sample_count': len(samples), 'minimum_samples': 2,
+                    'observation_seconds': span, 'minimum_observation_seconds': 1800}
+
+        def waiting(reason):
+            return None, progress | {'reason': reason}
+
+        if device.get('paused') or not device.get('enabled', True):
+            return waiting('inactive')
+        if samples and now - samples[-1][0] > max(2 * device['interval'], 2 * 86400):
+            return waiting('stale')
+        if len(samples) < 2:
+            return waiting('collecting')
+        if span < progress['minimum_observation_seconds']:
+            return waiting('too_close')
         daily = {}
         for timestamp, voltage in samples:
             daily.setdefault(int(timestamp // 86400), []).append((timestamp, capacity(settings, voltage)))
@@ -159,8 +176,6 @@ class Forecast:
         established = len(points) >= 5 and points[-1][0] - points[0][0] >= 4
         if not established:
             points = sorted((timestamp / 86400, capacity(settings, voltage)) for timestamp, voltage in samples)
-        if len(points) < 2 or points[-1][0] - points[0][0] < 1 / 48:
-            return None
         mean_x = sum(x for x, _ in points) / len(points)
         mean_y = sum(y for _, y in points) / len(points)
         xx = sum((x - mean_x) ** 2 for x, _ in points)
@@ -169,13 +184,18 @@ class Forecast:
         slope = xy / xx
         fit = xy * xy / (xx * yy) if yy else 0
         decline = -slope * (points[-1][0] - points[0][0])
-        if slope >= 0 or fit < .6 or decline < .2 or max(v for _, v in samples) - min(v for _, v in samples) < 5:
-            return None
+        if slope >= 0 or decline < .2 or max(v for _, v in samples) - min(v for _, v in samples) < 5:
+            return waiting('no_decline')
+        if fit < .6:
+            return waiting('noisy')
         established = established and fit >= .8 and decline >= 3
         remaining = (mean_y + slope * (now / 86400 - mean_x)) / -slope
-        # Avoid unbounded projections; short observations remain explicitly preliminary.
-        if not 0 < remaining <= 365:
-            return None
+        if remaining <= 0:
+            return waiting('below_range')
+        beyond_horizon = remaining > 365
+        remaining = min(remaining, 365)
+        if beyond_horizon:
+            established = False
         cutoff = now + remaining * 86400
         cursor, refreshes = now, 0
         # Bound computation for short refresh intervals and long forecasts.
@@ -190,4 +210,5 @@ class Forecast:
         return {'remaining_days': round(remaining, 1), 'remaining_refreshes': refreshes,
                 'estimated': True, 'source': 'capacity_trend', 'method': settings['method'],
                 'confidence': 'established' if established else 'preliminary',
-                'sample_count': len(samples), 'observation_days': round(points[-1][0] - points[0][0], 2)}
+                'sample_count': len(samples), 'observation_days': round(span / 86400, 2),
+                'beyond_horizon': beyond_horizon}, progress | {'reason': 'estimated'}

@@ -250,3 +250,22 @@ async def test_curve_settings_api_migration_and_single_mqtt_battery(system):
     assert (await (await admin.get(endpoint)).json())['battery']['curve'] == [[1.0, 0], [1.3, 80], [1.6, 100]]
     configs = [json.loads(data[0]) for topic, data in manager.mqtt.desired(manager.mqtt.config).items() if topic.endswith('/config')]
     assert len([item for item in configs if item.get('device_class') == 'battery']) == 1
+
+
+
+def test_forecast_progress_explains_flat_readings_and_exposes_slow_trend():
+    device = forecast_device()
+    forecast = battery.Forecast()
+    now = 1800000000
+    forecast.record(device, 5800, now)
+    result, progress = forecast.assess(device, now)
+    assert result is None and progress['sample_count'] == 1
+    assert progress['reason'] == 'collecting'
+    forecast.record(device, 5800, now + 86400)
+    result, progress = forecast.assess(device, now + 86400)
+    assert result is None and progress['sample_count'] == 2
+    assert progress['reason'] == 'no_decline'
+    forecast.record(device, 5795, now + 2 * 86400)
+    result, progress = forecast.assess(device, now + 2 * 86400)
+    assert result['beyond_horizon'] and result['remaining_days'] == 365
+    assert progress['reason'] == 'estimated' and progress['sample_count'] == 3

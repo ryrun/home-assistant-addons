@@ -659,6 +659,8 @@ async def main():
                         timed=await response.json()
                         assert 60<=timed['timeout']<=2592000
                     await page.locator('#device-battery-estimate').filter(has_text='75%').wait_for()
+                    await expect(page.locator('#device-battery-forecast')).to_be_visible()
+                    await expect(page.locator('#device-battery-forecast-progress')).to_contain_text('readings collected')
                     assert await page.get_by_label('Estimation method',exact=True).input_value() == 'linear'
                     await page.get_by_label('Estimation method',exact=True).select_option('chemistry')
                     assert await page.get_by_label('Empty voltage per cell (V)',exact=True).is_hidden()

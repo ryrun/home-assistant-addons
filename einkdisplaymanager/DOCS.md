@@ -1505,9 +1505,9 @@ the best output for every image.
 ### Voltage-based remaining-life forecast (0.8.3)
 
 The device summary shows **Estimated remaining battery life** below **Battery
-Level** once voltage measurements show a measurable downward trend. The estimate
-stays hidden while the readings are insufficient. It reports approximate
-remaining days and refreshes. Battery Level MQTT attributes include the same
+Level** whenever a voltage-based Battery Level is available. It shows the number of
+retained readings and why an estimate is pending. Once a trend can be calculated,
+it reports approximate remaining days and refreshes. Battery Level MQTT attributes include the same
 `forecast` object when voltage estimation is enabled; unavailable forecasts are null.
 No extra battery percentage entity is created.
 
@@ -1522,7 +1522,8 @@ accuracy improves monotonically.
 
 An **Established trend** uses daily medians from at least five observed days
 spanning four days, a decline of at least 3 percentage points of estimated capacity, and R² ≥ 0.8.
-Both stages reject forecasts above 365 days rather than silently capping them.
+Forecasts beyond 365 days show that the trend exceeds the forecast horizon,
+together with the approximate number of scheduled refreshes in the first year.
 Measurements older than the greater of two refresh intervals or two days hide
 the prediction. Charging/replacement (a rise above the recent median by over 10%
 of the voltage range) and calibration changes restart collection. Add-on restarts

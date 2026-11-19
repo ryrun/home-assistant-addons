@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.7
+
+- Show battery forecast progress whenever a voltage-based Battery Level is available, including the reading count and why an estimate is pending.
+- Show preliminary slow-discharge projections beyond the one-year forecast horizon.
+
 ## 0.8.6
 
 - Preserve unsaved device settings during playback, playlist, and status actions.

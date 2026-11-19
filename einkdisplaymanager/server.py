@@ -57,7 +57,7 @@ from profiles import (
 )
 from storage import Store, new_id
 
-VERSION = '0.8.6'
+VERSION = '0.8.7'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -868,8 +868,13 @@ class Manager:
         return web.json_response({'deleted': True})
 
     def battery_status(self, device):
-        return battery.status(device, self.telemetry(device['id'])) | {
-            'forecast': self.battery_forecast.estimate(device, time.time())}
+        telemetry = self.telemetry(device['id'])
+        charge = battery.status(device, telemetry)
+        forecast, progress = self.battery_forecast.assess(device, time.time())
+        if telemetry.get('usb_connected') or telemetry.get('charging'):
+            forecast = None
+            progress['reason'] = 'external_power'
+        return charge | {'forecast': forecast, 'forecast_progress': progress}
 
     def telemetry(self, identifier):
         try:

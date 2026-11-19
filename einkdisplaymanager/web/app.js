@@ -279,8 +279,38 @@ function deviceDialog(copyFrom){
   $('#new-device').onsubmit=e=>{e.preventDefault();run(async()=>{const d=await api('devices',{method:'POST',data:{name:new FormData(e.target).get('name'),profile:e.target.elements.profile.value,copy_from:copyFrom}});dialog.close();await refresh();location.hash=`devices/${d.id}`;});};
 }
 
+function paintBatteryForecast(battery){
+  $('#device-battery-forecast').hidden=battery?.estimated_percent==null;
+  const forecast=battery?.forecast;
+  const progress=battery?.forecast_progress;
+  const reasons={
+    collecting:'Collecting discharge readings',
+    too_close:'Readings must span at least 30 minutes',
+    no_decline:'Waiting for a measurable drop in charge',
+    noisy:'Waiting for a clearer discharge trend',
+    stale:'Waiting for a recent voltage reading',
+    inactive:'Forecast paused while playback is inactive',
+    external_power:'Waiting for battery operation without USB power',
+    below_range:'The current trend has reached the configured empty range'
+  };
+  let label='Waiting for readings';
+  if(forecast){
+    const confidence=forecast.confidence==='established'?'Established trend':'Preliminary estimate';
+    label=forecast.beyond_horizon
+      ? `Beyond 365 days · about ${forecast.remaining_refreshes} refreshes in the first year · ${confidence}`
+      : `About ${forecast.remaining_days} days · ${forecast.remaining_refreshes} refreshes · ${confidence}`;
+  }else if(progress){
+    label=reasons[progress.reason]||label;
+  }
+  $('#device-battery-forecast-value').textContent=label;
+  const count=progress?.sample_count??0;
+  const minimum=progress?.minimum_samples??2;
+  const evidence=count<minimum?`${count} of ${minimum} minimum readings collected`:`${count} readings collected`;
+  $('#device-battery-forecast-progress').textContent=`${evidence} · History resets on restart`;
+}
+
 function deviceSummary(d){
-  return `<div><dt>Battery Level</dt><dd id="device-battery-estimate">${batteryLevelLabel(d.battery_status,d.health)}</dd><div id="device-battery-forecast" hidden><dl><dt>Estimated remaining battery life</dt><dd id="device-battery-forecast-value"></dd></dl><small>Capacity trend at the current refresh schedule; approximate, especially with few readings. RAM history resets on restart.</small></div><p id="device-battery-fallback-help" class="help" hidden>Based on image fetch activity until a voltage estimate is available.</p></div><div><dt>Next expected connection</dt><dd id="device-next-connection">${deviceWhen(d.timing?.next_connection_at,d)}</dd></div><div><dt>Last image delivery</dt><dd id="device-last-served">${when(d.state.last_served_at)}</dd></div>`;
+  return `<div><dt>Battery Level</dt><dd id="device-battery-estimate">${batteryLevelLabel(d.battery_status,d.health)}</dd><div id="device-battery-forecast" hidden><dl><dt>Estimated remaining battery life</dt><dd id="device-battery-forecast-value"></dd></dl><small id="device-battery-forecast-progress"></small></div><p id="device-battery-fallback-help" class="help" hidden>Based on image fetch activity until a voltage estimate is available.</p></div><div><dt>Next expected connection</dt><dd id="device-next-connection">${deviceWhen(d.timing?.next_connection_at,d)}</dd></div><div><dt>Last image delivery</dt><dd id="device-last-served">${when(d.state.last_served_at)}</dd></div>`;
 }
 
 function formValues(form){
@@ -362,8 +392,7 @@ function paintDeviceActivity(id,activity,detail=state.deviceDetail){
     $('#device-battery-fallback-help').hidden=activity.battery_status?.estimated_percent!=null;
     if($('#device-voltage')){$('#device-voltage').textContent=voltageLabel(activity.telemetry);$('#device-voltage-time').textContent=when(activity.telemetry?.measured_at);}
     if($('#device-reported-values')){const reported=reportedTelemetryHTML(activity.telemetry);$('#device-reported-values').innerHTML=reported;$('#device-reported-status').hidden=!reported;}
-    const forecast=activity.battery_status?.forecast;
-    if($('#device-battery-forecast')){$('#device-battery-forecast').hidden=!forecast;$('#device-battery-forecast-value').textContent=forecast?`About ${forecast.remaining_days} days · ${forecast.remaining_refreshes} refreshes · ${forecast.confidence==='established'?'Established trend':'Preliminary estimate'}`:'';}
+    paintBatteryForecast(activity.battery_status);
     if(activity.timing){$('#device-next-connection').textContent=deviceWhen(activity.timing.next_connection_at,detail);$('#device-next-slot').textContent=deviceWhen(activity.timing.next_slot_at,detail);$('#device-quiet-status').textContent=activity.timing.quiet_now?'Active':'Inactive';}
     $('#device-selected-name').textContent=entry?asset(entry.asset_id)?.name||'Unavailable image':'Placeholder';
     $('#device-last-served').textContent=when(current.last_served_at);
