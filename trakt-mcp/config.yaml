@@ -2,7 +2,7 @@ name: "Trakt MCP Server"
 slug: "trakt_mcp"
 description: "Trakt movies, series and personal library over authenticated MCP"
 url: "https://github.com/ryrun/home-assistant-addons/tree/main/trakt-mcp"
-version: "0.5.0"
+version: "0.5.1"
 stage: experimental
 arch:
   - aarch64
@@ -30,12 +30,6 @@ options:
   log_level: info
   personal_cache_enabled: true
   enable_mcp_auth_tools: false
-  enable_list_writes: false
-  enable_watchlist_writes: false
-  enable_ratings_writes: false
-  enable_favorites_writes: false
-  enable_collection_writes: false
-  enable_history_writes: false
   allowed_networks:
     - 127.0.0.0/8
     - 10.0.0.0/8
@@ -54,12 +48,6 @@ schema:
   log_level: list(debug|info|warning|error)
   personal_cache_enabled: bool
   enable_mcp_auth_tools: bool
-  enable_list_writes: bool
-  enable_watchlist_writes: bool
-  enable_ratings_writes: bool
-  enable_favorites_writes: bool
-  enable_collection_writes: bool
-  enable_history_writes: bool
   allowed_networks:
     - str
   cache_ttl_seconds: int(0,86400)

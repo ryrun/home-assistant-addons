@@ -5,3 +5,19 @@
 
 .recent-scroll{max-height:360px}.recent-scroll thead th{position:sticky;top:0;background:var(--surface)}.table-scroll:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
 .setup-link{display:inline-block;color:var(--accent);font-size:.85rem;margin-bottom:18px;text-underline-offset:3px}.setup-link:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+
+#write-categories {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px 18px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+#write-categories legend,
+#write-categories small {
+  color: var(--muted);
+  font-size: .8rem;
+}
+#write-feedback:empty { display: none; }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1
+
+- Execute enabled Trakt changes through individual MCP tools. MCP annotations and
+  tool descriptions support user confirmation in the client.
+- Move persistent write category settings to the dashboard and remove dashboard
+  transaction approval. The upgrade starts with all write categories off.
+- Expose guarded undo through MCP and return structured results for partial or
+  uncertain writes.
+
 ## 0.5.0
 
 - Add six opt-in Trakt write permissions and separate, single-use Home Assistant

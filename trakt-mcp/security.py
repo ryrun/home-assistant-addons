@@ -37,7 +37,7 @@ def drop_privileges(data_dir):
         raise TraktError('The data directory must not be a symbolic link.')
     data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chown(data_dir, RUNTIME_UID, RUNTIME_GID)
-    for name in ('oauth.json', 'public-cache.sqlite3', 'public-cache.corrupt',
+    for name in ('oauth.json', 'write-permissions.json', 'public-cache.sqlite3', 'public-cache.corrupt',
                  'public-cache.sqlite3-journal', 'public-cache.sqlite3-wal', 'public-cache.sqlite3-shm'):
         path = data_dir / name
         if path.is_symlink():

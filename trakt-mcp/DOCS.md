@@ -253,47 +253,49 @@ legacy negotiation modes are covered by local tests.
 
 ### Write permissions and undo
 
-All six permissions default to off. Enable only the categories you want under
-Home Assistant → Trakt MCP Server → Configuration. Save and **restart the add-on
-and reconnect or restart your MCP client sessions** so their tool catalogs reload.
+All six categories default to off. Open the add-on dashboard as a Home Assistant
+administrator, select the categories you want under **Trakt write permissions**,
+and choose **Save permissions**. **Restart the add-on, then reconnect or restart
+your MCP client sessions.** The panel shows which categories are active and
+which choices will apply after restart. Upgrading from 0.5.0 starts with writes
+off. Select the permissions once in the dashboard to use the new flow.
 
-| Configuration option | Operations | Automatic undo |
+| Dashboard category | MCP tools | Automatic undo |
 | --- | --- | --- |
-| `enable_list_writes` | Create and fill a private list, append movies/shows, edit an item note, reorder the full list | Conditional on a verified result and unchanged list |
-| `enable_watchlist_writes` | Add movies/shows | Conditional on verified new entries that remain unchanged |
-| `enable_ratings_writes` | Set a rating from 1 to 10 for movies, shows or episodes | Unavailable |
-| `enable_favorites_writes` | Add movies/shows to favorites | Unavailable |
-| `enable_collection_writes` | Add movies or individual episodes | Unavailable. Existing entries are skipped to preserve metadata |
-| `enable_history_writes` | Record a current watch for movies or individual episodes | Unavailable. Repeating an action can add another play |
+| Private lists | `trakt_create_private_list`, `trakt_append_private_list`, `trakt_set_list_note`, `trakt_reorder_list` | Conditional on a verified result and unchanged list |
+| Watchlist | `trakt_add_to_watchlist` | Conditional on verified new entries that remain unchanged |
+| Ratings | `trakt_set_rating` for movies, shows or episodes | Unavailable |
+| Favorites | `trakt_add_favorites` for movies and shows | Unavailable |
+| Collection | `trakt_add_to_collection` for movies and individual episodes | Unavailable. Existing entries are skipped to preserve metadata |
+| Watch history | `trakt_add_to_history` for movies and individual episodes | Unavailable. Repeating a call can add another play |
 
-Once a category is enabled, explicitly ask the assistant for a concrete change.
-`trakt_prepare_write` queues the validated proposal and returns an operation ID.
-Open the add-on dashboard as a Home Assistant administrator, review the exact
-proposal and choose **Approve this change** or **Decline**. A confirmation in
-chat does not execute the proposal. Use `trakt_get_write_result` to read its
-status. The dashboard shows effective permissions and the registered tool catalog.
-Approvals expire after ten minutes and are single-use. Movie and show previews
-include Trakt titles. Episode and list-item operations display their numeric IDs.
+For a write, the MCP tool description and server instructions ask the assistant
+to present the exact change and wait for your explicit confirmation. The client
+then calls the appropriate MCP tool, which executes the write immediately and
+returns the result. The dashboard has no per-operation approval step.
 
-The normal MCP tool call stages the proposal. Approval is an out-of-band step
-through Home Assistant Ingress, so it also works with clients that lack MCP
-elicitation. The approval secret is confined to Ingress. MCP tool annotations
-describe state changes, while the add-on enforces the write permission and the
-separate approval. See the [MCP tools specification](https://modelcontextprotocol.io/specification/2025-11-25/server/tools).
+MCP's [tool interaction model](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
+recommends human confirmation and lets the client implement the interaction.
+MCP [tool annotations](https://modelcontextprotocol.io/specification/2025-11-25/schema#toolannotations)
+describe that these tools change state. They are hints, so the client is
+responsible for asking or presenting an approval prompt. The server trusts an
+authenticated client call to an enabled write tool to execute the change.
+Only share the MCP token with clients you trust to respect your confirmation.
 
-**Review undo** stages a separate operation. A second approval runs the inverse
-after checking Trakt again. Undo of a new list deletes that list. Undo of an
-append removes only verified additions. A note or order is restored only when
-the exact list state can be verified. Any change detected since the write blocks
-undo. Trakt can serve stale reads and offers no atomic compare-and-write here.
-If the result cannot be verified, the dashboard reports that automatic undo is
-unavailable. General account deletions and removals are outside these permissions.
+The write result gives an operation ID and the exact `undo_change` when an
+inverse is available. The assistant can use `trakt_get_write_result` to read it
+again, show the proposed undo in chat, and ask for confirmation before calling
+`trakt_undo_write`. Undo checks the current state in Trakt. It can delete only
+the list created by the original operation, remove verified additions, or
+restore a verified previous note or order. A conflicting change stops automatic
+undo. Trakt can serve stale reads and offers no atomic compare-and-write for
+these operations. General deletions are outside the supported write actions.
 
-Creating and filling a list uses two requests. A partial result shows the
-created list ID whenever Trakt returned it. If a write times out, first check
-Trakt before preparing another operation. The server never automatically retries
-a mutation. Proposals, results and undo snapshots are bounded in-memory state.
-They expire or are evicted and are cleared on add-on restart.
+Creating and filling a list uses two requests. A partial result includes the
+created list ID when Trakt returned it. If the result is uncertain, check Trakt
+before retrying. The server never automatically retries a mutation. Recent
+write results and undo data are retained in memory and cleared on add-on
+restart. The dashboard's category settings persist on disk.
 
 ### Smart Lists and discovery (0.4.0)
 
@@ -389,7 +391,7 @@ extension does not weaken completeness checks or claim to fix that issue.
 
 Version 0.3.0 adds the following tools. There are now 44 tools by default, including
 local status/cache operations; two optional authorization tools bring the total
-to 46. Optional writes add two tools and are disabled by default. Existing
+to 46. Up to eleven tools for writes and write results are available through dashboard permissions. Existing
 movie tools keep their names and behavior, and no new API credentials or HA
 configuration options are needed.
 
@@ -506,7 +508,7 @@ statistics shown in the service monitor.
 
 After installing an update, reconnect the MCP client and start a new assistant thread.
 If an old tool list persists in Zed/Codex, fully quit and reopen Zed before starting
-the new thread. Confirm `server_version: 0.5.0` via `trakt_get_status` and check
+the new thread. Confirm `server_version: 0.5.1` via `trakt_get_status` and check
 that `trakt_get_show_progress` and `trakt_get_history` are available. Stored Trakt
 authorization stays valid; no new device authorization is normally required.
 

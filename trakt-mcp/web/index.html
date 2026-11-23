@@ -23,11 +23,14 @@
   </section>
   <section class="section">
     <h2>Trakt write permissions</h2>
-    <p id="write-permissions"></p>
-    <p class="hint">Change permissions in the add-on Configuration tab. Save, restart the add-on, then reconnect or restart your MCP client sessions.</p>
-    <h3>Write operations</h3>
+    <form id="write-settings">
+      <fieldset id="write-categories" disabled>
+        <legend>Allowed categories</legend>
+      </fieldset>
+      <button id="save-write-permissions" type="submit" disabled>Save permissions</button>
+    </form>
     <p id="write-feedback" role="status"></p>
-    <div id="write-operations"></div>
+    <p class="hint">After saving, restart the add-on, then reconnect or restart your MCP client sessions. Confirm individual changes in your MCP client.</p>
     <details><summary>Available MCP tools</summary>
       <div class="table-scroll"><table><thead><tr><th>Tool</th><th>Access</th><th>Description</th></tr></thead><tbody id="tool-catalog"></tbody></table></div>
     </details>
@@ -61,7 +64,7 @@
     <div class="section-heading"><h2>Recent calls</h2><span>Last 30 · names and outcomes only</span></div>
     <div class="table-scroll recent-scroll" tabindex="0" aria-label="Recent calls, scrollable"><table><thead><tr><th>Time</th><th>Tool</th><th>Outcome</th><th>Duration</th></tr></thead><tbody id="recent"></tbody></table></div>
   </section>
-  <footer><p id="updated">Waiting for first update.</p><p>Counters reset on restart. Updates every 10 seconds while visible. Write proposals and their results are visible to Home Assistant administrators.</p></footer>
+  <footer><p id="updated">Waiting for first update.</p><p>Counters reset on restart. Updates every 10 seconds while visible. Statistics show tool names and outcomes.</p></footer>
 </main>
 </body>
 </html>

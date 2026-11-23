@@ -37,64 +37,67 @@ function cachePanel(name, data) {
   summary.textContent = data.available === false ? "Cache status temporarily unavailable" : data.enabled ? `${data.entries} entries · ${bytes(data.response_bytes)} of data · ${data.hits || 0} hits / ${data.misses || 0} misses` : "Not enabled for this server";
   box.append(heading, meter, summary); return box;
 }
-let reviewing = false;
 const permissionLabels = {
   list: "Private lists", watchlist: "Watchlist", ratings: "Ratings",
   favorites: "Favorites", collection: "Collection", history: "Watch history"
 };
-function showWrites(data) {
-  text("write-permissions", Object.entries(data.write_permissions || {})
-    .map(([name, enabled]) => `${permissionLabels[name]}: ${enabled ? "Enabled" : "Disabled"}`).join(" · "));
-  rows("tool-catalog", data.registered_tools || [],
-    t => [t.name, t.read_only ? "Read" : "Changes state", t.description || ""], "No tools available.");
-  if (reviewing) return;
-  const records = data.write_operations || [];
-  const container = el("write-operations");
-  container.replaceChildren();
-  if (!records.length) container.textContent = "No write operations since startup.";
-  for (const operation of records) {
-    const details = document.createElement("details");
-    details.open = operation.state === "pending";
-    const title = document.createElement("summary");
-    title.textContent = `${operation.proposal.action.replaceAll("_", " ")} · ${operation.state} · ${new Date(operation.at * 1000).toLocaleTimeString()}`;
-    const preview = document.createElement("pre");
-    preview.style.whiteSpace = "pre-wrap";
-    preview.textContent = JSON.stringify({ ...operation.proposal, target: operation.target || undefined, visibility: operation.visibility || undefined,
-      confirmed_titles: operation.titles.length ? operation.titles : undefined,
-      result: operation.result || undefined }, null, 2);
-    const undo = document.createElement("p");
-    undo.textContent = operation.undo;
-    details.append(title, preview, undo);
-    const actions = operation.state === "pending" ? [["Approve this change", "approve"], ["Decline", "decline"]]
-      : operation.can_undo ? [["Review undo", "stage_undo"]] : [];
-    for (const [label, decision] of actions) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = label;
-      button.addEventListener("click", () => reviewWrite(operation, decision, button));
-      details.append(button);
-    }
-    container.append(details);
+const permissionInputs = {};
+let permissionSettings;
+let permissionsDirty = false;
+let savingPermissions = false;
+for (const [name, title] of Object.entries(permissionLabels)) {
+  const row = document.createElement("div");
+  const label = document.createElement("label");
+  const input = document.createElement("input");
+  const active = document.createElement("small");
+  input.type = "checkbox";
+  label.append(input, ` ${title}`);
+  row.append(label, " ", active);
+  el("write-categories").append(row);
+  permissionInputs[name] = {input, active};
+}
+function renderPermissions(settings) {
+  if (!settings) return;
+  permissionSettings = settings;
+  for (const [name, {input, active}] of Object.entries(permissionInputs)) {
+    if (!permissionsDirty) input.checked = settings.saved[name];
+    active.textContent = settings.active[name] ? "Active" : "Inactive";
+  }
+  el("write-categories").disabled = savingPermissions;
+  el("save-write-permissions").disabled = !permissionsDirty || savingPermissions;
+  if (settings.restart_required && !savingPermissions && !permissionsDirty) {
+    text("write-feedback", "Restart the add-on to apply the saved permissions.");
   }
 }
-async function reviewWrite(operation, decision, button) {
-  if (reviewing) return;
-  reviewing = true;
-  button.disabled = true;
-  text("write-feedback", "Processing review…");
+el("write-settings").addEventListener("change", () => {
+  permissionsDirty = Object.entries(permissionInputs).some(([name, {input}]) =>
+    input.checked !== permissionSettings.saved[name]);
+  el("save-write-permissions").disabled = !permissionsDirty;
+});
+el("write-settings").addEventListener("submit", async event => {
+  event.preventDefault();
+  if (savingPermissions || !permissionsDirty) return;
+  const body = Object.fromEntries(Object.entries(permissionInputs).map(([name, {input}]) => [name, input.checked]));
+  savingPermissions = true;
+  renderPermissions(permissionSettings);
   try {
-    const response = await fetch("./api/review", {method: "POST", credentials: "same-origin",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({operation_id: operation.operation_id, approval: operation.approval, decision})});
-    if (!response.ok) throw new Error("Review rejected");
-    const result = await response.json();
-    text("write-feedback", `Operation status: ${result.state}`);
+    const response = await fetch("./api/write-permissions", {method: "PUT", credentials: "same-origin",
+      headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    if (!response.ok) throw new Error("Could not save permissions");
+    permissionSettings = await response.json();
+    permissionsDirty = false;
+    text("write-feedback", "Permissions saved.");
   } catch (_) {
-    text("write-feedback", "Review could not be confirmed. Refresh and check the result before retrying.");
+    text("write-feedback", "Could not save permissions. Try again.");
   } finally {
-    reviewing = false;
-    await refresh();
+    savingPermissions = false;
+    renderPermissions(permissionSettings);
   }
+});
+function showWrites(data) {
+  if (!savingPermissions) renderPermissions(data.write_permissions);
+  rows("tool-catalog", data.registered_tools || [],
+    t => [t.name, t.read_only ? "Read" : "Changes state", t.description || ""], "No tools available.");
 }
 function render(data) {
   const stats = data.metrics, tools = stats.tools;

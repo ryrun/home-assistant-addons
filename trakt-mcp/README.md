@@ -1,6 +1,6 @@
 # Trakt MCP Server
 
-Experimental Home Assistant add-on (0.5.0) for personal movie and series data from Trakt.tv.
+Experimental Home Assistant add-on (0.5.1) for personal movie and series data from Trakt.tv.
 AI assistants receive read access by default through authenticated MCP Streamable HTTP
 at `http://homeassistant.local:8765/mcp`.
 
@@ -49,8 +49,9 @@ Trakt supplies them; no additional rating or streaming service is contacted.
 Streaming favorites express preferences. Optional Smart List streaming filters
 use Trakt data and access permissions; no live streaming-offer lookup is provided.
 
-Optional Trakt writes are disabled by default and require individual approval
-through Home Assistant. See [write permissions and undo](DOCS.md#write-permissions-and-undo).
+Optional Trakt writes are off by default. Choose the categories in the add-on
+dashboard and confirm individual changes in your MCP client. See
+[write permissions and undo](DOCS.md#write-permissions-and-undo).
 Collection entries do not prove
 current access, playback positions require a player that reports to Trakt, and
 unavailable VIP statistics are returned as unknown rather than zero.

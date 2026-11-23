@@ -1,7 +1,11 @@
-"""Prepare bounded Trakt changes and execute them only through HA ingress."""
+"""Run bounded Trakt writes and keep enough state for conditional undo."""
 import asyncio
 from collections import OrderedDict
 import hashlib
+import json
+import logging
+import os
+import tempfile
 import secrets
 import time
 from typing import Annotated, Literal
@@ -21,7 +25,7 @@ GROUP = {
     'reorder_list': 'list', 'add_watchlist': 'watchlist', 'set_rating': 'ratings',
     'add_favorites': 'favorites', 'add_collection': 'collection', 'add_history': 'history',
 }
-OPTIONS = {group: f'enable_{group}_writes' for group in dict.fromkeys(GROUP.values())}
+PERMISSIONS = tuple(dict.fromkeys(GROUP.values()))
 SYNC_PATH = {'add_watchlist': 'watchlist', 'set_rating': 'ratings', 'add_favorites': 'favorites',
              'add_collection': 'collection', 'add_history': 'history'}
 
@@ -59,7 +63,7 @@ class WriteRequest(BaseModel):
         if media and not media.intersection(data):
             raise TraktError('Supply at least one Trakt media ID.')
         if sum(len(data.get(key, [])) for key in media) > 20:
-            raise TraktError('Approve at most 20 media entries at a time.')
+            raise TraktError('Supply at most 20 media entries per call.')
         if self.name is not None and (not self.name.strip() or not self.name.isprintable()):
             raise TraktError('Use a nonempty printable list name.')
         if self.rank and len(set(self.rank)) != len(self.rank):
@@ -78,10 +82,51 @@ def payload(data):
     return result
 
 
-class WriteQueue:
-    def __init__(self, client, options):
+class WritePermissions:
+    """Persist the administrator's choices for the next add-on startup."""
+
+    def __init__(self, path):
+        self.path = path
+        self.saved = dict.fromkeys(PERMISSIONS, False)
+        try:
+            with path.open('rb') as file:
+                self.saved = self.validate(json.loads(file.read(1024)))
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError):
+            logging.getLogger('trakt_mcp').warning('Stored write permissions are invalid. All writes are disabled.')
+        self.active = self.saved.copy()
+
+    @staticmethod
+    def validate(data):
+        if (not isinstance(data, dict) or set(data) != set(PERMISSIONS)
+                or any(type(enabled) is not bool for enabled in data.values())):
+            raise ValueError('Expected six boolean write permissions.')
+        return {name: data[name] for name in PERMISSIONS}
+
+    def save(self, data):
+        updated = self.validate(data)
+        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(mode='w', dir=self.path.parent, delete=False) as file:
+            temporary = self.path.with_name(os.path.basename(file.name))
+            try:
+                json.dump(updated, file)
+                file.flush()
+                os.fsync(file.fileno())
+                file.close()
+                temporary.replace(self.path)
+            finally:
+                temporary.unlink(missing_ok=True)
+        self.saved = updated
+
+    def status(self):
+        return {'active': self.active, 'saved': self.saved, 'restart_required': self.active != self.saved}
+
+
+class TraktWrites:
+    def __init__(self, client, enabled):
         self.client = client
-        self.enabled = {group: options.get(option, False) for group, option in OPTIONS.items()}
+        self.enabled = enabled
         self.records = OrderedDict()
         self.lock = asyncio.Lock()
         self.next_write = 0
@@ -149,65 +194,60 @@ class WriteQueue:
                 existing.add((kind, media_id))
         return existing
 
-    async def prepare(self, request):
+    def record(self, data, identity):
+        key = secrets.token_urlsafe(18)
+        row = {'data': data, 'identity': identity, 'state': 'running',
+               'undo': 'Automatic undo is unavailable for this operation.'}
+        self.records[key] = row
+        if len(self.records) > 60:
+            self.records.popitem(last=False)
+        return key, row
+
+    @staticmethod
+    def outcome(key, row):
+        return {'operation_id': key, 'state': row['state'], 'change': row['data'],
+                'can_undo': row['state'] == 'completed' and 'inverse' in row,
+                'undo': row['undo'], 'undo_change': row.get('undo_change'),
+                'result': row.get('result')}
+
+    def lookup(self, key, identity):
+        row = self.records.get(key)
+        if row is None or row['identity'] != identity:
+            raise TraktError('Operation not found for the current Trakt authorization.')
+        return row
+
+    async def result(self, key):
+        identity, _ = await self.identity()
+        return self.outcome(key, self.lookup(key, identity))
+
+    @staticmethod
+    def review_required(row, message):
+        row['state'] = 'review_required'
+        row.setdefault('result', {})['message'] = message
+        row['undo'] = 'Automatic undo unavailable for an unverified result.'
+
+    async def run(self, request):
         data = request.request_data()
         if not self.enabled[GROUP[request.action]]:
-            raise TraktError('This write permission is disabled in the add-on configuration.')
-        identity, _ = await self.identity()
-        target, items = None, {}
-        if request.action == 'add_watchlist':
-            items = await self.watchlist_state(data)
-        if request.list_id is not None:
-            target, items = await self.list_state(request.list_id)
-            if request.action == 'set_list_note' and request.list_item_id not in items:
-                raise TraktError('The item is not in this list.')
-            if request.action == 'reorder_list' and set(request.rank) != items.keys():
-                raise TraktError('Supply the full list order using list item IDs.')
-        titles = []
-        for kind in ('movie', 'show'):
-            for media_id in data.get(kind + '_ids', []):
-                detail = json_data(await self.client.get(f'/{kind}s/{media_id}'))
-                if not isinstance(detail, dict) or detail.get('ids', {}).get('trakt') != media_id:
-                    raise TraktError('Trakt did not confirm the requested title ID.')
-                titles.append({'type': kind, 'id': media_id, 'title': detail.get('title'), 'year': detail.get('year')})
-        if identity != (await self.identity())[0]:
-            raise TraktError('Trakt authorization changed. Prepare the action again.')
-        now = time.monotonic()
-        if sum(r['state'] == 'pending' and r['expires'] > now for r in self.records.values()) >= 20:
-            raise TraktError('Too many pending approvals. Review them in Home Assistant.')
-        while len(self.records) >= 60:
-            oldest = next((key for key, row in self.records.items()
-                           if row['state'] not in ('pending', 'running') or
-                           (row['state'] == 'pending' and row['expires'] <= now)), None)
-            if oldest is None:
-                raise TraktError('Approval queue is full.')
-            del self.records[oldest]
-        key = secrets.token_urlsafe(18)
-        self.records[key] = {'at': time.time(), 'data': data, 'identity': identity, 'expires': now + 600,
-                             'state': 'pending', 'titles': titles, 'approval': secrets.token_urlsafe(32),
-                             'target': target.get('name') if target else None,
-                             'before': items,
-                             'undo': 'Conditional undo may be available after verification.' if GROUP[request.action] in ('list', 'watchlist')
-                                     else 'Automatic undo unavailable. Review the change in Trakt.',
-                             'updated_at': target.get('updated_at') if target else None}
-        return {'operation_id': key, 'state': 'pending', 'proposal': data,
-                'target': self.records[key]['target'], 'titles': titles,
-                'visibility': 'private' if GROUP[request.action] == 'list' else None, 'undo': self.records[key]['undo'],
-                'message': 'Review and confirm this exact operation in the Home Assistant add-on dashboard.'}
-
-    def public(self, *, dashboard=False):
-        now = time.monotonic()
-        result = []
-        for key, row in reversed(self.records.items()):
-            state = 'expired' if row['state'] == 'pending' and row['expires'] <= now else row['state']
-            item = {'operation_id': key, 'state': state, 'proposal': row['data'], 'at': row['at'],
-                    'can_undo': state == 'completed' and 'inverse' in row, 'titles': row.get('titles', []),
-                    'target': row['target'], 'visibility': 'private' if 'list_id' in row['data'] and row['data']['list_id'] is not None
-                    or row['data']['action'] == 'create_list' else None, 'undo': row['undo'], 'result': row.get('result')}
-            if dashboard and state == 'pending':
-                item['approval'] = row['approval']
-            result.append(item)
-        return result
+            raise TraktError('This write permission is disabled.')
+        async with self.lock:
+            identity, _ = await self.identity()
+            key, row = self.record(data, identity)
+            try:
+                async with asyncio.timeout(60):
+                    await self.execute(row)
+                row['state'] = 'completed'
+            except TraktError as error:
+                self.review_required(row, str(error))
+            except TimeoutError:
+                self.review_required(row, 'The request timed out. Check Trakt before retrying.')
+            except Exception:
+                self.review_required(row, 'The result could not be verified. Check Trakt before retrying.')
+            finally:
+                if row['state'] == 'running':
+                    self.review_required(row, 'The call was interrupted. Check Trakt before retrying.')
+                row.pop('before', None)
+            return self.outcome(key, row)
 
     async def send(self, method, path, token, body):
         async with self.client.request_slots:
@@ -228,56 +268,26 @@ class WriteQueue:
                 raise TraktError(f'Trakt returned HTTP {response.status_code}. Check the target before retrying.')
             return {} if response.status_code == 204 else json_data(response)
 
-    async def approve(self, key, proof, decision="approve"):
-        async with self.lock:
-            row = self.records.get(key)
-            if (row is None or row['state'] != 'pending' or row['expires'] <= time.monotonic()
-                    or not secrets.compare_digest(row['approval'], proof)):
-                raise TraktError('Approval is invalid, expired or already used.')
-            if decision == 'decline':
-                row['state'] = 'declined'
-                return {'state': 'declined'}
-            row['state'] = 'running'
-            try:
-                async with asyncio.timeout(60):
-                    if row['data']['action'] == 'undo':
-                        await self.undo(row)
-                    else:
-                        await self.execute(row)
-                row['state'] = 'completed'
-            except (TraktError, TimeoutError) as error:
-                row['state'] = 'review_required'
-                row.setdefault('result', {})['message'] = str(error) if isinstance(error, TraktError) else (
-                    'The request timed out. Check Trakt before retrying.')
-                row['undo'] = 'Automatic undo unavailable for an unverified result.'
-            except Exception:
-                row['state'] = 'review_required'
-                row.setdefault('result', {})['message'] = 'The result could not be verified. Check Trakt before retrying.'
-                row['undo'] = 'Automatic undo unavailable for an unverified result.'
-            finally:
-                if row['state'] == 'running':
-                    row['state'] = 'review_required'
-            return {'state': row['state'], 'result': row.get('result')}
-
     async def execute(self, row):
         data = row['data']
         action = data['action']
-        if not self.enabled[GROUP[action]]:
-            raise TraktError('This write permission is disabled.')
+        before = {}
         if 'list_id' in data:
-            target, items = await self.list_state(data['list_id'])
-            if (target.get('name') != row['target'] or target.get('updated_at') != row['updated_at']
-                    or items != row['before']):
-                raise TraktError('The list changed after preview. Prepare the action again.')
+            _, before = await self.list_state(data['list_id'])
+            if action == 'set_list_note' and data['list_item_id'] not in before:
+                raise TraktError('The item is not in this private list.')
+            if action == 'reorder_list' and set(data['rank']) != before.keys():
+                raise TraktError('Supply the full list order using list item IDs.')
+        elif action == 'add_watchlist':
+            before = await self.watchlist_state(data)
+        row['before'] = before
+
         existing = await self.collection_existing(data) if action == 'add_collection' else set()
         if action == 'add_watchlist':
-            current = await self.watchlist_state(data)
-            if current != row['before']:
-                raise TraktError('The selected watchlist entries changed after preview. Prepare the action again.')
-            existing = set(current)
+            existing = set(before)
         identity, token = await self.identity()
         if identity != row['identity']:
-            raise TraktError('Trakt authorization changed. Prepare the action again.')
+            raise TraktError('Trakt authorization changed. The write was not started.')
         body = payload(data)
         list_id = data.get('list_id')
         if action == 'create_list':
@@ -350,6 +360,7 @@ class WriteQueue:
         row['inverse'] = ('POST', '/sync/watchlist/remove', body)
         row['after'] = after
         row['undo'] = 'Remove only the titles added by this operation if the selected watchlist entries are unchanged.'
+        row['undo_change'] = {'action': 'remove_watchlist_entries', 'entries': body}
 
     async def capture_inverse(self, row, list_id):
         meta, after = await self.list_state(list_id)
@@ -374,6 +385,8 @@ class WriteQueue:
                         for kind in ('movie', 'show') if any(k == kind for k, _ in expected)}
             inverse = ('DELETE', path, None) if action == 'create_list' else ('POST', path + '/items/remove', for_undo)
             label = 'Delete the newly created private list' if action == 'create_list' else 'Remove only the titles added by this operation'
+            undo_change = ({'action': 'delete_created_list', 'name': meta['name']}
+                           if action == 'create_list' else {'action': 'remove_added_list_entries', 'entries': for_undo})
         elif action == 'set_list_note':
             item_id = data['list_item_id']
             expected = dict(before)
@@ -383,6 +396,7 @@ class WriteQueue:
                 return
             inverse = ('PUT', f'{path}/items/{item_id}', {'notes': old[3]})
             label = 'Restore the previous note'
+            undo_change = {'action': 'restore_list_note', 'list_item_id': item_id, 'notes': old[3]}
         else:
             if (before.keys() != after.keys() or any(after[k][:2] + after[k][3:] != v[:2] + v[3:] for k, v in before.items())
                     or any(type(v[2]) is not int for v in [*before.values(), *after.values()])):
@@ -392,52 +406,65 @@ class WriteQueue:
                 return
             inverse = ('POST', path + '/items/reorder', {'rank': old_rank})
             label = 'Restore the previous order'
+            undo_change = {'action': 'restore_list_order', 'rank': old_rank}
         if action == 'create_list' and meta.get('name') != data['name']:
             return
         row['inverse'] = inverse
         row['after'] = (meta, after)
         row['undo'] = label + ' if the list is still unchanged.'
+        row['undo_change'] = {**undo_change, 'list_id': list_id}
 
-    def stage_undo(self, key):
-        row = self.records.get(key)
-        if (row is None or row['state'] != 'completed' or 'inverse' not in row
-                or not self.enabled[GROUP[row['data']['action']]] or len(self.records) >= 60):
-            raise TraktError('Undo is not available.')
-        undo_key = secrets.token_urlsafe(18)
-        self.records[undo_key] = {
-            'at': time.time(), 'data': {'action': 'undo', 'original_operation_id': key,
-                'list_id': row['result']['list_id'], 'change': row['undo'],
-                'original_selection': row['data']},
-            'target': row['target'] or row['data'].get('name'), 'identity': row['identity'],
-            'titles': row.get('titles', []),
-            'state': 'pending', 'expires': time.monotonic() + 600,
-            'approval': secrets.token_urlsafe(32), 'undo': 'Automatic redo unavailable.',
-        }
-        return {'operation_id': undo_key, 'state': 'pending'}
+    async def undo(self, original_key):
+        async with self.lock:
+            identity, _ = await self.identity()
+            original = self.lookup(original_key, identity)
+            if (original['state'] != 'completed' or 'inverse' not in original
+                    or not self.enabled[GROUP[original['data']['action']]]):
+                raise TraktError('Undo is no longer available.')
+            list_id = original['result']['list_id']
+            key, row = self.record(
+                {'action': 'undo', 'original_operation_id': original_key, **{
+                    k: v for k, v in original['undo_change'].items() if k != 'action'
+                }, 'undo_action': original['undo_change']['action']},
+                identity,
+            )
+            try:
+                async with asyncio.timeout(60):
+                    await self.apply_inverse(original, row, list_id)
+                row['state'] = 'completed'
+            except TraktError as error:
+                self.review_required(row, str(error))
+            except TimeoutError:
+                self.review_required(row, 'Undo timed out. Check Trakt before retrying.')
+            except Exception:
+                self.review_required(row, 'The undo result could not be verified. Check Trakt before retrying.')
+            finally:
+                if row['state'] == 'running':
+                    self.review_required(row, 'Undo was interrupted. Check Trakt before retrying.')
+            return self.outcome(key, row)
 
-    async def undo(self, row):
-        original = self.records.get(row['data']['original_operation_id'])
-        if (original is None or original['state'] != 'completed' or 'inverse' not in original
-                or not self.enabled[GROUP[original['data']['action']]]):
-            raise TraktError('Undo is no longer available.')
+    async def apply_inverse(self, original, row, list_id):
         if original['data']['action'] == 'add_watchlist':
             current = await self.watchlist_state(original['data'])
         else:
-            current = await self.list_state(row['data']['list_id'])
+            current = await self.list_state(list_id)
         if current != original['after']:
             raise TraktError('The list changed after the write. Automatic undo was stopped.')
         identity, token = await self.identity()
-        if identity != row['identity']:
+        if identity != original['identity']:
             raise TraktError('Trakt authorization changed. Automatic undo was stopped.')
         method, path, body = original.pop('inverse')
+        original.pop('undo_change', None)
+        original.pop('after', None)
         original['undo'] = 'Undo was attempted. Check the operation result.'
         response = await self.send(method, path, token, body)
-        row['result'] = {'list_id': row['data']['list_id']}
+        row['result'] = {'list_id': list_id}
         if method == 'POST' and path.endswith('/remove'):
             expected = {kind: len(items) for kind, items in body.items()}
             actual = response.get('deleted', {}) if isinstance(response, dict) else {}
             if not isinstance(actual, dict) or any(actual.get(kind) != count for kind, count in expected.items()):
                 raise TraktError('Trakt did not confirm that every item was removed. Review the list.')
         original['state'] = 'undone'
+        original['undo'] = 'This operation was undone.'
         if self.client.snapshots:
             await self.client.snapshots.clear()
