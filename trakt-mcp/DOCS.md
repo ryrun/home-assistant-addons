@@ -123,7 +123,7 @@ Restart/reconnect your MCP client to refresh its tool list.
 
 ## Service monitor in Home Assistant
 
-Open the add-on's **Open Web UI** button to view its read-only service monitor.
+Open the add-on's **Open Web UI** button to view the service monitor and current MCP tool catalog.
 The interface and documentation are in English. It runs through Home Assistant
 Ingress and uses your HA session; no extra password or published dashboard port
 is needed. An optional sidebar entry is named **Trakt MCP**.
@@ -251,6 +251,50 @@ legacy negotiation modes are covered by local tests.
 | `trakt_get_user_preferences` | Explicit favorite/disliked genres, streaming country, and favorite streaming source identifiers from Trakt settings |
 | `trakt_get_recommendation_candidates` | Filtered `popular`, `trending`, or `related` movies with optional personal-list exclusions |
 
+### Write permissions and undo
+
+All six permissions default to off. Enable only the categories you want under
+Home Assistant → Trakt MCP Server → Configuration. Save and **restart the add-on
+and reconnect or restart your MCP client sessions** so their tool catalogs reload.
+
+| Configuration option | Operations | Automatic undo |
+| --- | --- | --- |
+| `enable_list_writes` | Create and fill a private list, append movies/shows, edit an item note, reorder the full list | Conditional on a verified result and unchanged list |
+| `enable_watchlist_writes` | Add movies/shows | Conditional on verified new entries that remain unchanged |
+| `enable_ratings_writes` | Set a rating from 1 to 10 for movies, shows or episodes | Unavailable |
+| `enable_favorites_writes` | Add movies/shows to favorites | Unavailable |
+| `enable_collection_writes` | Add movies or individual episodes | Unavailable. Existing entries are skipped to preserve metadata |
+| `enable_history_writes` | Record a current watch for movies or individual episodes | Unavailable. Repeating an action can add another play |
+
+Once a category is enabled, explicitly ask the assistant for a concrete change.
+`trakt_prepare_write` queues the validated proposal and returns an operation ID.
+Open the add-on dashboard as a Home Assistant administrator, review the exact
+proposal and choose **Approve this change** or **Decline**. A confirmation in
+chat does not execute the proposal. Use `trakt_get_write_result` to read its
+status. The dashboard shows effective permissions and the registered tool catalog.
+Approvals expire after ten minutes and are single-use. Movie and show previews
+include Trakt titles. Episode and list-item operations display their numeric IDs.
+
+The normal MCP tool call stages the proposal. Approval is an out-of-band step
+through Home Assistant Ingress, so it also works with clients that lack MCP
+elicitation. The approval secret is confined to Ingress. MCP tool annotations
+describe state changes, while the add-on enforces the write permission and the
+separate approval. See the [MCP tools specification](https://modelcontextprotocol.io/specification/2025-11-25/server/tools).
+
+**Review undo** stages a separate operation. A second approval runs the inverse
+after checking Trakt again. Undo of a new list deletes that list. Undo of an
+append removes only verified additions. A note or order is restored only when
+the exact list state can be verified. Any change detected since the write blocks
+undo. Trakt can serve stale reads and offers no atomic compare-and-write here.
+If the result cannot be verified, the dashboard reports that automatic undo is
+unavailable. General account deletions and removals are outside these permissions.
+
+Creating and filling a list uses two requests. A partial result shows the
+created list ID whenever Trakt returned it. If a write times out, first check
+Trakt before preparing another operation. The server never automatically retries
+a mutation. Proposals, results and undo snapshots are bounded in-memory state.
+They expire or are evicted and are cleared on add-on restart.
+
 ### Smart Lists and discovery (0.4.0)
 
 | Tool | Result |
@@ -345,7 +389,7 @@ extension does not weaken completeness checks or claim to fix that issue.
 
 Version 0.3.0 adds the following tools. There are now 44 tools by default, including
 local status/cache operations; two optional authorization tools bring the total
-to 46. Every operation on Trakt movie/series/library data is read-only. Existing
+to 46. Optional writes add two tools and are disabled by default. Existing
 movie tools keep their names and behavior, and no new API credentials or HA
 configuration options are needed.
 
@@ -462,7 +506,7 @@ statistics shown in the service monitor.
 
 After installing an update, reconnect the MCP client and start a new assistant thread.
 If an old tool list persists in Zed/Codex, fully quit and reopen Zed before starting
-the new thread. Confirm `server_version: 0.4.1` via `trakt_get_status` and check
+the new thread. Confirm `server_version: 0.5.0` via `trakt_get_status` and check
 that `trakt_get_show_progress` and `trakt_get_history` are available. Stored Trakt
 authorization stays valid; no new device authorization is normally required.
 

@@ -174,7 +174,7 @@ class TraktClient:
             return items
         return await self._all_items_live(path)
 
-    async def _all_items_live(self, path, extended=False):
+    async def _all_items_live(self, path, extended=False, *, require_pagination=False):
         items = []
         expected_total = None
         expected_pages = None
@@ -182,6 +182,8 @@ class TraktClient:
         for page in range(1, MAX_PAGES + 1):
             response = await self.get(path, {'page': page, 'limit': 100, **({'extended': 'full'} if extended else {})}, personal=True)
             self._check_personal_pagination(response, path)
+            if require_pagination and 'X-Pagination-Page-Count' not in response.headers:
+                raise TraktError('Pagination metadata missing; completeness cannot be verified.')
             transferred += len(response.content)
             if transferred > 16 * 1024 * 1024:
                 raise TraktError('Personal sync exceeds the 16 MiB transfer budget. Narrow the request or disable full-list operations.')

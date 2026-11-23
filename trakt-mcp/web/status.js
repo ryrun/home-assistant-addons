@@ -37,8 +37,68 @@ function cachePanel(name, data) {
   summary.textContent = data.available === false ? "Cache status temporarily unavailable" : data.enabled ? `${data.entries} entries · ${bytes(data.response_bytes)} of data · ${data.hits || 0} hits / ${data.misses || 0} misses` : "Not enabled for this server";
   box.append(heading, meter, summary); return box;
 }
+let reviewing = false;
+const permissionLabels = {
+  list: "Private lists", watchlist: "Watchlist", ratings: "Ratings",
+  favorites: "Favorites", collection: "Collection", history: "Watch history"
+};
+function showWrites(data) {
+  text("write-permissions", Object.entries(data.write_permissions || {})
+    .map(([name, enabled]) => `${permissionLabels[name]}: ${enabled ? "Enabled" : "Disabled"}`).join(" · "));
+  rows("tool-catalog", data.registered_tools || [],
+    t => [t.name, t.read_only ? "Read" : "Changes state", t.description || ""], "No tools available.");
+  if (reviewing) return;
+  const records = data.write_operations || [];
+  const container = el("write-operations");
+  container.replaceChildren();
+  if (!records.length) container.textContent = "No write operations since startup.";
+  for (const operation of records) {
+    const details = document.createElement("details");
+    details.open = operation.state === "pending";
+    const title = document.createElement("summary");
+    title.textContent = `${operation.proposal.action.replaceAll("_", " ")} · ${operation.state} · ${new Date(operation.at * 1000).toLocaleTimeString()}`;
+    const preview = document.createElement("pre");
+    preview.style.whiteSpace = "pre-wrap";
+    preview.textContent = JSON.stringify({ ...operation.proposal, target: operation.target || undefined, visibility: operation.visibility || undefined,
+      confirmed_titles: operation.titles.length ? operation.titles : undefined,
+      result: operation.result || undefined }, null, 2);
+    const undo = document.createElement("p");
+    undo.textContent = operation.undo;
+    details.append(title, preview, undo);
+    const actions = operation.state === "pending" ? [["Approve this change", "approve"], ["Decline", "decline"]]
+      : operation.can_undo ? [["Review undo", "stage_undo"]] : [];
+    for (const [label, decision] of actions) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.addEventListener("click", () => reviewWrite(operation, decision, button));
+      details.append(button);
+    }
+    container.append(details);
+  }
+}
+async function reviewWrite(operation, decision, button) {
+  if (reviewing) return;
+  reviewing = true;
+  button.disabled = true;
+  text("write-feedback", "Processing review…");
+  try {
+    const response = await fetch("./api/review", {method: "POST", credentials: "same-origin",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({operation_id: operation.operation_id, approval: operation.approval, decision})});
+    if (!response.ok) throw new Error("Review rejected");
+    const result = await response.json();
+    text("write-feedback", `Operation status: ${result.state}`);
+  } catch (_) {
+    text("write-feedback", "Review could not be confirmed. Refresh and check the result before retrying.");
+  } finally {
+    reviewing = false;
+    await refresh();
+  }
+}
 function render(data) {
   const stats = data.metrics, tools = stats.tools;
+  showWrites(data);
   text("ready", stats.ready ? "Running" : "Starting"); el("ready").classList.toggle("ok", stats.ready);
   text("server-state", stats.ready ? "Ready for requests" : "Starting up"); text("uptime", `Uptime ${uptime(stats.uptime_seconds)}`);
   text("auth", data.authorization);

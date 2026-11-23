@@ -29,5 +29,29 @@ configuration:
   allowed_hosts:
     name: Allowed Host headers (optional)
     description: "Allowed destination hosts including port, e.g. homeassistant.local:8765. Empty allows all host names. This does not restrict client IP addresses or prevent Internet exposure."
+  enable_list_writes:
+    name: Allow private list changes
+    description: "Requires confirmation in the add-on dashboard. Save, restart the add-on, then reconnect or restart MCP client sessions."
+
+  enable_watchlist_writes:
+    name: Allow watchlist additions
+    description: "Requires confirmation in the add-on dashboard. Save, restart the add-on, then reconnect or restart MCP client sessions."
+
+  enable_ratings_writes:
+    name: Allow rating changes
+    description: "Requires confirmation in the add-on dashboard. Save, restart the add-on, then reconnect or restart MCP client sessions."
+
+  enable_favorites_writes:
+    name: Allow favorite additions
+    description: "Requires confirmation in the add-on dashboard. Save, restart the add-on, then reconnect or restart MCP client sessions."
+
+  enable_collection_writes:
+    name: Allow collection additions
+    description: "Requires confirmation in the add-on dashboard. Save, restart the add-on, then reconnect or restart MCP client sessions."
+
+  enable_history_writes:
+    name: Allow watch history additions
+    description: "Requires confirmation in the add-on dashboard. Save, restart the add-on, then reconnect or restart MCP client sessions."
+
 network:
   8765/tcp: "MCP endpoint /mcp. Use on a trusted LAN or via VPN; do not forward this port on your router. See Documentation for client setup."

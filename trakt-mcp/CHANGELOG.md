@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0
+
+- Add six opt-in Trakt write permissions and separate, single-use Home Assistant
+  Ingress approval for each proposed action.
+- Show effective permissions, the MCP tool catalog, write outcomes and conditional
+  undo for private lists and verified watchlist additions in the dashboard.
+
 ## 0.4.1
 
 - Reject full personal-list syncs when the upstream page count disappears or
