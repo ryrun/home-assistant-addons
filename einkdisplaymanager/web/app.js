@@ -376,7 +376,8 @@ function paintBatteryForecast(battery){
   };
   let label='Waiting for readings';
   if(forecast){
-    const confidence=forecast.confidence==='established'?'Established trend':'Preliminary estimate';
+    const confidence=forecast.confidence==='established'?'Established trend'
+      :forecast.noisy_readings?'Preliminary estimate (fluctuating readings)':'Preliminary estimate';
     label=forecast.beyond_horizon
       ? `Beyond 365 days · about ${forecast.remaining_refreshes} refreshes in the first year · ${confidence}`
       : `About ${forecast.remaining_days} days · ${forecast.remaining_refreshes} refreshes · ${confidence}`;
@@ -387,7 +388,9 @@ function paintBatteryForecast(battery){
   const count=progress?.sample_count??0;
   const minimum=progress?.minimum_samples??2;
   const evidence=count<minimum?`${count} of ${minimum} minimum readings collected`:`${count} readings collected`;
-  $('#device-battery-forecast-progress').textContent=`${evidence} · Only the last eligible reading is kept on restart`;
+  const hours=(progress?.observation_seconds??0)/3600;
+  const period=hours>=48?`${(hours/24).toFixed(1)} days`:`${hours.toFixed(1)} hours`;
+  $('#device-battery-forecast-progress').textContent=count>=2?`${evidence} over ${period}`:evidence;
 }
 
 function deviceSummary(d){

@@ -108,6 +108,7 @@ def status(device, telemetry):
 
 MIN_READING_GAP = 1800
 HISTORY_SECONDS = 90 * 86400
+FORECAST_SAVED_READINGS = 256
 POWER_FIELDS = ('usb_connected', 'charging')
 
 
@@ -130,17 +131,26 @@ def power_status(telemetry, interval, now):
 
 
 class Forecast:
-    """Bounded in-memory discharge history, optionally seeded with one saved reading."""
+    """Bounded discharge history with a compact checkpoint for restarts."""
 
     def __init__(self):
         self.histories = {}
 
-    def restore(self, device, seed, now):
-        if not seed or device['id'] in self.histories:
+    def restore(self, device, telemetry, now):
+        settings = config(device)
+        if not settings['enabled'] or device['id'] in self.histories:
             return
-        age = now - seed['measured_at']
-        if 0 <= age <= max(2 * device['interval'], 2 * 86400):
-            self.record(device, seed['battery_millivolts'], seed['measured_at'])
+        samples = telemetry.get('forecast_readings', [])
+        if not samples and (seed := telemetry.get('forecast_seed')):
+            samples = [(seed['measured_at'], seed['battery_millivolts'])]
+        if samples and 0 <= now - samples[-1][0] <= max(2 * device['interval'], 2 * 86400):
+            retained = {t: (t, voltage) for t, voltage in samples[-FORECAST_SAVED_READINGS:]
+                        if now - HISTORY_SECONDS <= t <= now}
+            self.histories[device['id']] = {'signature': signature(settings), 'samples': retained}
+
+    def checkpoint(self, identifier):
+        samples = self.histories[identifier]['samples']
+        return list(samples.values())[-FORECAST_SAVED_READINGS:]
 
     def record(self, device, millivolts, now):
         from statistics import median
@@ -219,7 +229,19 @@ class Forecast:
         if slope >= 0 or decline < .2 or max(v for _, v in samples) - min(v for _, v in samples) < 5:
             return waiting('no_decline')
         if fit < .6:
-            return waiting('noisy')
+            # Confirm that the early and late portions agree with the overall
+            # direction. Their medians are less sensitive to middle fluctuations.
+            recent_points = points[-7:]
+            window = max(1, len(recent_points) // 3)
+            early = recent_points[:window]
+            late = recent_points[-window:]
+            start_day = median(day for day, _ in early)
+            mean_x = median(day for day, _ in late)
+            mean_y = median(value for _, value in late)
+            change = median(value for _, value in early) - mean_y
+            if change < .2:
+                return waiting('noisy')
+            slope = -change / (mean_x - start_day)
         established = established and fit >= .8 and decline >= 3
         remaining = (mean_y + slope * (now / 86400 - mean_x)) / -slope
         if remaining <= 0:
@@ -243,4 +265,4 @@ class Forecast:
                 'estimated': True, 'source': 'capacity_trend', 'method': settings['method'],
                 'confidence': 'established' if established else 'preliminary',
                 'sample_count': len(samples), 'observation_days': round(span / 86400, 2),
-                'beyond_horizon': beyond_horizon}, progress | {'reason': 'estimated'}
+                'beyond_horizon': beyond_horizon, 'noisy_readings': fit < .6}, progress | {'reason': 'estimated'}

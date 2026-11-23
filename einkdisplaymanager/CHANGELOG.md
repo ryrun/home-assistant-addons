@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.10
+
+- Restore up to 256 recent discharge readings after restart and show the observation period.
+- Offer a preliminary estimate for fluctuating readings when early and late measurements confirm the discharge trend.
+
 ## 0.8.9
 
 - Reuse the last eligible battery observation after an add-on restart. Changing battery calibration or refresh timing, or reporting external power, clears the saved starting point.

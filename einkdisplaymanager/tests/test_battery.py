@@ -337,3 +337,35 @@ async def test_saved_seed_only_reused_while_eligible(system, monkeypatch, reset)
     manager.battery_forecast = battery.Forecast()
     detail = (await (await admin.get(endpoint)).json())['battery_status']
     assert detail['estimated_percent'] is not None and detail['forecast_progress']['sample_count'] == 0
+
+
+def test_fluctuating_readings_with_confirmed_decline_still_estimate():
+    device = forecast_device()
+    forecast = battery.Forecast()
+    start = 1800000000
+    for i, value in enumerate((5800, 5720, 5780)):
+        forecast.record(device, value, start + i * 21600)
+    estimate, progress = forecast.assess(device, start + 43200)
+    assert estimate['confidence'] == 'preliminary' and estimate['noisy_readings']
+    assert progress['sample_count'] == 3
+
+
+async def test_multiple_accepted_readings_survive_restart(system, monkeypatch):
+    manager, admin, frames = system
+    device = await (await admin.post('/api/devices', json={'name': 'Battery history'})).json()
+    identifier = device['id']
+    endpoint = '/api/devices/' + identifier
+    await admin.put(endpoint, json={'battery': PROFILE, 'interval': 21600})
+    url = path(device['urls']['settings'])
+    now = 1800000000
+    monkeypatch.setattr('server.time.time', lambda: now)
+    for voltage in (5800, 5780, 5760, 5740):
+        await frames.get(url, headers={'X-Display-Battery-Millivolts': str(voltage)})
+        now += 21600
+    manager.battery_forecast = battery.Forecast()
+    detail = await (await admin.get(endpoint)).json()
+    assert detail['battery_status']['forecast_progress']['sample_count'] == 4
+    assert detail['battery_status']['forecast_progress']['observation_seconds'] == 64800
+    assert 'forecast_readings' not in detail['telemetry']
+    await frames.get(url, headers={'X-Display-Battery-Millivolts': '5720'})
+    assert manager.battery_status(manager.store.get('device', identifier))['forecast_progress']['sample_count'] == 5

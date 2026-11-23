@@ -1518,8 +1518,10 @@ apart are grouped by keeping the first, including settings and image requests
 that cross a clock-hour boundary.
 A **Preliminary estimate** can appear after two observations at least 30 minutes
 apart, with a measured voltage span of at least 5 mV, an estimated capacity decline
-of at least 0.2 percentage points, and a linear fit with R² ≥ 0.6. A single voltage,
-flat/rising readings, or excessive noise cannot establish a discharge rate.
+of at least 0.2 percentage points. When the linear fit is weak, the medians of
+the early and late portions of the most recent seven points must also show a decline. This produces a preliminary
+estimate explicitly marked as based on fluctuating readings. A single voltage
+or a series without a measurable decline cannot establish a discharge rate.
 There is no five-day waiting period for preliminary estimates. They may change
 substantially as more observations arrive; confidence is not a guarantee that
 accuracy improves monotonically.
@@ -1533,13 +1535,12 @@ the prediction. Charging/replacement (a rise above the recent median by over 10%
 of the voltage range) and calibration changes restart collection. Paused and
 disabled devices do not show a forecast.
 
-After an add-on restart, the last eligible observation can seed the new history
-from its original timestamp. The seed must meet the same freshness limit as a
-forecast. Saving a change to the refresh schedule or battery profile, or
-receiving a current USB or charging report, discards the saved starting point.
-The first eligible reading after upgrading to 0.8.9 is the first one recorded
-for later reuse. Earlier versions saved the voltage for Battery Level without
-tracking whether the reading qualified for a forecast.
+After restart, the manager can restore the most recent 256 eligible readings
+when the latest one meets the forecast freshness limit. Measurements older than
+90 days are omitted. The count and observation period show how much data is
+available. Changing the refresh schedule or battery profile or receiving a
+current USB or charging report clears the saved measurements. An upgrade from
+0.8.9 can reuse the single reading that version saved.
 A current USB connection or charging report clears the discharge history. Power
 reports become stale when a voltage reading arrives at least 30 minutes later
 without an updated power flag, or when the report is older than two refresh
