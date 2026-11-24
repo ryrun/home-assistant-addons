@@ -130,9 +130,19 @@ its named colors.
 Configure the LAN base URL in **Settings**. Copy **Fixed image URL** and paste
 it into a Widgy Image layer with **Web URL (no cache)**. Keep this token-bearing
 URL private. The iPhone needs network access to the address at refresh time.
-Widgy and iOS decide when to request the image. The add-on serves the current
-image on each request and keeps the last good dynamic render when a new render
-fails.
+Widgy and iOS decide when to request the image. Use **Web URL (no cache)** when
+you want each widget fetch to check the current selection.
+
+For static images on Custom Devices, the fixed PNG URL also supports private
+HTTP caching. Device image requests return a `max-age` based on the time left
+until the next eligible playlist change, including anchor times and quiet
+hours. The maximum is 30 days. After expiry, clients can revalidate with the
+ETag and receive an empty `304 Not Modified` if the image bytes are unchanged.
+Clients that cache the PNG may continue showing it after a manual selection or
+settings change until the previously issued cache duration expires.
+Dynamic images, placeholders, paused devices, and browser previews require
+revalidation on every fetch. The last good dynamic render remains available if
+a render fails.
 
 Custom output settings are editable in Device settings. Unassign and delete
 any prepared variants targeting that device before changing its geometry or

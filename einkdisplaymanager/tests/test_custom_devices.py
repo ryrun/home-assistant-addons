@@ -1,4 +1,5 @@
 import io
+from datetime import UTC, datetime
 
 import pytest
 from PIL import Image
@@ -49,6 +50,78 @@ async def test_custom_original_png_contract(system, mode, colors, allowed):
     assert preview.status == 200 and preview.content_type == 'image/jpeg'
 
 
+async def test_custom_png_cache_counts_down_and_revalidates_at_playback_deadline(system, monkeypatch):
+    _manager, admin, frames = system
+    device = await create(admin)
+    first = await upload(admin, picture('PNG', 'red'))
+    second = await upload(admin, picture('PNG', 'blue'))
+    endpoint = '/api/devices/' + device['id']
+    assert (await admin.put(endpoint, json={
+        'interval': 300, 'entries': [
+            {'asset_id': first, 'mode': 'original'}, {'asset_id': second, 'mode': 'original'},
+        ],
+    })).status == 200
+    start = datetime(2026, 11, 24, 12, tzinfo=UTC).timestamp()
+    now = [start]
+    monkeypatch.setattr('server.time.time', lambda: now[0])
+    url = path(device['urls']['image'])
+    response = await frames.get(url)
+    assert response.status == 200
+    assert response.headers['Cache-Control'] == 'private, max-age=300, must-revalidate'
+    etag = response.headers['ETag']
+    await response.read()
+
+    now[0] = start + 180.25
+    response = await frames.get(url, headers={'If-None-Match': etag})
+    assert response.status == 304 and not await response.read()
+    assert response.headers['Cache-Control'] == 'private, max-age=119, must-revalidate'
+    now[0] = start + 299.5
+    response = await frames.get(url, headers={'If-None-Match': etag})
+    assert response.status == 304
+    assert response.headers['Cache-Control'] == 'private, no-cache'
+
+    now[0] = start + 300
+    response = await frames.get(url, headers={'If-None-Match': etag})
+    assert response.status == 200 and response.headers['ETag'] != etag
+    assert response.headers['Cache-Control'] == 'private, max-age=300, must-revalidate'
+    await response.read()
+    assert (await admin.put(endpoint, json={'paused': True})).status == 200
+    response = await frames.get(url, headers={'If-None-Match': response.headers['ETag']})
+    assert response.status == 304
+    assert response.headers['Cache-Control'] == 'private, no-cache'
+
+
+async def test_custom_png_cache_respects_anchored_slot_and_quiet_hours(system, monkeypatch):
+    _manager, admin, frames = system
+    device = await create(admin)
+    asset = await upload(admin)
+    start = datetime(2026, 11, 24, 21, tzinfo=UTC).timestamp()
+    now = [start]
+    monkeypatch.setattr('server.time.time', lambda: now[0])
+    response = await admin.put('/api/devices/' + device['id'], json={
+        'interval': 21600,
+        'schedule': {'anchor_enabled': True, 'anchor_time': '03:00', 'quiet_enabled': True,
+                     'quiet_start': '22:00', 'quiet_end': '06:00', 'timezone': 'UTC'},
+        'entries': [{'asset_id': asset, 'mode': 'original'}],
+    })
+    assert response.status == 200, await response.text()
+    url = path(device['urls']['image'])
+    response = await frames.get(url)
+    assert response.status == 200
+    assert response.headers['Cache-Control'] == 'private, max-age=43200, must-revalidate'
+    etag = response.headers['ETag']
+    await response.read()
+    now[0] = start + 6 * 3600
+    response = await frames.get(url, headers={'If-None-Match': etag})
+    assert response.status == 304
+    assert response.headers['Cache-Control'] == 'private, max-age=21600, must-revalidate'
+    now[0] = start + 12 * 3600
+    # The cycle advances but still has the same bytes. The 304 starts a new cache window.
+    response = await frames.get(url, headers={'If-None-Match': etag})
+    assert response.status == 304
+    assert response.headers['Cache-Control'] == 'private, max-age=21600, must-revalidate'
+
+
 @pytest.mark.parametrize('mode,colors', [('srgb', []), ('custom', ['#345678', '#123456'])])
 async def test_custom_dynamic_variant_is_delivered_at_widget_dimensions(system, mode, colors):
     manager, admin, frames = system
@@ -71,6 +144,7 @@ async def test_custom_dynamic_variant_is_delivered_at_widget_dimensions(system, 
     assert response.status == 200, await response.text()
     response = await frames.get(path(device['urls']['image']))
     assert response.status == 200 and response.content_type == 'image/png'
+    assert response.headers['Cache-Control'] == 'private, no-cache'
     with Image.open(io.BytesIO(await response.read())) as output:
         assert output.size == (1280, 600) and output.mode == 'RGB'
         assert output.getpixel((0, 0)) == (52, 86, 120)

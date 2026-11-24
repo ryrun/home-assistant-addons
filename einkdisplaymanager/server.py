@@ -62,7 +62,7 @@ from profiles import (
 )
 from storage import Store, new_id
 
-VERSION = '0.9.0'
+VERSION = '0.9.1'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -1156,8 +1156,18 @@ class Manager:
             if validator['hash'] != output_hash:
                 validator.update(hash=output_hash, modified=max(time.time(), validator['modified'] + 1))
                 self.store.save('image_response', validator)
+            cache_control = 'private, no-cache'
+            if frame_fetch and 'custom' in device and not device['paused'] and item and not item.get('dynamic'):
+                now = time.time()
+                state = device['state']
+                # The first delivery starts the display window only once it succeeds.
+                # The slot calculated before streaming is a conservative expiry.
+                deadline = scheduling.next_due(device, now) if state['pending'] else state['deadline']
+                max_age = min(scheduling.MAX_SLEEP_SECONDS, math.floor(deadline - now))
+                if max_age > 0:
+                    cache_control = f'private, max-age={max_age}, must-revalidate'
             headers = {'ETag': etag, 'Last-Modified': formatdate(validator['modified'], usegmt=True),
-                       'Cache-Control': 'private, no-cache', 'Referrer-Policy': 'no-referrer',
+                       'Cache-Control': cache_control, 'Referrer-Policy': 'no-referrer',
                        'X-Content-Type-Options': 'nosniff'}
             unchanged = etag in [v.strip() for v in request.headers.get('If-None-Match', '').split(',')]
             if not request.headers.get('If-None-Match') and request.headers.get('If-Modified-Since'):

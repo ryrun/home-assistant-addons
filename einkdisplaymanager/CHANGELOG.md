@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1
+
+- Advertise a private cache lifetime for static Custom Device PNGs based on the next eligible playlist change. Retain ETag revalidation and account for anchor times and quiet hours.
+
 ## 0.9.0
 
 - Add Custom Devices with configurable PNG dimensions and Widgy Small, Medium, Large, and StandBy templates.
