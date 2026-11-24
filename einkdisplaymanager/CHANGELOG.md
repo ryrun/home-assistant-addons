@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.0
+
+- Add Custom Devices with configurable PNG dimensions and Widgy Small, Medium, Large, and StandBy templates.
+- Render originals and dynamic targets in opaque sRGB, eight grays, black and white, Spectra 6, or a custom palette. Reduced palettes offer optional Floyd–Steinberg dithering.
+- Reuse the authenticated fixed image URL for iOS widgets and other PNG clients.
+
 ## 0.8.10
 
 - Restore up to 256 recent discharge readings after restart and show the observation period.

@@ -70,17 +70,24 @@ const events = ha.calendarEvents("calendar.geburtstage");
     const apply=()=>{
       const p=data.profiles.find(p=>p.id===draft.profile),ink=p.id==='inkplate_6';
       $('#dynamic-profile').value=draft.profile;$('#dynamic-profile').disabled=!!active;
-      const allowed=paletteKeys(p.id);
-      $('#dynamic-palette').innerHTML=optionGroups([['Spectra 6',allowed.filter(k=>!['gray8','grayscale'].includes(k))],['Monochrome',allowed.filter(k=>['gray8','grayscale'].includes(k))]].map(([label,keys])=>[label,keys.map(key=>`<option value="${key}">${esc(PALETTES[key].name)}</option>`).join('')]));
-      if(!allowed.includes(draft.palette))draft.palette=ink?'gray8':'natural';
+      const allowed=p.custom?[p.palette]:paletteKeys(p.id);
+      $('#dynamic-palette').innerHTML=optionGroups([['Spectra 6',allowed.filter(k=>!['gray8','grayscale'].includes(k))],['Monochrome',allowed.filter(k=>['gray8','grayscale'].includes(k))]].map(([label,keys])=>[label,keys.map(key=>`<option value="${key}">${esc(PALETTES[key]?.name||key)}</option>`).join('')]));
+      if(p.custom){
+        Object.assign(draft,{orientation:p.native_orientation,palette:p.palette,dither:p.dither,matching:'rgb',automatic:false,invert:false});
+      }else if(!allowed.includes(draft.palette))draft.palette=ink?'gray8':'natural';
+      for(const key of ['orientation','palette','dither','matching','automatic']){
+        const control=$('#dynamic-'+key);
+        control.disabled=!!p.custom;
+        control.closest('label').hidden=!!p.custom;
+      }
       for(const key of ['orientation','palette','dither','matching'])$('#dynamic-'+key).value=draft[key];
       for(const key of ['automatic','invert'])$('#dynamic-'+key).checked=!!draft[key];
       $('#dynamic-invert-label').hidden=!ink;$('#dynamic-invert').disabled=!ink;
       if(!ink)draft.invert=false;
       $('#dynamic-dither-tip').textContent=DITHERS[draft.dither].use;
       $('#dynamic-matching-tip').textContent=MATCHING[draft.matching].use;
-      const size=draft.orientation==='landscape'?[Math.max(p.width,p.height),Math.min(p.width,p.height)]:[Math.min(p.width,p.height),Math.max(p.width,p.height)];
-      $('#dynamic-output-size').textContent=size.join(' × ')+' viewing area · '+p.name;
+      const size=p.custom?[p.width,p.height]:draft.orientation==='landscape'?[Math.max(p.width,p.height),Math.min(p.width,p.height)]:[Math.min(p.width,p.height),Math.max(p.width,p.height)];
+      $('#dynamic-output-size').textContent=size.join(' × ')+' viewing area · '+p.name+(p.custom?' · '+p.palette+' PNG':'');
     };
     $('#dynamic-target').value=active?.id||'new';apply();
     const read=()=>({name:$('#dynamic-name').value,script:editor.getValue(),interval:Number($('#dynamic-interval').value),timezone:$('#dynamic-timezone').value,entities:$('#dynamic-entities').value.split(/[\s,]+/).filter(Boolean),calendars:$('#dynamic-calendars').value.split(/[\s,]+/).filter(Boolean),calendar_days:Number($('#dynamic-calendar-days').value),calendar_start_of_day:$('#dynamic-calendar-day-start').checked});

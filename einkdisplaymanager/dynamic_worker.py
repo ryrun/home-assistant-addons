@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 import quickjs
+from media import custom_png
 from PIL import Image, ImageCms, ImageColor, ImageDraw, ImageFont, ImageOps
 from sandbox import probe, restrict
 
@@ -154,6 +155,8 @@ def draw(payload):
     exact_mask = Image.new("1", image.size, 0)
 
     def mark(method, args, colors, **options):
+        if payload["profile"].get("custom"):
+            return
         for surface, coverage in ((exact, False), (exact_mask, True)):
             pen = ImageDraw.Draw(surface)
             pen.fontmode = "1"
@@ -468,6 +471,8 @@ def _quantize(image, recipe, profile):
 
 
 def _optimize(image, recipe, profile, exact=None, exact_mask=None):
+    if profile.get("custom"):
+        return custom_png(image, profile), "image/png"
     gray = profile.get("format") == "png"
     if (
         exact is not None

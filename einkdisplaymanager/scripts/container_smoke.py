@@ -136,6 +136,18 @@ async def main():
         }
     )
     validate_variant(base64.b64decode(result["output"]), "inkplate_6")
+    # Exercise the custom PNG encoder under the same restrictions as real renders.
+    custom = {"id": "custom_smoke", "width": 1280, "height": 600, "format": "png",
+              "native_orientation": "landscape", "custom": True}
+    for colors in ([], ["#123456", "#ffffff"]):
+        profile = {**custom, "rgb_colors": colors, "dither": "floyd" if colors else "none"}
+        widget = await worker({
+            "mode": "render", "size": [1280, 600], "profile": profile, "recipe": {},
+            "commands": [{"type": "clear", "color": "palette:background"}],
+            "palette": {"background": "#123456"}, "images": {}, "fonts": {},
+        })
+        assert widget["mime"] == "image/png"
+        validate_variant(base64.b64decode(widget["output"]), profile)
     print(
         "Verified Linux seccomp, bounded JavaScript, and native output for all display profiles."
     )

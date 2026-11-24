@@ -779,9 +779,51 @@ async def main():
                     assert await queue_form.evaluate('(form)=>form.isConnected')
                     assert await page.get_by_label('Name',exact=True).input_value()=='Unsaved queue draft'
                     assert await page.locator('#device-playback-queue').is_visible()
+                    # Exercise the Widgy template, fixed color settings, and saved variant.
+                    await page.goto(origin+'/#devices')
+                    await page.locator('#add-device').click()
+                    await page.get_by_label('Device type').select_option('custom')
+                    await page.get_by_label('Device name').fill('Widgy Medium test')
+                    await page.get_by_label('Template',exact=True).select_option('medium')
+                    await expect(page.get_by_label('Width (pixels)')).to_have_value('1280')
+                    await expect(page.get_by_label('Height (pixels)')).to_have_value('600')
+                    await expect(page.get_by_label('Output dithering')).to_be_hidden()
+                    await page.get_by_label('Color mode',exact=True).select_option('spectra6')
+                    await expect(page.get_by_label('Output dithering')).to_be_visible()
+                    await page.get_by_label('Color mode',exact=True).select_option('srgb')
+                    await page.locator('#new-device > button').click()
+                    await page.get_by_role('heading',name='Widgy Medium test',exact=True).wait_for()
+                    image_url=await page.locator('#image-url').input_value()
+                    await page.locator('#add-images').click()
+                    widget_photo=page.locator(f'.picker-card:has([data-prepare-asset="{motif}"])')
+                    await widget_photo.get_by_role('button',name='Prepare for this device').click()
+                    await expect(page.locator('#output-dimensions')).to_contain_text('1280 × 600')
+                    await expect(page.locator('.editor-advanced')).to_be_hidden()
+                    await page.locator('#optimize').click()
+                    await expect(page.locator('#save-variant')).to_be_enabled()
+                    assert await page.locator('#image-preview').evaluate('(img)=>[img.naturalWidth,img.naturalHeight]') == [1280,600]
+                    await page.locator('#save-variant').click()
+                    await page.get_by_text('Saved a new variant.',exact=True).wait_for()
+                    await page.get_by_role('button',name='Close dialog').click()
+                    await page.locator('#add-images').click()
+                    widget_photo=page.locator(f'.picker-card:has([data-prepare-asset="{motif}"])')
+                    choice=widget_photo.locator('optgroup[label="Saved variants"] option').first
+                    await widget_photo.locator('select').select_option(await choice.get_attribute('value'))
+                    await widget_photo.get_by_role('button',name='Add to device').click()
+                    await page.get_by_text('Image added to the device list.',exact=True).wait_for()
+                    async with session.get(image_url) as response:
+                        assert response.status == 200 and response.content_type == 'image/png'
+                        with Image.open(io.BytesIO(await response.read())) as delivered:
+                            assert delivered.size == (1280,600) and delivered.convert('RGBA').getchannel('A').getextrema() == (255,255)
+                    await page.get_by_role('button',name='Close dialog').click()
+                    await page.goto(origin+'/#library/dynamic')
+                    await page.locator('#new-dynamic').click()
+                    await page.locator('#dynamic-profile').select_option(label='Widgy Medium test')
+                    await expect(page.locator('#dynamic-output-size')).to_contain_text('1280 × 600')
+                    await expect(page.locator('#dynamic-dither')).to_be_hidden()
                     assert not errors, errors
                     await browser.close()
-            print('Browser smoke passed: activity battery decline input/default/validation/persistence/drafts, native select groups/defaults, live two-to-nine queue transition without draft loss, upload, full-resolution dithering methods, calibrated palette, variant overwrite, worker startup recovery/cancellation, automatic on/off pixels and manual tone preservation, matching descriptions, visible modal notifications, MQTT settings/secret handling and watchdog display, all three models, Inkplate grayscale/monochrome PNG and exact tone inversion, portrait pixels/editing/voltage, schedule/battery forms, explicit comparison buttons/keyboard/touch controls without hover switching, complete-image geometry, next connection, assigned-image filtering, native 800×480 BMP delivery/rotation, device orientation/help, fixed-URL original/BMP delivery, CORS, and responsive layouts.')
+            print('Browser smoke passed: activity battery decline input/default/validation/persistence/drafts, native select groups/defaults, live two-to-nine queue transition without draft loss, upload, full-resolution dithering methods, calibrated palette, variant overwrite, worker startup recovery/cancellation, automatic on/off pixels and manual tone preservation, matching descriptions, visible modal notifications, MQTT settings/secret handling and watchdog display, all three models, Inkplate grayscale/monochrome PNG and exact tone inversion, portrait pixels/editing/voltage, schedule/battery forms, explicit comparison buttons/keyboard/touch controls without hover switching, complete-image geometry, next connection, assigned-image filtering, native 800×480 BMP delivery/rotation, device orientation/help, fixed-URL original/BMP delivery, CORS, responsive layouts, and Widgy custom device PNGs.')
             print(f'Screenshots: {artifacts}')
         finally:
             process.terminate()

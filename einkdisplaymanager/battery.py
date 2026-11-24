@@ -3,7 +3,7 @@
 import math
 from itertools import pairwise
 
-from profiles import display_profile
+from profiles import device_profile
 
 CHEMISTRIES = {'custom', 'alkaline', 'nimh', 'li_ion', 'lifepo4'}
 # Coarse engineering reference profiles, not standardized cell calibrations.
@@ -49,7 +49,7 @@ def capacity(settings, millivolts):
 
 
 def config(device):
-    return DEFAULTS | {'series_cells': display_profile(device['profile']).get('battery_cells', 1)} | device.get('battery', {})
+    return DEFAULTS | {'series_cells': device_profile(device).get('battery_cells', 1)} | device.get('battery', {})
 
 
 def validate(value):

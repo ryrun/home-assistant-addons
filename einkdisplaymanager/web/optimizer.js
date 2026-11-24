@@ -33,9 +33,12 @@ self.onmessage = async ({data}) => {
     if(typeof createImageBitmap!=='function'||typeof OffscreenCanvas!=='function')throw new Error('This browser does not support image processing in a worker. Update your browser and try again.');
     const {source, recipe}=data;
     stage='loading the display profile';
-    const response=await fetch(new URL('./profiles.json',import.meta.url),{cache:'no-store'});
-    if(!response.ok)throw new Error('Could not load supported display models. Reload the add-on page and try again.');
-    const profile=(await response.json()).find(p=>p.id===(recipe.profile||'openpaper_l'));
+    let profile=data.profile;
+    if(!profile?.custom){
+      const response=await fetch(new URL('./profiles.json',import.meta.url),{cache:'no-store'});
+      if(!response.ok)throw new Error('Could not load supported display models. Reload the add-on page and try again.');
+      profile=(await response.json()).find(p=>p.id===(recipe.profile||'openpaper_l'));
+    }
     if(!profile)throw new Error('Choose a supported display model.');
     const W=profile.width,H=profile.height,mounting=recipe.orientation||profile.native_orientation;
     if(!['portrait','landscape'].includes(mounting))throw new Error('Choose portrait or landscape.');
@@ -55,6 +58,31 @@ self.onmessage = async ({data}) => {
     ctx.save(); ctx.translate(viewW/2+fx,viewH/2+fy); ctx.rotate(recipe.rotation*Math.PI/180);
     ctx.drawImage(image,-image.width*scale/2,-image.height*scale/2,image.width*scale,image.height*scale); ctx.restore();
     image.close();image=null;
+    if(profile.custom){
+      if(profile.rgb_colors.length){
+        const {options}=processingOptions({dither:profile.dither,matching:'rgb',automatic:false});
+        options.palette=profile.rgb_colors.map((color,index)=>({name:`color${index}`,color}));
+        await ditherImage(canvas,canvas,options);
+        const pixels=ctx.getImageData(0,0,viewW,viewH);
+        const colors=profile.rgb_colors.map(color=>color.slice(1).match(/../g).map(value=>parseInt(value,16)));
+        for(let i=0;i<pixels.data.length;i+=4){
+          let best=colors[0],distance=Infinity;
+          for(const color of colors){
+            const d=(pixels.data[i]-color[0])**2+(pixels.data[i+1]-color[1])**2+(pixels.data[i+2]-color[2])**2;
+            if(d<distance){distance=d;best=color;}
+          }
+          pixels.data.set(best,i);
+          pixels.data[i+3]=255;
+        }
+        ctx.putImageData(pixels,0,0);
+      }
+      const preview=await canvas.convertToBlob({type:'image/png'});
+      const output=await preview.arrayBuffer();
+      self.postMessage({bmp:output,mime:'image/png',preview,recipe:{...recipe,palette:profile.palette,
+        dither:profile.dither,orientation:profile.native_orientation,automatic:false,invert:false,
+        optimizer:'epdoptimize@1.4.1',encoder:7}},[output]);
+      return;
+    }
     const gray=profile.palette==='gray8',levels=Array.from({length:8},(_,i)=>Math.round(i*255/7));
     if(gray){
       const monochrome=ctx.getImageData(0,0,viewW,viewH);

@@ -37,6 +37,7 @@ from dynamic import (
 from media import (
     MAX_UPLOAD,
     composition_thumbnail,
+    custom_original,
     device_thumbnail,
     digest,
     inkplate_original,
@@ -51,7 +52,9 @@ from network import discover_network, network_defaults
 from playback import advance, completed, initial_state, reconcile, select_for_request
 from profiles import (
     PROFILES,
+    custom_device_config,
     device_orientation,
+    device_profile,
     device_rotation,
     display_profile,
     orientation,
@@ -59,7 +62,7 @@ from profiles import (
 )
 from storage import Store, new_id
 
-VERSION = '0.8.10'
+VERSION = '0.9.0'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -302,7 +305,7 @@ class Manager:
                                   'settings': self.settings, 'version': VERSION, 'csrf': self.csrf,
                                   'mqtt': self.mqtt.public(),
                                   'network': self.network,
-                                  'profiles': list(PROFILES.values()), 'battery_curves': battery.CURVES,
+                                  'profiles': [*PROFILES.values(), *(device_profile(d) for d in devices if 'custom' in d)], 'battery_curves': battery.CURVES,
                                   'storage_bytes': self.store.usage(), 'storage_limit': self.store.quota,
                                   'base_url_locked': bool(self.options.get('lan_base_url'))})
 
@@ -369,13 +372,13 @@ class Manager:
             targets = [v for v in self.store.all('variant') if v['asset_id']==original['id']]
             if not old and len(targets) >= 8:
                 raise ValueError('At most eight target variants are supported per dynamic image.')
-            settings = recipe(data.get('recipe'))
+            settings = recipe(data.get('recipe'), self.target_profile)
             if old and old['profile'] != settings['profile']:
                 raise ValueError('Create a new target when changing display models.')
             variant = {'id':identifier or new_id(),'asset_id':original['id'],'dynamic':True,
                        'name':valid_name(data.get('name')), 'profile':settings['profile'],'recipe':settings,
                        'modified':time.time(), 'created_at':old['created_at'] if old else time.time(),
-                       'mime':'image/png' if settings['profile']=='inkplate_6' else 'image/bmp',
+                       'mime':'image/png' if self.target_profile(settings['profile']).get('format') == 'png' else 'image/bmp',
                        'bytes':0,'hash':new_id(),'optimizer':OPTIMIZER_VERSION,'revision':old.get('revision',0)+1 if old else 1}
             self.store.save('variant',variant)
             self.dynamic.invalidate(original['id'])
@@ -385,10 +388,10 @@ class Manager:
         started = time.perf_counter()
         data = await self.json(request)
         result = await self.dynamic.preview(data)
-        target = recipe(data['recipe'])
+        target = recipe(data['recipe'], self.target_profile)
         async with self.workers:
             preview = await asyncio.to_thread(device_thumbnail,result['output'],target['orientation']=='landscape',
-                                              True,False,target['profile'])
+                                              True,False,self.target_profile(target['profile']))
         return web.json_response({'source':base64.b64encode(result['source']).decode(),
                                   'preview':base64.b64encode(preview).decode(),
                                   'output':base64.b64encode(result['output']).decode(),
@@ -459,7 +462,7 @@ class Manager:
             mounting = device_orientation(device) if device else item['recipe']['orientation']
             async with self.workers:
                 data = await asyncio.to_thread(device_thumbnail,data,mounting=='landscape',True,
-                                               bool(device_rotation(device)) if device else False,item['profile'])
+                                               bool(device_rotation(device)) if device else False,self.target_profile(item['profile']))
             mime = 'image/jpeg'
         return web.Response(body=data,content_type=mime,headers={'Cache-Control':'private, no-store'})
 
@@ -516,21 +519,21 @@ class Manager:
                 async with self.workers:
                     data = await asyncio.to_thread(self.store.path(original['file']).read_bytes)
                     data = await asyncio.to_thread(composition_thumbnail, data, item.get('recipe', {}),
-                                                   device['profile'], device_orientation(device))
+                                                   device_profile(device), device_orientation(device))
                 return web.Response(body=data, content_type='image/jpeg')
             data, _mime, _hash = await self.delivery(item, device_rotation(device), device['profile'], device_orientation(device))
             async with self.workers:
                 data = await asyncio.to_thread(device_thumbnail, data, device_orientation(device) == 'landscape',
-                                               kind == 'variant' or device['profile'] == 'inkplate_6', bool(device_rotation(device)), device['profile'])
+                                               kind == 'variant' or device['profile'] == 'inkplate_6' or 'custom' in device, bool(device_rotation(device)), device_profile(device))
             return web.Response(body=data, content_type='image/jpeg')
         if output == 'thumbnail' and request.query.get('orientation'):
             mounting = orientation(request.query['orientation'])
             profile_id = item.get('profile', item.get('native_profile') or 'openpaper_l')
-            if kind == 'variant' and mounting == item.get('recipe', {}).get('orientation', display_profile(profile_id)['native_orientation']):
+            if kind == 'variant' and mounting == item.get('recipe', {}).get('orientation', self.target_profile(profile_id)['native_orientation']):
                 return web.FileResponse(self.store.path(item['thumbnail']), headers={'Content-Type': 'image/jpeg'})
             async with self.workers:
                 data = await asyncio.to_thread(self.store.path(item['file']).read_bytes)
-                data = await asyncio.to_thread(device_thumbnail, data, mounting == 'landscape', kind == 'variant', False, profile_id)
+                data = await asyncio.to_thread(device_thumbnail, data, mounting == 'landscape', kind == 'variant', False, self.target_profile(profile_id))
             return web.Response(body=data, content_type='image/jpeg')
         if output == 'source':
             async with self.workers:
@@ -555,7 +558,7 @@ class Manager:
             recipe = json.loads(request.headers.get('X-Recipe', '{}'))
             if not isinstance(recipe, dict) or len(json.dumps(recipe)) > 8192:
                 raise ValueError('Invalid processing recipe.')
-            profile = display_profile(recipe.get('profile', 'openpaper_l'))
+            profile = self.target_profile(recipe.get('profile', 'openpaper_l'))
             recipe.setdefault('profile', profile['id'])
             if recipe.get('palette') == 'openpaper_l_measured' and profile['id'] != 'openpaper_l':
                 raise ValueError('The measured 13.3-inch palette is for OpenPaper L only.')
@@ -563,6 +566,10 @@ class Manager:
             if not isinstance(optimizer, str) or len(optimizer) > 80:
                 raise ValueError('Invalid optimizer version.')
             recipe.setdefault('orientation', profile['native_orientation'])
+            if profile.get('custom'):
+                if recipe.get('palette') != profile['palette'] or recipe.get('dither') != profile['dither']:
+                    raise ValueError('Reopen the editor and use the custom device’s current color settings.')
+                recipe['orientation'] = profile['native_orientation']
             if 'invert' in recipe:
                 boolean(recipe['invert'])
                 if recipe['invert'] and profile['id'] != 'inkplate_6':
@@ -570,7 +577,7 @@ class Manager:
             if profile['id'] == 'inkplate_6' and recipe.get('palette', 'gray8') not in ('gray8', 'grayscale'):
                 raise ValueError('Choose eight grayscale levels or black and white for Inkplate 6.')
             async with self.workers:
-                await asyncio.to_thread(validate_variant, data, profile['id'],
+                await asyncio.to_thread(validate_variant, data, profile if profile.get('custom') else profile['id'],
                                         monochrome=profile['id'] == 'inkplate_6' and recipe.get('palette') == 'grayscale')
                 metadata, thumb = await asyncio.to_thread(inspect_image, data)
             parent_id = request.headers.get('X-Parent-Variant')
@@ -580,7 +587,7 @@ class Manager:
             if orientation not in ('portrait', 'landscape'):
                 raise ValueError('Choose portrait or landscape for the variant orientation.')
             async with self.workers:
-                thumb = await asyncio.to_thread(variant_thumbnail, data, profile['id'], orientation)
+                thumb = await asyncio.to_thread(variant_thumbnail, data, profile, orientation)
             name = title(unquote(request.headers.get('X-Variant-Name', 'Optimized for ' + profile['name'])))
             if previous is None and len(self.store.all('variant')) >= 4000:
                 raise ValueError('The library limit of 4000 saved variants has been reached.')
@@ -634,9 +641,25 @@ class Manager:
             self.store.cleanup()
         return web.json_response({'deleted': True})
 
-    def new_device(self, name, profile_id='openpaper_l'):
-        profile = display_profile(profile_id)
-        return {'id': new_id(), 'name': title(name), 'profile': profile['id'],
+    def target_profile(self, profile_id):
+        if isinstance(profile_id, str) and profile_id.startswith('custom_'):
+            device = self.store.get('device', profile_id.removeprefix('custom_'))
+            if 'custom' not in device or device['profile'] != profile_id:
+                raise ValueError('Choose a saved custom device.')
+            return device_profile(device)
+        return display_profile(profile_id)
+
+    def new_device(self, name, profile_id='openpaper_l', custom=None):
+        identifier = new_id()
+        if profile_id == 'custom':
+            configuration = custom_device_config(custom)
+            profile = device_profile({'profile': 'custom_' + identifier, 'name': title(name), 'custom': configuration})
+        else:
+            if custom is not None:
+                raise ValueError('Custom output settings require a custom device.')
+            configuration = None
+            profile = display_profile(profile_id)
+        return {'id': identifier, **({'custom': configuration} if configuration is not None else {}), 'name': title(name), 'profile': profile['id'],
                 'orientation': profile['native_orientation'], 'upside_down': False,
                 'token': secrets.token_urlsafe(24), 'interval': 3600, 'shuffle': False,
                 'paused': False, 'enabled': True, 'settings': {'motionWakeup': False, 'autoRotation': False},
@@ -648,10 +671,12 @@ class Manager:
             if len(self.store.all('device')) >= 32:
                 raise ValueError('The limit of 32 devices has been reached.')
             source = self.store.get('device', data['copy_from']) if data.get('copy_from') else None
-            profile_id = data.get('profile', source['profile'] if source else 'openpaper_l')
-            device = self.new_device(data.get('name'), profile_id)
-            if source and source['profile'] != profile_id:
+            source_type = 'custom' if source and 'custom' in source else source['profile'] if source else None
+            profile_id = data.get('profile', source_type or 'openpaper_l')
+            if source and source_type != profile_id:
                 raise ValueError('Duplicate a device using the same model, or create a new device without copied assignments.')
+            configuration = source.get('custom') if source else data.get('custom')
+            device = self.new_device(data.get('name'), profile_id, configuration)
             if data.get('copy_from'):
                 for key in ('interval', 'shuffle', 'settings', 'entries'):
                     device[key] = copy.deepcopy(source[key])
@@ -659,6 +684,9 @@ class Manager:
                 device['battery'] = battery.config(source)
                 device['orientation'] = device_orientation(source)
                 device['upside_down'] = bool(device_rotation(source))
+                if 'custom' in device:
+                    # Prepared variants target one specific custom device.
+                    device['entries'] = [entry for entry in device['entries'] if entry['mode'] == 'original']
                 for entry in device['entries']:
                     entry['id'] = new_id()
                 reconcile(device)
@@ -732,6 +760,17 @@ class Manager:
             old_orientation = device_orientation(device)
             if 'orientation' in data:
                 device['orientation'] = orientation(data['orientation'])
+            if 'custom' in data:
+                if 'custom' not in device:
+                    raise ValueError('Custom output settings require a custom device.')
+                configuration = custom_device_config(data['custom'])
+                if configuration != device['custom']:
+                    if any(v['profile'] == device['profile'] for v in self.store.all('variant')):
+                        raise web.HTTPConflict(reason='Remove prepared variants for this device before changing its output settings.')
+                    device['custom'] = configuration
+                    device['state']['pending'] = True
+            if 'custom' in device:
+                device['orientation'] = device_profile(device)['native_orientation']
             old_rotation = device_rotation(device)
             if 'upside_down' in data:
                 device['upside_down'] = boolean(data['upside_down'])
@@ -764,8 +803,8 @@ class Manager:
                 if not isinstance(settings, dict) or set(settings) - {'motionWakeup', 'autoRotation', 'chargerMode'}:
                     raise ValueError('Unsupported firmware setting.')
                 settings = {key: boolean(val) for key, val in settings.items()}
-                if device['profile'] == 'inkplate_6' and any(settings.values()):
-                    raise ValueError('OpenPaper motion, sensor rotation, and NiMH charging settings do not apply to Inkplate 6.')
+                if (device['profile'] == 'inkplate_6' or 'custom' in device) and any(settings.values()):
+                    raise ValueError('These firmware settings require an OpenPaper device.')
                 if settings.get('chargerMode') and not device['settings'].get('chargerMode') and data.get('confirm_nimh') is not True:
                     raise ValueError('Confirm that this device contains NiMH batteries before enabling charging.')
                 device['settings'].update(settings)
@@ -873,6 +912,9 @@ class Manager:
     async def remove_device(self, request):
         identifier = request.match_info['device']
         async with self.media_lock, self.locks[identifier]:
+            device = self.store.get('device', identifier)
+            if 'custom' in device and any(v['profile'] == device['profile'] for v in self.store.all('variant')):
+                raise web.HTTPConflict(reason='Unassign and delete prepared variants for this device before removing it.')
             self.store.delete('device', identifier)
             self.diagnostics.remove(identifier)
             self.battery_forecast.histories.pop(identifier, None)
@@ -999,6 +1041,10 @@ class Manager:
         return self.store.get('variant', entry['variant_id']) if entry['mode'] == 'variant' else self.store.get('asset', entry['asset_id'])
 
     async def delivery(self, item, rotation=0, profile_id='openpaper_l', mounting='landscape'):
+        custom = self.target_profile(profile_id) if profile_id.startswith('custom_') else None
+        if item is None and custom:
+            data = await asyncio.to_thread(placeholder, custom)
+            return data, 'image/png', digest(data)
         if item is None:
             return self.blanks[profile_id], 'image/png' if profile_id == 'inkplate_6' else 'image/bmp', self.blank_hashes[profile_id]
         dynamic = item.get('dynamic', False)
@@ -1015,8 +1061,9 @@ class Manager:
             # retain their existing retry/error semantics.
             path = self.store.path(item['file'])
             content_hash = item['hash']
-        convert = not dynamic and profile_id == 'inkplate_6' and 'asset_id' not in item
-        key = (content_hash, rotation, profile_id, mounting if convert else None, 2)
+        convert = not dynamic and (custom or profile_id == 'inkplate_6') and 'asset_id' not in item
+        config_key = (custom['width'], custom['height'], tuple(custom['rgb_colors']), custom['dither']) if custom and convert else None
+        key = (content_hash, rotation, profile_id, mounting if convert else None, config_key, 2)
         if key in self.delivery_cache:
             self.delivery_cache.move_to_end(key)
             return self.delivery_cache[key]
@@ -1029,7 +1076,10 @@ class Manager:
             data = cached['output'] if dynamic else await asyncio.to_thread(path.read_bytes)
             mime = cached['mime'] if dynamic else item['mime']
             if convert:
-                data = await asyncio.to_thread(inkplate_original, data, mounting, bool(rotation))
+                if custom:
+                    data = await asyncio.to_thread(custom_original, data, custom, bool(rotation))
+                else:
+                    data = await asyncio.to_thread(inkplate_original, data, mounting, bool(rotation))
                 mime = 'image/png'
             elif rotation:
                 data = await asyncio.to_thread(rotate_delivery, data, mime)
@@ -1061,12 +1111,12 @@ class Manager:
                 self.store.save('device', device)
             try:
                 item = self.representation(device)
-                blank = self.blanks[device['profile']]
+                blank = self.blanks.get(device['profile'], b'')
                 if frame_fetch:
                     self.diagnostics.start(identifier, item['bytes'] if item else len(blank),
                                            device['state']['selected'],
                                            item.get('asset_id', item['id']) if item else None,
-                                           ('image/png' if device['profile'] == 'inkplate_6' else item['mime'] if item else 'image/bmp'))
+                                           ('image/png' if device['profile'] == 'inkplate_6' or 'custom' in device else item['mime'] if item else 'image/bmp'))
                 data, mime, output_hash = await self.delivery(item, device_rotation(device), device['profile'], device_orientation(device))
             except web.HTTPServiceUnavailable:
                 if frame_fetch:

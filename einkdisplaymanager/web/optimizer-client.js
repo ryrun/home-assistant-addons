@@ -1,5 +1,5 @@
 // Own worker lifetime, startup handshake, cancellation, and bounded waits.
-export async function optimizeImage({source,recipe,signal,onProgress=()=>{},startupTimeout=15000,processingTimeout=180000}){
+export async function optimizeImage({source,recipe,profile,signal,onProgress=()=>{},startupTimeout=15000,processingTimeout=180000}){
   for(let attempt=0;attempt<2;attempt++){
     try{return await execute();}
     catch(error){if(signal.aborted||!error.startup||attempt)throw error;onProgress('Restarting optimizer…');}
@@ -17,7 +17,7 @@ export async function optimizeImage({source,recipe,signal,onProgress=()=>{},star
     try{
       worker=new Worker(new URL('./optimizer.js',import.meta.url),{type:'module'});
       worker.onmessage=({data})=>{
-        if(data.ready){if(ready)return;ready=true;clearTimeout(timer);timer=setTimeout(()=>fail('Image processing exceeded 3 minutes. Close other image editors and try again.'),processingTimeout);worker.postMessage({source,recipe});}
+        if(data.ready){if(ready)return;ready=true;clearTimeout(timer);timer=setTimeout(()=>fail('Image processing exceeded 3 minutes. Close other image editors and try again.'),processingTimeout);worker.postMessage({source,recipe,profile});}
         else if(data.progress){onProgress(data.progress);}
         else if(data.error){fail(data.error);}
         else if(data.bmp instanceof ArrayBuffer&&data.preview instanceof Blob){finish(null,data);}

@@ -101,6 +101,44 @@ next scheduled image change. The preview leaves the saved schedule intact.
 Playback actions, playlist edits, and **Refresh status** preserve unsaved settings
 on the device page. Click **Save settings** to apply the draft.
 
+## Custom Devices and Widgy
+
+Open **Devices → Add device** and choose **Custom Device**. Set the dimensions
+to 64–1600 pixels per side. The Widgy templates fill in editable values and
+select sRGB.
+
+| Template | Render dimensions |
+|---|---:|
+| Widgy Small | 800 × 800 |
+| Widgy Medium | 1280 × 600 |
+| Widgy Large | 1200 × 1260 |
+| Widgy StandBy | 800 × 800 |
+
+Choose full-color sRGB, Inkplate-style eight grays or black and white,
+OpenPaper-style Spectra 6, or 2–16 custom hex colors. Reduced-color modes offer
+no dithering or Floyd–Steinberg. Custom Devices always deliver opaque PNGs.
+The OpenPaper and Inkplate hardware profiles still deliver their native formats.
+
+Add an original image directly to let the manager fit it with white padding.
+For controlled cropping, prepare and save a static variant for the device. In
+the Dynamic images editor, select the named custom device as the target. Scripts
+see the exact output dimensions in `screen.width` and `screen.height`. Reduced
+custom palettes expose `palette.color0`, `palette.color1`, and so on. The eight-gray
+mode also exposes `palette.gray0` through `palette.gray7`, and Spectra 6 exposes
+its named colors.
+
+Configure the LAN base URL in **Settings**. Copy **Fixed image URL** and paste
+it into a Widgy Image layer with **Web URL (no cache)**. Keep this token-bearing
+URL private. The iPhone needs network access to the address at refresh time.
+Widgy and iOS decide when to request the image. The add-on serves the current
+image on each request and keeps the last good dynamic render when a new render
+fails.
+
+Custom output settings are editable in Device settings. Unassign and delete
+any prepared variants targeting that device before changing its geometry or
+palette, or before removing the device. The fixed URL stays the same when
+output settings change.
+
 ## Original and variant comparison
 
 Desktop device cards and the detail preview preserve the complete native viewing ratio;

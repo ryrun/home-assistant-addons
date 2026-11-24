@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import aiohttp
 import calendar_snapshot
 from media import COLORS, GRAY8, digest, validate_variant
-from profiles import PROFILES, view_size
+from profiles import display_profile, view_size
 
 ROOT = Path(__file__).parent
 OPTIMIZER_VERSION = "epdoptimize@1.4.1"
@@ -44,7 +44,7 @@ def valid_name(value):
     return value.strip()
 
 
-def recipe(data):
+def recipe(data, resolve=display_profile):
     if not isinstance(data, dict):
         raise TypeError("Invalid target recipe.")
     supported = {
@@ -62,9 +62,7 @@ def recipe(data):
     }
     if set(data) - supported:
         raise ValueError("Unknown target setting.")
-    profile = PROFILES.get(data.get("profile"))
-    if not profile:
-        raise ValueError("Choose a supported display model.")
+    profile = resolve(data.get("profile", "openpaper_l"))
     result = {
         "profile": profile["id"],
         "orientation": profile["native_orientation"],
@@ -79,6 +77,11 @@ def recipe(data):
         "intent": "natural",
         **data,
     }
+    if profile.get("custom"):
+        return {"profile": profile["id"], "orientation": profile["native_orientation"],
+                "palette": profile["palette"], "dither": profile["dither"], "matching": "rgb",
+                "automatic": False, "invert": False, "brightness": 0, "contrast": 0, "saturation": 0,
+                "intent": "natural"}
     if result["orientation"] not in ("portrait", "landscape"):
         raise ValueError("Choose portrait or landscape.")
     if result["palette"] not in (
@@ -383,8 +386,8 @@ class DynamicImages:
             raise ValueError(
                 self.isolation_error or "Dynamic image isolation is not ready."
             )
-        profile = PROFILES[target["profile"]]
-        size = view_size(profile["id"], target["orientation"])
+        profile = self.manager.target_profile(target["profile"])
+        size = view_size(profile, target["orientation"])
         palette = (
             {
                 "black": "#000000",
@@ -406,6 +409,16 @@ class DynamicImages:
         )
         if target["palette"] == "grayscale":
             palette = {k: v for k, v in palette.items() if k in ("black", "white")}
+        if profile.get("custom"):
+            colors = profile["rgb_colors"]
+            if profile["palette"] == "gray8":
+                palette = {"black": colors[0], "white": colors[-1],
+                           **{f"gray{i}": color for i, color in enumerate(colors)}}
+            elif profile["palette"] == "spectra6":
+                palette = dict(zip(("black", "blue", "green", "red", "yellow", "white"), colors, strict=True))
+            else:
+                palette = {"black": "#000000", "white": "#ffffff",
+                           **{f"color{i}": color for i, color in enumerate(colors)}}
         clock = datetime.fromtimestamp(now, ZoneInfo(document["timezone"]))
         inputs = {
             "width": size[0],
@@ -491,7 +504,7 @@ class DynamicImages:
         )
         await asyncio.to_thread(
             validate_variant, output,
-            profile["id"],
+            profile if profile.get("custom") else profile["id"],
             monochrome=profile.get("format") == "png"
             and target["palette"] == "grayscale",
         )
@@ -516,7 +529,7 @@ class DynamicImages:
 
     async def preview(self, data):
         document = definition({k: v for k, v in data.items() if k != "recipe"})
-        target = recipe(data["recipe"])
+        target = recipe(data["recipe"], self.manager.target_profile)
         if self.pending >= 4:
             raise ValueError(
                 "The render queue is full. Wait for an active render to finish."

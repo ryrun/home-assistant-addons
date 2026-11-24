@@ -7,7 +7,7 @@ import struct
 import warnings
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageCms, ImageOps
+from PIL import Image, ImageChops, ImageCms, ImageColor, ImageOps
 from profiles import PROFILES, display_profile
 
 WIDTH, HEIGHT = 1200, 1600
@@ -138,7 +138,26 @@ def validate_bmp(data, profile_id='openpaper_l'):
 
 
 def validate_variant(data, profile_id, *, monochrome=False):
-    if display_profile(profile_id).get('format') != 'png':
+    profile = profile_id if isinstance(profile_id, dict) else display_profile(profile_id)
+    if profile.get('custom'):
+        try:
+            with Image.open(io.BytesIO(data)) as image:
+                if (image.format != 'PNG' or image.size != (profile['width'], profile['height'])
+                        or getattr(image, 'n_frames', 1) != 1):
+                    raise ValueError('Custom targets require a single-frame PNG with the configured dimensions.')
+                rgba = image.convert('RGBA')
+                if rgba.getchannel('A').getextrema() != (255, 255):
+                    raise ValueError('Custom device PNGs must be opaque.')
+                colors = profile['rgb_colors']
+                if colors:
+                    actual = rgba.convert('RGB').getcolors(len(colors))
+                    allowed = {ImageColor.getrgb(color) for color in colors}
+                    if actual is None or any(color not in allowed for _, color in actual):
+                        raise ValueError('Custom device PNGs must use the configured palette.')
+        except (OSError, SyntaxError, Image.DecompressionBombError) as exc:
+            raise ValueError('The custom PNG is damaged or unreadable.') from exc
+        return
+    if profile.get('format') != 'png':
         return validate_bmp(data, profile_id)
     try:
         with Image.open(io.BytesIO(data)) as image:
@@ -156,6 +175,29 @@ def validate_variant(data, profile_id, *, monochrome=False):
                 raise ValueError('Inkplate 6 PNG pixels must use exactly the supported eight grayscale levels without transparency.')
     except (OSError, SyntaxError, Image.DecompressionBombError) as exc:
         raise ValueError('The Inkplate PNG is damaged or unreadable.') from exc
+
+
+def custom_png(image, profile):
+    image = image.convert('RGB')
+    if colors := profile['rgb_colors']:
+        palette = Image.new('P', (1, 1))
+        values = [c for hex_color in (colors + [colors[0]] * (256 - len(colors)))
+                  for c in ImageColor.getrgb(hex_color)]
+        palette.putpalette(values)
+        dither = Image.Dither.FLOYDSTEINBERG if profile['dither'] == 'floyd' else Image.Dither.NONE
+        image = image.quantize(palette=palette, dither=dither).convert('RGB')
+    output = io.BytesIO()
+    image.save(output, 'PNG')
+    return output.getvalue()
+
+
+def custom_original(data, profile, upside_down=False):
+    with Image.open(io.BytesIO(data)) as source:
+        image = ImageOps.pad(editor_image(source), (profile['width'], profile['height']),
+                             Image.Resampling.LANCZOS, color='white')
+    if upside_down:
+        image = image.transpose(Image.Transpose.ROTATE_180)
+    return custom_png(image, profile)
 
 
 def inkplate_original(data, mounting='landscape', upside_down=False):
@@ -235,7 +277,7 @@ def variant_thumbnail(data, profile_id, mounting):
 def composition_thumbnail(data, recipe, profile_id, mounting):
     """Original colors using the saved crop, before tone changes and dithering."""
     from profiles import view_size
-    profile = display_profile(profile_id)
+    profile = profile_id if isinstance(profile_id, dict) else display_profile(profile_id)
     composition = recipe.get('orientation', profile['native_orientation'])
     size = view_size(profile_id, composition)
     with Image.open(io.BytesIO(data)) as source:
@@ -263,7 +305,7 @@ def composition_thumbnail(data, recipe, profile_id, mounting):
 def device_thumbnail(data, landscape=False, prepared=False, upside_down=False, profile_id='openpaper_l'):
     """Preview native pixels in mounting orientation; original delivery is approximate."""
     with Image.open(io.BytesIO(data)) as source:
-        profile = display_profile(profile_id)
+        profile = profile_id if isinstance(profile_id, dict) else display_profile(profile_id)
         width, height = profile['width'], profile['height']
         image = source.convert('RGB')
         if not prepared:
@@ -284,8 +326,10 @@ def device_thumbnail(data, landscape=False, prepared=False, upside_down=False, p
 
 
 def placeholder(profile_id='openpaper_l'):
-    profile = display_profile(profile_id)
+    profile = profile_id if isinstance(profile_id, dict) else display_profile(profile_id)
     width, height = profile['width'], profile['height']
+    if profile.get('custom'):
+        return custom_png(Image.new('RGB', (width, height), 'white'), profile)
     if profile.get('format') == 'png':
         output = io.BytesIO()
         Image.new('L', (width, height), 255).save(output, 'PNG')

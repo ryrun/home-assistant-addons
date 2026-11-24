@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 import aiomqtt
 import battery
 import scheduling
-from profiles import display_profile
+from profiles import device_profile
 from storage import new_id
 
 LOGGER = logging.getLogger(__name__)
@@ -253,7 +253,7 @@ class MQTTBridge:
                              'state_topic': state_topic, 'value_template': '{{ value_json.' + key + ' }}',
                              'availability_topic': f'{base}/availability', 'qos': 1,
                              'device': {'identifiers': [f'einkdisplaymanager_{self.instance}_{identifier}'],
-                                        'name': device['name'], 'manufacturer': display_profile(device['profile']).get('manufacturer', 'paperlesspaper'), 'model': display_profile(device['profile'])['name']},
+                                        'name': device['name'], 'manufacturer': device_profile(device).get('manufacturer', 'paperlesspaper'), 'model': device_profile(device)['name']},
                              'origin': {'name': 'E-Ink Display Manager', 'sw_version': self.version,
                                         'support_url': 'https://github.com/ryrun/home-assistant-addons'}, **extra}
                 if reported.get('firmware_version'):
