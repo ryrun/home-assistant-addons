@@ -1,6 +1,6 @@
 import {optionGroups} from './selects.js';
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const chemistries={custom:'Custom / unspecified',alkaline:'Alkaline',nimh:'NiMH',li_ion:'Li-ion / LiPo',lifepo4:'LiFePO₄'};
+const chemistries={custom:'Custom',alkaline:'Alkaline',nimh:'NiMH',li_ion:'Li-ion / LiPo',lifepo4:'LiFePO₄'};
 
 export function intervalLabel(seconds){
   if(seconds%86400===0)return `${seconds/86400} day${seconds===86400?'':'s'}`;
@@ -29,8 +29,9 @@ export function deviceOptionsHTML(device){
   <div class="schedule-preview"><h3>Upcoming refresh slots</h3><p class="help" data-schedule-status role="status"></p>
   <ol data-schedule-slots></ol></div></fieldset>
   <fieldset class="device-option-group"><legend>Battery profile <span>Optional</span></legend>
-  <label class="check"><input name="charge_enabled" type="checkbox" ${b.enabled?'checked':''}>Estimate charge from reported voltage</label>
-  <div data-battery-fields class="stack"><label class="field">Estimation method<select aria-label="Estimation method" name="charge_method" data-default-chemistry="${device.profile==='inkplate_6'?'li_ion':'alkaline'}"><option value="chemistry" ${b.method==='chemistry'?'selected':''}>Chemistry profile</option><option value="linear" ${!b.method||b.method==='linear'?'selected':''}>Linear</option><option value="custom" ${b.method==='custom'?'selected':''}>Custom curve</option></select></label><p class="help" data-charge-method-help></p><label class="field">Cell chemistry<select name="charge_chemistry"><option value="custom" ${b.chemistry==='custom'?'selected':''}>${chemistries.custom}</option>${optionGroups([['Primary cells',['alkaline']],['Rechargeable cells',['nimh','li_ion','lifepo4']]].map(([label,keys])=>[label,keys.map(key=>`<option value="${key}" ${key===b.chemistry?'selected':''}>${chemistries[key]}</option>`).join('')]))}</select></label>
+  <label class="field">Battery type<select name="charge_chemistry"><option value="none" ${!b.enabled?'selected':''}>None</option><option value="custom" ${b.enabled&&b.chemistry==='custom'?'selected':''}>${chemistries.custom}</option>${optionGroups([['Primary cells',['alkaline']],['Rechargeable cells',['nimh','li_ion','lifepo4']]].map(([label,keys])=>[label,keys.map(key=>`<option value="${key}" ${b.enabled&&key===b.chemistry?'selected':''}>${chemistries[key]}</option>`).join('')]))}</select></label>
+  <p class="help">Choose a battery type to show the Battery Level. Without a voltage reading, the estimate is based on image fetch activity.</p>
+  <div data-battery-fields class="stack"><label class="field">Estimation method<select aria-label="Estimation method" name="charge_method"><option value="chemistry" ${b.method==='chemistry'?'selected':''}>Chemistry profile</option><option value="linear" ${!b.method||b.method==='linear'?'selected':''}>Linear</option><option value="custom" ${b.method==='custom'?'selected':''}>Custom curve</option></select></label><p class="help" data-charge-method-help></p>
   <label class="field">Cells in series<input name="charge_cells" type="number" min="1" max="32" step="1" value="${b.series_cells}"><small>OpenPaper L/7: four cells. Inkplate 6: one Li-ion cell. Parallel cells do not increase pack voltage.</small></label>
   <div class="form-pair" data-charge-linear><label class="field">Empty voltage per cell (V)<input name="charge_empty" type="number" min="0.1" max="6" step="0.001" value="${b.empty_voltage??''}" placeholder="Your calibrated value"></label><label class="field">Full voltage per cell (V)<input name="charge_full" type="number" min="0.1" max="6" step="0.001" value="${b.full_voltage??''}" placeholder="Your calibrated value"></label></div>
   <label class="field" data-charge-custom>Custom curve points<textarea aria-label="Custom curve points" name="charge_curve" rows="8" maxlength="4096" spellcheck="false" placeholder="1.0, 0&#10;1.3, 55&#10;1.6, 100">${escape((b.curve||[]).map(point=>point.join(', ')).join('\n'))}</textarea><small>One voltage-per-cell, percent pair per line, using decimal points. Use 2–32 points in ascending order, from 0% to 100%. Changing this curve restarts forecast collection.</small></label></div>
@@ -44,11 +45,11 @@ export function parseCurveText(text){
 export function bindDeviceOptions(form,curves={},loadSchedule){
   const fields=key=>form.elements.namedItem(key);
   const update=()=>{
-    for(const [selector,on] of [['[data-anchor-fields]',fields('anchor_enabled').checked],['[data-quiet-fields]',fields('quiet_enabled').checked],['[data-battery-fields]',fields('charge_enabled').checked]]){
+    for(const [selector,on] of [['[data-anchor-fields]',fields('anchor_enabled').checked],['[data-quiet-fields]',fields('quiet_enabled').checked],['[data-battery-fields]',fields('charge_chemistry').value!=='none']]){
       const group=form.querySelector(selector);group.hidden=!on;
       group.querySelectorAll('input,select,textarea').forEach(control=>{control.disabled=!on;control.required=on;});
     }
-    const enabled=fields('charge_enabled').checked,method=fields('charge_method').value;
+    const enabled=fields('charge_chemistry').value!=='none',method=fields('charge_method').value;
     for(const [selector,active] of [['[data-charge-linear]',method==='linear'],['[data-charge-custom]',method==='custom']]){
       const group=form.querySelector(selector);group.hidden=!active;
       group.querySelectorAll('input,textarea').forEach(control=>{control.disabled=!enabled||!active;control.required=enabled&&active;});
@@ -61,13 +62,17 @@ export function bindDeviceOptions(form,curves={},loadSchedule){
     fields('charge_curve').setCustomValidity(enabled&&method==='custom'&&!valid?'Enter 2–32 increasing voltage, percent pairs, starting at 0% and ending at 100%.':'');
     form.querySelector('[data-zone-field]').hidden=!(fields('anchor_enabled').checked||fields('quiet_enabled').checked);
   };
-  for(const name of ['anchor_enabled','quiet_enabled','charge_enabled'])fields(name).addEventListener('change',update);
+  for(const name of ['anchor_enabled','quiet_enabled'])fields(name).addEventListener('change',update);
   fields('charge_method').addEventListener('change',()=>{
-    if(fields('charge_method').value==='chemistry'&&fields('charge_chemistry').value==='custom')fields('charge_chemistry').value=fields('charge_method').dataset.defaultChemistry;
     if(fields('charge_method').value==='custom'&&!fields('charge_curve').value.trim())fields('charge_curve').value=(curves[fields('charge_chemistry').value]||[]).map(point=>point.join(', ')).join('\n');
     update();
   });
-  fields('charge_chemistry').addEventListener('change',update);
+  fields('charge_chemistry').addEventListener('change',()=>{
+    const chemistry=fields('charge_chemistry').value;
+    if(chemistry==='custom'&&fields('charge_method').value==='chemistry')fields('charge_method').value='linear';
+    if(curves[chemistry]&&fields('charge_method').value==='linear'&&(!fields('charge_empty').value||!fields('charge_full').value))fields('charge_method').value='chemistry';
+    update();
+  });
   fields('charge_curve').addEventListener('input',update);
   fields('interval').addEventListener('input',()=>{form.querySelector('[data-interval-label]').textContent=intervalLabel(Number(fields('interval').value));});
   const status=form.querySelector('[data-schedule-status]');
@@ -131,7 +136,7 @@ function readSchedule(form){
 
 export function readDeviceOptions(form){
   const f=name=>form.elements.namedItem(name);
-  const charge=f('charge_enabled').checked;
+  const charge=f('charge_chemistry').value!=='none';
   return {schedule:readSchedule(form),
   battery:{enabled:charge,...(charge?{chemistry:f('charge_chemistry').value,series_cells:Number(f('charge_cells').value),method:f('charge_method').value,
     ...(f('charge_method').value==='custom'?{curve:parseCurveText(f('charge_curve').value)}:{}),

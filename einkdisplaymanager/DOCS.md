@@ -168,13 +168,16 @@ when an image has been delivered. Open the device to use the full comparison.
 
 ## Optional voltage-based battery estimate
 
-Every supported model has a **Battery profile**, disabled by default. Enter:
+Under **Device settings → Battery profile**, choose a **Battery type**. The
+default **None** hides battery level, voltage, charging status, and forecasts in
+the dashboard and removes their MQTT discovery entries. Image-fetch health and
+connection status remain available. For a battery-powered device, configure:
 
 - **Cells in series**: divide total pack voltage by this count. Defaults are four
   for OpenPaper L/7 and one for Inkplate 6; adjust for your actual hardware.
   Parallel capacity does not multiply the voltage or the series count.
 - **Estimation method**: Chemistry profile, Linear, or Custom curve.
-- **Cell chemistry**: selects a reference curve in Chemistry profile mode; otherwise
+- **Battery type**: selects a reference curve in Chemistry profile mode; otherwise
   descriptive metadata. It does not configure the hardware charger.
 - **Linear** requires empty/full voltage per cell in volts; full must exceed empty.
 - **Custom curve** requires 2–32 strictly increasing voltage/percentage pairs,
@@ -191,10 +194,9 @@ from voltage. See **Battery estimation methods** below for ranges and sources.
 The device summary and MQTT each show one **Battery Level**. A voltage-based
 estimate takes precedence, including 0%. The activity estimate is the fallback
 when a voltage-based percentage is unavailable.
-Configuring cells never changes charging, invents voltage, queries sleeping
-hardware, or resets fetch health. Raw voltage and receipt time remain available
-if estimation is off. Voltage/timestamp sensors are discovered for Inkplate,
-configured profiles, or any device that has actually reported voltage.
+The voltage and measurement time are available for configured devices that
+report voltage. Inkplate voltage and timestamp sensors are discovered as soon
+as a battery type is selected.
 
 All authenticated non-browser device GETs may supply the generic
 `X-Display-Battery-Millivolts` or the compatible
@@ -480,7 +482,7 @@ are excluded from published state and configuration. Backups contain MQTT creden
 | Enabled images | Number of enabled entries in the frame's list |
 | Image interval | Desired image interval in seconds |
 | Image transfer status | Idle/preparing/sending/completed/unchanged/interrupted/failed; latest error is an attribute |
-| Battery voltage / measured at | Raw report and timestamp for supported/configured/reporting devices |
+| Battery voltage / measured at | Raw report and timestamp for devices with a configured battery type and voltage reporting |
 
 Diagnostic entities use Home Assistant's diagnostic category. **Battery Level**
 has `%` and the battery device class. It is the only discovered battery-percentage
@@ -491,10 +493,10 @@ configured/enabled and a percentage can be calculated. A voltage-derived **0%**
 is a valid value and takes precedence. Its attributes identify `linear_voltage`, `chemistry_curve`, or `custom_curve`,
 the selected method, chemistry and measurement time. Stored readings retain their original timestamp;
 a request without a voltage header does not erase the previous reading. No extra
-expiry is inferred. Without a reading or with calibration disabled, it uses the
-activity estimate with source `image_fetch_watchdog` and deadline attributes.
-If both sources are unavailable, the sensor is unknown. Turning calibration on
-or off switches the chosen source on the next MQTT synchronization.
+expiry is inferred. Without a reading, it uses the activity estimate with source
+`image_fetch_watchdog` and deadline attributes. If both sources are unavailable,
+the sensor is unknown. Selecting **None** removes the previously discovered
+battery entities on the next MQTT synchronization.
 
 The existing `battery_estimate` discovery key/unique ID and state field are kept
 to preserve existing HA entity identity. Only its default display name changes.

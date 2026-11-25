@@ -644,9 +644,10 @@ async def main():
                     await page.get_by_label('Quiet hours start').fill('22:00')
                     await page.get_by_label('Quiet hours end').fill('08:00')
                     await page.get_by_label('Schedule time zone').fill('Europe/Berlin')
-                    await page.get_by_label('Estimate charge from reported voltage').check()
-                    assert await page.get_by_label('Cell chemistry').locator('optgroup').evaluate_all('(groups)=>groups.map(g=>g.label)') == ['Primary cells','Rechargeable cells']
-                    await page.get_by_label('Cell chemistry').select_option('li_ion')
+                    await expect(page.locator('#device-battery-summary')).to_be_hidden()
+                    assert await page.get_by_label('Battery type').locator('optgroup').evaluate_all('(groups)=>groups.map(g=>g.label)') == ['Primary cells','Rechargeable cells']
+                    await page.get_by_label('Battery type').select_option('li_ion')
+                    await page.get_by_label('Estimation method',exact=True).select_option('linear')
                     await page.get_by_label('Cells in series').fill('1')
                     await page.get_by_label('Empty voltage per cell (V)',exact=True).fill('3.0')
                     await page.get_by_label('Full voltage per cell (V)',exact=True).fill('4.2')
@@ -654,7 +655,7 @@ async def main():
                     await page.locator('#device-save-status').filter(has_text='Settings saved.').wait_for()
                     assert await page.get_by_label('Align refreshes to an anchor time').is_checked()
                     assert await page.get_by_label('Schedule time zone').input_value()=='Europe/Berlin'
-                    assert await page.get_by_label('Estimate charge from reported voltage').is_checked()
+                    assert await page.get_by_label('Battery type').input_value()=='li_ion'
                     async with session.get(ink_json,headers={'X-Display-Battery-Millivolts':'3900'}) as response:
                         timed=await response.json()
                         assert 60<=timed['timeout']<=2592000

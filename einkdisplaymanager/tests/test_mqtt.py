@@ -10,7 +10,17 @@ import pytest
 from aiohttp import ClientError, web
 from mqtt_bridge import DEFAULTS, ENTITIES, MQTTBridge, fetch_health, validate_config
 from server import VERSION, Manager
-from test_http import device, path, upload
+from test_http import device as create_device
+from test_http import path, upload
+
+
+async def device(admin, assets):
+    created = await create_device(admin, assets)
+    response = await admin.put('/api/devices/' + created['id'], json={
+        'battery': {'enabled': True, 'method': 'chemistry', 'chemistry': 'alkaline'},
+    })
+    assert response.status == 200
+    return await response.json()
 
 
 def frame():
@@ -57,7 +67,7 @@ def test_new_frame_remains_unknown_during_decline_until_full_alarm_deadline():
 
 def test_increasing_decline_recalculates_existing_zero_and_survives_restart(tmp_path):
     manager = Manager(tmp_path, dev=True)
-    d = frame() | {'id': 'decline-test'}
+    d = frame() | {'id': 'decline-test', 'profile': 'openpaper_l', 'battery': {'enabled': True}}
     d['state']['last_served_at'] = 1000
     manager.mqtt.health(d, now=1000)  # Persist the original monitoring anchor.
     assert manager.mqtt.config['battery_decay_seconds'] == 0
@@ -480,7 +490,7 @@ async def test_single_battery_level_prefers_voltage_and_cleans_old_charge_discov
     from test_battery import PROFILE
 
     manager, admin, frames = system
-    d = await device(admin, [await upload(admin)])
+    d = await create_device(admin, [await upload(admin)])
     config = validate_config({'enabled':True, 'broker':'127.0.0.1', 'port':broker.port},manager.mqtt.config)
     old_topic = f"homeassistant/sensor/{manager.mqtt.instance}_{destination(config)}_{d['id']}/charge_estimate/config"
     manager.store.save('mqtt_registration', {'id':destination(config), 'config':config, 'topics':{old_topic:True}})
@@ -489,6 +499,11 @@ async def test_single_battery_level_prefers_voltage_and_cleans_old_charge_discov
         base = await enable(manager,admin,broker)
         state_topic = f"{base}/{d['id']}/state"
         await observed.until(lambda: observed.latest.get(old_topic)==b'' and state_topic in observed.latest)
+        assert 'battery_estimate' not in json.loads(observed.latest[state_topic])
+        endpoint='/api/devices/'+d['id']
+        assert (await admin.put(endpoint,json={'battery':PROFILE})).status==200
+        battery_topic = old_topic.replace('charge_estimate', 'battery_estimate')
+        await observed.until(lambda: bool(observed.latest.get(battery_topic)))
         configs = [json.loads(p) for t,p in observed.latest.items() if t.endswith('/config') and p]
         batteries = [c for c in configs if c.get('device_class')=='battery']
         assert len(batteries)==1 and batteries[0]['name']=='Battery Level'
@@ -496,9 +511,8 @@ async def test_single_battery_level_prefers_voltage_and_cleans_old_charge_discov
         assert old_topic not in manager.store.get('mqtt_registration',destination(config))['topics']
         await (await frames.get(path(d['urls']['image']))).read()
         manager.mqtt.wake.set()
-        await observed.until(lambda: json.loads(observed.latest[state_topic])['battery_estimate']==100)
-        endpoint='/api/devices/'+d['id']
-        assert (await admin.put(endpoint,json={'battery':PROFILE})).status==200
+        await observed.until(lambda: json.loads(observed.latest[state_topic]).get('battery_estimate')==100)
+        assert json.loads(observed.latest[state_topic])['battery_attributes']['source']=='image_fetch_watchdog'
         await frames.get(path(d['urls']['settings']),headers={'X-Display-Battery-Millivolts':'5600'})
         manager.mqtt.wake.set()
         await observed.until(lambda: json.loads(observed.latest[state_topic])['battery_estimate']==50)
@@ -512,7 +526,9 @@ async def test_single_battery_level_prefers_voltage_and_cleans_old_charge_discov
         assert manager.mqtt.health(manager.store.get('device',d['id']))['battery_estimate']==100
         assert (await admin.put(endpoint,json={'battery':{'enabled':False}})).status==200
         manager.mqtt.wake.set()
-        await observed.until(lambda: json.loads(observed.latest[state_topic])['battery_estimate']==100)
+        voltage_topic = battery_topic.replace('battery_estimate', 'battery_voltage')
+        await observed.until(lambda: observed.latest.get(battery_topic)==b'' and observed.latest.get(voltage_topic)==b''
+                             and 'battery_estimate' not in json.loads(observed.latest[state_topic]))
         payload=json.loads(observed.latest[state_topic])
-        assert payload['battery_attributes']['source']=='image_fetch_watchdog'
-        assert payload['battery_voltage']==4.8
+        assert not any(key.startswith('battery_') for key in payload)
+        assert payload['frame_status']=='on_schedule'

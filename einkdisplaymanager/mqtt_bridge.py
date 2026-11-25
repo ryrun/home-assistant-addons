@@ -195,7 +195,10 @@ class MQTTBridge:
         if watch['active'] != active:
             watch.update(active=active, started_at=now)
             self.store.save('mqtt_watch', watch)
-        return fetch_health(device, watch, now, self.config['grace_seconds'], self.config['battery_decay_seconds'])
+        health = fetch_health(device, watch, now, self.config['grace_seconds'], self.config['battery_decay_seconds'])
+        if not battery.config(device)['enabled']:
+            health['battery_estimate'] = None
+        return health
 
     def payload(self, device):
         health = self.health(device)
@@ -205,24 +208,29 @@ class MQTTBridge:
             image_name = self.store.get('asset', entry['asset_id'])['name'] if entry else None
         except KeyError:
             image_name = None
-        telemetry = self.manager.telemetry(device['id'])
-        voltage = telemetry.get('battery_millivolts')
+        telemetry = self.manager.reported_telemetry(device)
         charge = self.manager.battery_status(device)
-        use_voltage = charge['estimated_percent'] is not None
-        attributes = ({**charge, 'measurement_time': iso(telemetry.get('measured_at')),
-                       'meaning': 'Charge estimated from the last reported voltage and selected per-cell estimation method.'}
-                      if use_voltage else {
-                          'estimated': True, 'source': 'image_fetch_watchdog',
-                          'meaning': 'Activity estimate: falls toward 0 after a missed image fetch; 0 means overdue, not measured empty.',
-                          'grace_seconds': self.config['grace_seconds'],
-                          'battery_decay_seconds': self.config['battery_decay_seconds'],
-                          'decline_starts_at': iso(health['decline_starts_at']), 'overdue_at': iso(health['overdue_at'])})
-        return {key: health[key] for key in ('frame_status', 'update_overdue')} | {
-            'battery_estimate': charge['estimated_percent'] if use_voltage else health['battery_estimate'],
-            'battery_attributes': attributes,
-            'battery_voltage': voltage / 1000 if voltage is not None else None,
-            'battery_measured_at': iso(telemetry.get('measured_at')),
-            **{key: telemetry.get(key) for key in TELEMETRY_ENTITIES},
+        battery_values = {}
+        if charge is not None:
+            voltage = telemetry.get('battery_millivolts')
+            measured_at = iso(telemetry.get('measured_at'))
+            use_voltage = charge['estimated_percent'] is not None
+            attributes = ({**charge, 'measurement_time': measured_at,
+                           'meaning': 'Charge estimated from the last reported voltage and selected per-cell estimation method.'}
+                          if use_voltage else {
+                              'estimated': True, 'source': 'image_fetch_watchdog',
+                              'meaning': 'Activity estimate: falls toward 0 after a missed image fetch; 0 means overdue, not measured empty.',
+                              'grace_seconds': self.config['grace_seconds'],
+                              'battery_decay_seconds': self.config['battery_decay_seconds'],
+                              'decline_starts_at': iso(health['decline_starts_at']), 'overdue_at': iso(health['overdue_at'])})
+            battery_values = {
+                'battery_estimate': charge['estimated_percent'] if use_voltage else health['battery_estimate'],
+                'battery_attributes': attributes,
+                'battery_voltage': voltage / 1000 if voltage is not None else None,
+                'battery_measured_at': measured_at,
+            }
+        return {key: health[key] for key in ('frame_status', 'update_overdue')} | battery_values | {
+            **{key: telemetry[key] for key in TELEMETRY_ENTITIES if key in telemetry},
             'telemetry_attributes': {'field_updated_at': {key: iso(value) for key, value in telemetry.get('field_updated_at', {}).items()}},
             'last_contact': iso(max(state.get('last_image_request') or 0, state.get('last_settings_request') or 0)),
             'last_image_delivery': iso(state.get('last_served_at')), 'next_expected_image': iso(health['expected_at']),
@@ -244,10 +252,12 @@ class MQTTBridge:
             messages[state_topic] = (payload, True)
             if not config['discovery']:
                 continue
-            voltage_supported = device['profile'] == 'inkplate_6' or battery.config(device)['enabled'] or self.manager.telemetry(identifier).get('measured_at')
-            reported = self.manager.telemetry(identifier)
-            entities = ENTITIES | (VOLTAGE_ENTITIES if voltage_supported else {}) | {
-                key: value for key, value in TELEMETRY_ENTITIES.items() if key in reported}
+            battery_enabled = battery.config(device)['enabled']
+            reported = self.manager.reported_telemetry(device)
+            entities = {key: value for key, value in ENTITIES.items() if battery_enabled or key != 'battery_estimate'}
+            if battery_enabled and (device['profile'] == 'inkplate_6' or reported.get('measured_at')):
+                entities.update(VOLTAGE_ENTITIES)
+            entities.update({key: value for key, value in TELEMETRY_ENTITIES.items() if key in reported})
             for key, (domain, name, extra) in entities.items():
                 discovery = {'name': name, 'unique_id': f'einkdisplaymanager_{self.instance}_{identifier}_{key}',
                              'state_topic': state_topic, 'value_template': '{{ value_json.' + key + ' }}',

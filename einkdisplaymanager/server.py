@@ -62,7 +62,7 @@ from profiles import (
 )
 from storage import Store, new_id
 
-VERSION = '0.9.1'
+VERSION = '0.9.2'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
@@ -170,7 +170,7 @@ class Manager:
         result.pop('token')
         result['orientation'] = device_orientation(device)
         result['upside_down'] = bool(device_rotation(device))
-        result['telemetry'] = self.telemetry(device['id'])
+        result['telemetry'] = self.reported_telemetry(device)
         result['schedule'] = scheduling.config(device)
         result['timing'] = scheduling.view(device, time.time())
         result['battery'] = battery.config(device)
@@ -861,6 +861,7 @@ class Manager:
             self.store.save_many(records)
             if reset_forecast:
                 self.battery_forecast.histories.pop(identifier, None)
+            self.mqtt.wake.set()
             self.diagnostics.event(identifier, 'settings_saved', 'Device settings or image list saved.')
             return web.json_response(self.public_device(device, detail=True))
 
@@ -904,7 +905,7 @@ class Manager:
         cached = self.dynamic.cache.get(selected.get('variant_id')) if selected else None
         return web.json_response({'id': identifier, 'state': device['state'], 'paused': device['paused'],
                                   'selected_output_hash': cached['hash'] if cached else None,
-                                  'health': self.mqtt.health(device), 'telemetry': self.telemetry(identifier),
+                                  'health': self.mqtt.health(device), 'telemetry': self.reported_telemetry(device),
                                   'timing': scheduling.view(device, time.time()),
                                   'battery_status': self.battery_status(device),
                                   **self.diagnostics.view(identifier)})
@@ -926,6 +927,8 @@ class Manager:
         return web.json_response({'deleted': True})
 
     def battery_status(self, device):
+        if not battery.config(device)['enabled']:
+            return None
         telemetry = self.telemetry(device['id'], include_forecast=True)
         charge = battery.status(device, telemetry)
         now = time.time()
@@ -937,6 +940,16 @@ class Manager:
             forecast = None
             progress['reason'] = 'external_power'
         return charge | {'forecast': forecast, 'forecast_progress': progress, 'stale_power_fields': stale}
+
+    def reported_telemetry(self, device):
+        record = self.telemetry(device['id'])
+        if not battery.config(device)['enabled']:
+            hidden = {'battery_millivolts', 'measured_at', 'charging'}
+            record = {key: value for key, value in record.items() if key not in hidden}
+            if 'field_updated_at' in record:
+                record['field_updated_at'] = {key: stamp for key, stamp in record['field_updated_at'].items()
+                                              if key not in hidden}
+        return record
 
     def telemetry(self, identifier, *, include_forecast=False):
         try:

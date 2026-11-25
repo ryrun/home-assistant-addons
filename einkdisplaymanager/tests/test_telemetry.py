@@ -43,6 +43,7 @@ async def test_telemetry_on_settings_and_image_304_and_partial_snapshots(system,
     device = await (await admin.post('/api/devices', json={'name': 'Telemetry frame', 'profile': 'openpaper_l'})).json()
     endpoint = '/api/devices/' + device['id']
     url = path(device['urls']['settings'])
+    await admin.put(endpoint, json={'battery': {'enabled': True, 'method': 'chemistry', 'chemistry': 'alkaline'}})
     now = 1800000000
     monkeypatch.setattr('server.time.time', lambda: now)
     response = await frames.get(url, headers=HEADERS)

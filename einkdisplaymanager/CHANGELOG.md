@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.2
+
+- Use the device battery type to control battery reporting. None hides dashboard battery information and removes MQTT battery entities. Existing calibrated profiles still prefer voltage and fall back to image-fetch activity.
+
 ## 0.9.1
 
 - Advertise a private cache lifetime for static Custom Device PNGs based on the next eligible playlist change. Retain ETag revalidation and account for anchor times and quiet hours.

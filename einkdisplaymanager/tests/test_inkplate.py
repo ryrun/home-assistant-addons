@@ -145,6 +145,7 @@ async def test_inkplate_variant_edit_and_settings_telemetry_contract(system):
     settings = await response.json()
     assert set(settings) == {'downloadUrl', 'timeout', 'motionWakeup', 'autoRotation', 'chargerMode', 'httpAuthUser', 'httpAuthPassword'}
     assert settings['timeout'] == 3600 and settings['downloadUrl'] == device['urls']['image']
+    await admin.put('/api/devices/' + identifier, json={'battery': {'enabled': True, 'method': 'chemistry', 'chemistry': 'li_ion'}})
     first = manager.telemetry(identifier)
     assert first['battery_millivolts'] == 3870 and first['measured_at']
     status = await (await admin.get('/api/devices/' + identifier + '/status')).json()

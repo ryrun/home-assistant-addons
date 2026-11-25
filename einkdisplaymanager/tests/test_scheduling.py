@@ -138,7 +138,7 @@ async def test_dynamic_json_no_stale_304_and_next_connection_independent_of_watc
     # JSON checks after a missed image cannot restore the fetch-health indicator.
     now[0] = stamp('2026-11-12T09:10')
     last_dynamic = await frames.get(path(device['urls']['settings']))
-    assert (await (await admin.get(endpoint)).json())['health']['battery_estimate'] == 0
+    assert (await (await admin.get(endpoint)).json())['health']['update_overdue']
     # Default interval behavior and conditional JSON remain available when disabled.
     await admin.put(endpoint, json={'schedule': {'anchor_enabled': False, 'quiet_enabled': False}})
     response = await frames.get(path(device['urls']['settings']), headers={'If-Modified-Since': last_dynamic.headers['Last-Modified']})
@@ -174,12 +174,12 @@ async def test_transfer_across_anchor_uses_issued_sleep_for_forecast_and_watchdo
     assert saved['state']['next_request_at'] == saved['state']['expected_image_at'] == expected
     assert saved['state']['deadline'] == stamp('2026-11-11T09:00')
     now[0] = expected + 121
-    assert manager.mqtt.health(saved)['battery_estimate'] == 0
+    assert manager.mqtt.health(saved)['update_overdue']
     # Saving desired settings cannot make an overdue device healthy again.
     await admin.put(endpoint, json={'interval': 43200})
-    assert (await (await admin.get(endpoint)).json())['health']['battery_estimate'] == 0
+    assert (await (await admin.get(endpoint)).json())['health']['update_overdue']
     await frames.get(path(device['urls']['settings']))
-    assert (await (await admin.get(endpoint)).json())['health']['battery_estimate'] == 0
+    assert (await (await admin.get(endpoint)).json())['health']['update_overdue']
 
 
 async def test_shorter_json_sleep_can_shorten_but_never_postpone_outstanding_image_deadline(system, monkeypatch):
@@ -197,12 +197,12 @@ async def test_shorter_json_sleep_can_shorten_but_never_postpone_outstanding_ima
     await frames.get(path(d['urls']['settings']))
     assert manager.store.get('device', d['id'])['state']['expected_image_at'] == now[0] + 60
     now[0] += 181
-    assert (await (await admin.get(endpoint)).json())['health']['battery_estimate'] == 0
+    assert (await (await admin.get(endpoint)).json())['health']['update_overdue']
     await admin.put(endpoint, json={'interval': 21600})
     await frames.get(path(d['urls']['settings']))
-    assert (await (await admin.get(endpoint)).json())['health']['battery_estimate'] == 0
+    assert (await (await admin.get(endpoint)).json())['health']['update_overdue']
     await (await frames.get(path(d['urls']['image']))).read()
-    assert (await (await admin.get(endpoint)).json())['health']['battery_estimate'] == 100
+    assert (await (await admin.get(endpoint)).json())['health']['frame_status'] == 'on_schedule'
 
 
 async def test_draft_schedule_preview_skips_quiet_slot_without_saving(system, monkeypatch):
