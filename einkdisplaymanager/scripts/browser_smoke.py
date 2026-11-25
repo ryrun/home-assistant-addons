@@ -601,6 +601,10 @@ async def main():
                     await page.get_by_text('Image added to the device list.',exact=True).wait_for()
                     assert await page.locator(f'[data-add-asset="{mountain_asset}"]').count()==0
                     await page.get_by_role('button',name='Close dialog').click()
+                    await expect(page.locator('#device-list-position')).to_have_text('1 entry')
+                    await expect(page.locator('#previous, #next, [data-choose], [data-up], [data-down]')).to_have_count(0)
+                    await expect(page.get_by_role('button',name='Pause',exact=True)).to_be_visible()
+                    await expect(page.get_by_role('button',name='Remove image 1',exact=True)).to_be_visible()
                     ink_url=await page.locator('#image-url').input_value()
                     ink_json=await page.locator('#settings-url').input_value()
                     async with session.get(ink_json,headers={'X-Display-Battery-Millivolts':'3870'}) as response:

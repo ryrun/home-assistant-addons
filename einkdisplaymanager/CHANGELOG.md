@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.3
+
+- Hide image navigation when fewer than two images are enabled and hide sorting controls for single-image lists.
+
 ## 0.9.2
 
 - Use the device battery type to control battery reporting. None hides dashboard battery information and removes MQTT battery entities. Existing calibrated profiles still prefer voltage and fall back to image-fetch activity.
