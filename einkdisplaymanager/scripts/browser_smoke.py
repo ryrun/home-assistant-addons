@@ -603,7 +603,7 @@ async def main():
                     await page.get_by_role('button',name='Close dialog').click()
                     await expect(page.locator('#device-list-position')).to_have_text('1 entry')
                     await expect(page.locator('#previous, #next, [data-choose], [data-up], [data-down]')).to_have_count(0)
-                    await expect(page.get_by_role('button',name='Pause',exact=True)).to_be_visible()
+                    await expect(page.get_by_role('button',name='Pause',exact=True)).to_be_hidden()
                     await expect(page.get_by_role('button',name='Remove image 1',exact=True)).to_be_visible()
                     ink_url=await page.locator('#image-url').input_value()
                     ink_json=await page.locator('#settings-url').input_value()
@@ -722,6 +722,9 @@ async def main():
                     await page.goto(origin+'/#devices')
                     await page.locator('.device-card[data-device]').first.wait_for()
                     assert await page.locator('[data-next-connection]').count()==3
+                    ink_card=page.locator('[data-device="'+ink['id']+'"]')
+                    await expect(ink_card.locator('[data-quick-next]')).to_be_hidden()
+                    await expect(ink_card.locator('.badge')).to_be_hidden()
                     assert await page.locator('.device-card-thumbnail:visible').count() >= 1
                     assert await page.locator('.device-card .comparison-controls:visible').count() == 0
                     assert 'Awaiting first contact' not in await page.locator('[data-device="'+ink['id']+'"] [data-next-connection]').inner_text()

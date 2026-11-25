@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.4
+
+- Hide Pause, the device-card Next image action, and the Playing badge when fewer than two images are enabled. Already paused devices can still be resumed.
+
 ## 0.9.3
 
 - Hide image navigation when fewer than two images are enabled and hide sorting controls for single-image lists.
