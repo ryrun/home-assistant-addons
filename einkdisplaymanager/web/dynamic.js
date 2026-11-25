@@ -125,7 +125,16 @@ const events = ha.calendarEvents("calendar.geburtstage");
     function paint(status){
       if(!visible())return;
       $('#dynamic-render-status').textContent=[status.running?'Rendering…':status.error?'Last render failed':status.last_success?'Ready':'Not rendered yet',status.error||'',`Last successful render: ${when(status.last_success)}`,...(status.warnings||[])].filter(Boolean).join('\n');
-      if(!previewShown){const open=$('#dynamic-timings details')?.open;$('#dynamic-timings').innerHTML=timingDetails(status.timings);if(open&&$('#dynamic-timings details'))$('#dynamic-timings details').open=true;}
+      if(!previewShown){
+        const container=$('#dynamic-timings');
+        const markup=timingDetails(status.timings);
+        if(container.dataset.markup!==markup){
+          const open=container.firstElementChild?.open;
+          container.innerHTML=markup;
+          container.dataset.markup=markup;
+          if(open&&container.firstElementChild)container.firstElementChild.open=true;
+        }
+      }
       $('#dynamic-render-status').classList.toggle('error-text',!!status.error);
       if(active&&status.ready_variants.includes(active.id)&&!dirty){
         const url=`api/media/variant/${active.id}/thumbnail?v=${status.last_success}`;
@@ -141,6 +150,7 @@ const events = ha.calendarEvents("calendar.geburtstage");
         $('#dynamic-preview-stage').innerHTML=`<img src="${url}" alt="Unsaved dynamic image preview">`;
         $('#dynamic-render-status').textContent='Preview of the current draft. '+result.warnings.join(' ');
         previewShown=true;$('#dynamic-timings').innerHTML=timingDetails(result.timings,true);
+        delete $('#dynamic-timings').dataset.markup;
       }finally{if(b.isConnected){b.disabled=false;b.textContent='Render preview';}}
     });
     form.onsubmit=e=>{e.preventDefault();action(async()=>{
