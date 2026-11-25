@@ -10,13 +10,17 @@ const workerSetup=[['request_encoding_seconds','Request encoding'],['startup_sec
   ['input_seconds','Input transfer + parsing'],['sandbox_seconds','Sandbox setup']];
 const workerResponse=[['response_transfer_seconds','Response transfer + process exit'],
   ['response_decoding_seconds','Response parsing']];
+const startupFields=[['python_seconds','Process launch + Python startup'],['imports_seconds','Module imports'],
+  ['optimizer_resources_seconds','Optimizer resources'],['pillow_setup_seconds','Pillow initialization + setup']];
 function timingRows(data,fields){
   return `<dl>${fields.filter(([key])=>Number.isFinite(data[key])).map(([key,label])=>
     `<div><dt>${label}</dt><dd>${seconds(data[key])}</dd></div>`).join('')}</dl>`;
 }
 function workerTimingDetails(title,data,fields){
   if(!data)return '';
-  return `<div class="timing-phase"><h5>${title}</h5>${timingRows(data,fields)}</div>`;
+  const startup=data.startup_breakdown?`<details class="option-details"><summary>Process start + imports breakdown</summary>
+    ${timingRows(data.startup_breakdown,startupFields)}</details>`:'';
+  return `<div class="timing-phase"><h5>${title}</h5>${timingRows(data,fields)}${startup}</div>`;
 }
 function timingDetails(timings,preview=false){
   if(!timings)return '';

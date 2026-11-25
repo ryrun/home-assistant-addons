@@ -117,6 +117,11 @@ screen.text("Hello World", {{x:400,y:300,font:"{font_id}",fontSize:40,color:pale
                     for label in ('Process start + imports', 'Sandbox setup', 'QuickJS execution',
                                   'Response transfer + process exit', 'Base64 decoding', 'Image validation'):
                         assert label in timings
+                    await page.get_by_text('Process start + imports breakdown',exact=True).click()
+                    startup=await page.locator('#dynamic-timings').inner_text()
+                    for label in ('Process launch + Python startup', 'Module imports',
+                                  'Optimizer resources', 'Pillow initialization + setup'):
+                        assert label in startup
                     assert await page.locator('#dynamic-timings').evaluate('(el)=>el.scrollWidth<=el.clientWidth')
                     await page.screenshot(path=str(artifacts/'dynamic-editor-desktop.png'),full_page=True)
                     await page.locator('#dynamic-save').click()

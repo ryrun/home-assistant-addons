@@ -511,12 +511,16 @@ async def test_inkplate_full_preview_lab_nearest_color_completes(system):
     assert timing["source_encoding_seconds"] > 0
     for phase, total in (("script_worker", "script_seconds"), ("render_worker", "render_worker_seconds")):
         stages = timing[phase]
-        assert 0 < sum(stages.values()) <= timing[total]
+        assert 0 < sum(value for key, value in stages.items() if key != "startup_breakdown") <= timing[total]
         assert stages["startup_seconds"] > 0
         for key in ("request_encoding_seconds", "input_seconds", "sandbox_seconds",
                     "response_transfer_seconds", "response_decoding_seconds"):
             assert stages[key] >= 0
     assert timing["script_worker"]["quickjs_seconds"] > 0
+    startup = timing["render_worker"]["startup_breakdown"]
+    assert set(startup) == {"python_seconds", "imports_seconds", "optimizer_resources_seconds", "pillow_setup_seconds"}
+    assert all(value > 0 for value in startup.values())
+    assert sum(startup.values()) == pytest.approx(timing["render_worker"]["startup_seconds"])
     assert timing["render_worker"]["base64_decoding_seconds"] > 0
     assert timing["render_worker"]["image_validation_seconds"] > 0
     validate_variant(base64.b64decode(result["output"]), "inkplate_6")

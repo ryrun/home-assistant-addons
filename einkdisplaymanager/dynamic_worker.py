@@ -1,10 +1,15 @@
 """Disposable Pillow and image optimizer worker."""
 
+# ruff: noqa: E402
+import time
+
+# Record entry before importing the render stack.
+MODULE_ENTERED_AT = time.perf_counter()
+
 import base64
 import io
 import json
 import struct
-import time
 from pathlib import Path
 
 import quickjs
@@ -12,6 +17,7 @@ from dynamic_script import context, run_worker, validate
 from media import custom_png
 from PIL import Image, ImageCms, ImageColor, ImageDraw, ImageFont, ImageOps
 
+IMPORTS_READY_AT = time.perf_counter()
 ROOT = Path(__file__).parent
 VENDOR = (ROOT / "web" / "vendor" / "epdoptimize-1.4.1.mjs").read_text()
 # The pinned ESM build is evaluated only in the trusted processing context.
@@ -39,6 +45,7 @@ OPTIONS = (
     .replace("export ", "")
 )
 OPTIONS = "const getProcessingPreset=epd.getPreset;\n" + OPTIONS
+OPTIMIZER_READY_AT = time.perf_counter()
 Image.init()  # Load codec modules before filesystem access is disabled.
 Image.MAX_IMAGE_PIXELS = 8_000_000
 DEFAULT_FONT = ImageFont.load_default(size=16)  # Pillow's bundled Aileron.
@@ -456,6 +463,11 @@ def render_request(payload, isolation, isolated):
         "warnings": warnings,
         "isolation": isolation,
         "timings": {
+            "startup_breakdown": {
+                "module_entered_at": MODULE_ENTERED_AT,
+                "imports_ready_at": IMPORTS_READY_AT,
+                "optimizer_ready_at": OPTIMIZER_READY_AT,
+            },
             "drawing_seconds": drawn - isolated,
             "source_encoding_seconds": encoded - drawn,
             "optimization_seconds": optimized - encoded,

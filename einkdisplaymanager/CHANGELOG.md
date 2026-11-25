@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.7
+
+- Break down render-worker startup into Python launch, module imports, optimizer resources, and Pillow setup.
+
 ## 0.9.6
 
 - Start dynamic QuickJS scripts in a lightweight isolated worker that skips Pillow and image optimizer resources.

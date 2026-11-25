@@ -221,6 +221,16 @@ async def worker(payload, timeout=40):
                 # perf_counter uses the same monotonic clock in both processes.
                 ready = timings.pop("worker_ready_at")
                 finished = timings.pop("worker_finished_at")
+                if startup := timings.get("startup_breakdown"):
+                    entered = startup["module_entered_at"]
+                    imports = startup["imports_ready_at"]
+                    optimizer = startup["optimizer_ready_at"]
+                    timings["startup_breakdown"] = {
+                        "python_seconds": entered - spawning,
+                        "imports_seconds": imports - entered,
+                        "optimizer_resources_seconds": optimizer - imports,
+                        "pillow_setup_seconds": ready - optimizer,
+                    }
                 timings.update(
                     startup_seconds=ready - spawning,
                     request_encoding_seconds=spawning - encoding_started,
@@ -541,7 +551,8 @@ class DynamicImages:
                 "render_worker": {**result["timings"],
                                   "base64_decoding_seconds": validation_started - decoding_started,
                                   "image_validation_seconds": validated - validation_started},
-                **result.get("timings", {}),
+                **{key: value for key, value in result["timings"].items()
+                   if key != "startup_breakdown"},
             },
             "optimizer": OPTIMIZER_VERSION,
             "rendered_at": now,
