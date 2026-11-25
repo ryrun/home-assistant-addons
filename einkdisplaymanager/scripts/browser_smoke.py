@@ -608,7 +608,8 @@ async def main():
                         assert settings['downloadUrl']==ink_url and settings['timeout']==3600
                     async with session.get(ink_url) as response:
                         assert response.content_type=='image/png' and await response.read()==ink_native
-                    await page.locator('#device-voltage').filter(has_text='3.870 V').wait_for()
+                    await expect(page.locator('#device-voltage')).to_be_hidden()
+                    await page.get_by_label('Battery type').select_option('li_ion')
                     await page.get_by_label('Mounting orientation').select_option('portrait')
                     await page.get_by_label('Mounted upside down',exact=False).check()
                     await page.get_by_role('button',name='Save settings',exact=True).click()
@@ -652,9 +653,7 @@ async def main():
                     await page.get_by_label('Quiet hours start').fill('22:00')
                     await page.get_by_label('Quiet hours end').fill('08:00')
                     await page.get_by_label('Schedule time zone').fill('Europe/Berlin')
-                    await expect(page.locator('#device-battery-summary')).to_be_hidden()
                     assert await page.get_by_label('Battery type').locator('optgroup').evaluate_all('(groups)=>groups.map(g=>g.label)') == ['Primary cells','Rechargeable cells']
-                    await page.get_by_label('Battery type').select_option('li_ion')
                     await page.get_by_label('Estimation method',exact=True).select_option('linear')
                     await page.get_by_label('Cells in series').fill('1')
                     await page.get_by_label('Empty voltage per cell (V)',exact=True).fill('3.0')
