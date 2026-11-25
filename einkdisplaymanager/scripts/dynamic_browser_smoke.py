@@ -113,7 +113,10 @@ screen.text("Hello World", {{x:400,y:300,font:"{font_id}",fontSize:40,color:pale
                     assert 'current draft' in await page.locator('#dynamic-render-status').inner_text()
                     assert 'Render timings' in await page.locator('#dynamic-timings').inner_text()
                     await page.locator('#dynamic-timings summary').click()
-                    assert 'Optimization + output' in await page.locator('#dynamic-timings').inner_text()
+                    timings=await page.locator('#dynamic-timings').inner_text()
+                    for label in ('Process start + imports', 'Sandbox setup', 'QuickJS execution',
+                                  'Response transfer + process exit', 'Base64 decoding', 'Image validation'):
+                        assert label in timings
                     assert await page.locator('#dynamic-timings').evaluate('(el)=>el.scrollWidth<=el.clientWidth')
                     await page.screenshot(path=str(artifacts/'dynamic-editor-desktop.png'),full_page=True)
                     await page.locator('#dynamic-save').click()

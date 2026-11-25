@@ -509,6 +509,16 @@ async def test_inkplate_full_preview_lab_nearest_color_completes(system):
     assert timing["script_seconds"] > 0
     assert timing["drawing_seconds"] > 0
     assert timing["source_encoding_seconds"] > 0
+    for phase, total in (("script_worker", "script_seconds"), ("render_worker", "render_worker_seconds")):
+        stages = timing[phase]
+        assert 0 < sum(stages.values()) <= timing[total]
+        assert stages["startup_seconds"] > 0
+        for key in ("request_encoding_seconds", "input_seconds", "sandbox_seconds",
+                    "response_transfer_seconds", "response_decoding_seconds"):
+            assert stages[key] >= 0
+    assert timing["script_worker"]["quickjs_seconds"] > 0
+    assert timing["render_worker"]["base64_decoding_seconds"] > 0
+    assert timing["render_worker"]["image_validation_seconds"] > 0
     validate_variant(base64.b64decode(result["output"]), "inkplate_6")
     with Image.open(io.BytesIO(base64.b64decode(result["source"]))) as image:
         assert image.size == (800, 600)

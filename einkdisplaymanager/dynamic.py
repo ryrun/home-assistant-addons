@@ -175,11 +175,13 @@ def definition(data, old=None):
 
 
 async def worker(payload, timeout=40):
+    encoding_started = time.perf_counter()
     encoded = json.dumps(payload, allow_nan=False, separators=(",", ":")).encode()
     if len(encoded) > 20 * 1024 * 1024:
         raise ValueError(
             "Selected image/font resources exceed the 20 MiB render input budget."
         )
+    spawning = time.perf_counter()
     process = await asyncio.create_subprocess_exec(
         sys.executable,
         "-B",
@@ -208,11 +210,22 @@ async def worker(payload, timeout=40):
                     raise ValueError("Render output exceeds its RAM budget.")
                 chunks.append(block)
             await process.wait()
+            received = time.perf_counter()
             result = json.loads(b"".join(chunks))
             if result.get("error"):
                 raise ValueError(result["error"])
             if process.returncode:
                 raise ValueError("The isolated render process stopped unexpectedly.")
+            if timings := result.get("timings"):
+                # perf_counter uses the same monotonic clock in both processes.
+                ready = timings.pop("worker_ready_at")
+                finished = timings.pop("worker_finished_at")
+                timings.update(
+                    startup_seconds=ready - spawning,
+                    request_encoding_seconds=spawning - encoding_started,
+                    response_transfer_seconds=received - finished,
+                    response_decoding_seconds=time.perf_counter() - received,
+                )
             return result
 
         return await asyncio.wait_for(exchange(), timeout)
@@ -438,14 +451,14 @@ class DynamicImages:
                 "timestamp": now,
             },
         }
-        result = await worker(
+        command_result = await worker(
             {"mode": "commands", "source": document["script"], "input": inputs},
             timeout=6,
         )
         script_done = time.perf_counter()
         images, fonts = {}, {}
         resource_bytes = 0
-        for command in result["commands"]:
+        for command in command_result["commands"]:
             kind = command["type"]
             identifier = (
                 command.get("id")
@@ -489,7 +502,7 @@ class DynamicImages:
         result = await worker(
             {
                 "mode": "render",
-                "commands": result["commands"],
+                "commands": command_result["commands"],
                 "size": size,
                 "profile": profile,
                 "palette": palette,
@@ -498,16 +511,19 @@ class DynamicImages:
                 "fonts": fonts,
             }
         )
+        decoding_started = time.perf_counter()
         output, source = (
             base64.b64decode(result["output"]),
             base64.b64decode(result["source"]),
         )
+        validation_started = time.perf_counter()
         await asyncio.to_thread(
             validate_variant, output,
             profile if profile.get("custom") else profile["id"],
             monochrome=profile.get("format") == "png"
             and target["palette"] == "grayscale",
         )
+        validated = time.perf_counter()
         return {
             "output": output,
             "source": source,
@@ -520,6 +536,10 @@ class DynamicImages:
                 "script_seconds": script_done - started,
                 "resources_seconds": resources_done - script_done,
                 "render_worker_seconds": time.perf_counter() - resources_done,
+                "script_worker": command_result["timings"],
+                "render_worker": {**result["timings"],
+                                  "base64_decoding_seconds": validation_started - decoding_started,
+                                  "image_validation_seconds": validated - validation_started},
                 **result.get("timings", {}),
             },
             "optimizer": OPTIMIZER_VERSION,

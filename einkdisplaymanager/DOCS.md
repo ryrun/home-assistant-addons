@@ -1375,13 +1375,13 @@ wall-clock seconds measured with a monotonic clock, rather than CPU usage.
 
 Saved-render totals include the Home Assistant snapshot, queue waiting and all
 targets. Draft totals include server-side request processing and preview creation,
-but exclude browser/network download time. Each target lists script execution
-including worker startup, resource loading, and the render worker including
-transport and output validation. Drawing, source PNG encoding, and optimization
-including native output encoding are subdivisions of that render worker; do not
-add these overlapping columns together. Queue waiting is separate from target
-render time. A slow snapshot indicates HA input latency; a long optimization
-phase indicates the target's matching/dithering workload.
+but exclude browser/network download time. Each target shows script, resource,
+and render totals plus a separate queue wait. The Script worker and Render
+worker sections break down those two phase totals. Process start and imports
+include Python initialization and pre-sandbox resource loading. Input and response
+measurements include pipe transport and protocol overhead. QuickJS execution
+includes context setup and command extraction. Output Base64 handling and
+parent-side image validation have their own measurements.
 
 The last attempt replaces timing metadata even on failure; completed target
 measurements remain available, while an interrupted target has no successful

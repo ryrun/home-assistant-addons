@@ -6,11 +6,31 @@ const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;
 const $=(selector,root=document)=>root.querySelector(selector);
 const when=value=>value?new Date(value*1000).toLocaleString():'Not yet';
 const seconds=value=>Number.isFinite(value)?value.toFixed(3)+' s':'—';
+const workerSetup=[['request_encoding_seconds','Request encoding'],['startup_seconds','Process start + imports'],
+  ['input_seconds','Input transfer + parsing'],['sandbox_seconds','Sandbox setup']];
+const workerResponse=[['response_transfer_seconds','Response transfer + process exit'],
+  ['response_decoding_seconds','Response parsing']];
+function timingRows(data,fields){
+  return `<dl>${fields.filter(([key])=>Number.isFinite(data[key])).map(([key,label])=>
+    `<div><dt>${label}</dt><dd>${seconds(data[key])}</dd></div>`).join('')}</dl>`;
+}
+function workerTimingDetails(title,data,fields){
+  if(!data)return '';
+  return `<div class="timing-phase"><h5>${title}</h5>${timingRows(data,fields)}</div>`;
+}
 function timingDetails(timings,preview=false){
   if(!timings)return '';
-  const fields=[['total_seconds','Render total'],['script_seconds','Script + startup'],['resources_seconds','Resources'],['drawing_seconds','Drawing'],['source_encoding_seconds','Source PNG'],['optimization_seconds','Optimization + output'],['render_worker_seconds','Render worker + validation'],['queue_seconds','Queue wait']];
-  const rows=(preview?[timings]:timings.targets||[]).map(t=>`<section class="timing-target"><h4>${esc(t.name||'Draft preview')}</h4><dl>${fields.map(([key,label])=>`<div><dt>${label}</dt><dd>${seconds(t[key])}</dd></div>`).join('')}</dl></section>`).join('');
-  return `<details class="option-details"><summary>Render timings · ${seconds(preview?timings.request_seconds:timings.total_seconds)}</summary><p class="help">Elapsed wall time. Total includes waiting and worker startup. Drawing, source PNG and optimization are parts of the render worker, not additional time. Last attempt; resets on restart.</p><p class="help">Home Assistant snapshot: ${seconds(timings.snapshot_seconds)}</p>${rows}</details>`;
+  const totals=[['total_seconds','Render total'],['script_seconds','Script phase'],['resources_seconds','Resources'],
+    ['render_worker_seconds','Render phase'],['queue_seconds','Queue wait']];
+  const script=[...workerSetup,['quickjs_seconds','QuickJS execution'],
+    ['command_validation_seconds','Drawing command validation'],...workerResponse];
+  const render=[...workerSetup,['drawing_seconds','Drawing'],['source_encoding_seconds','Source PNG'],
+    ['optimization_seconds','Image optimization'],['output_encoding_seconds','Output Base64 encoding'],...workerResponse,
+    ['base64_decoding_seconds','Base64 decoding'],['image_validation_seconds','Image validation']];
+  const rows=(preview?[timings]:timings.targets||[]).map(t=>`<section class="timing-target"><h4>${esc(t.name||'Draft preview')}</h4>
+    ${timingRows(t,totals)}${workerTimingDetails('Script worker',t.script_worker,script)}
+    ${workerTimingDetails('Render worker',t.render_worker,render)}</section>`).join('');
+  return `<details class="option-details"><summary>Render timings · ${seconds(preview?timings.request_seconds:timings.total_seconds)}</summary><p class="help">Elapsed wall time for the last attempt. Worker details break down the script and render phases. Timings reset on restart.</p><p class="help">Home Assistant snapshot: ${seconds(timings.snapshot_seconds)}</p>${rows}</details>`;
 }
 function blobURL(encoded,mime){const bytes=Uint8Array.from(atob(encoded),c=>c.charCodeAt(0));return URL.createObjectURL(new Blob([bytes],{type:mime}));}
 

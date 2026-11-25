@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.5
+
+- Break down dynamic-image render timings by worker startup, sandbox setup, QuickJS, image processing, pipe transfer, and output validation.
+
 ## 0.9.4
 
 - Hide Pause, the device-card Next image action, and the Playing badge when fewer than two images are enabled. Already paused devices can still be resumed.

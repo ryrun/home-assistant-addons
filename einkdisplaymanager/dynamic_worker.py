@@ -532,19 +532,26 @@ def _optimize(image, recipe, profile, exact=None, exact_mask=None):
 
 
 def main():
+    initialized = time.perf_counter()
     payload = json.loads(sys.stdin.buffer.read(24 * 1024 * 1024))
+    input_ready = time.perf_counter()
     isolation = restrict()
+    isolated = time.perf_counter()
     if payload["mode"] == "probe":
         probe()
         result = {"isolation": isolation}
     elif payload["mode"] == "commands":
         result = commands(payload)
+        executed = time.perf_counter()
         validate(result["commands"])
+        result["timings"] = {
+            "quickjs_seconds": executed - isolated,
+            "command_validation_seconds": time.perf_counter() - executed,
+        }
     elif payload["mode"] == "font":
         font = ImageFont.truetype(io.BytesIO(base64.b64decode(payload["data"])), 32)
         result = {"valid": bool(font.getbbox("Font validation"))}
     else:
-        started = time.perf_counter()
         image, warnings, exact, exact_mask = draw(payload)
         drawn = time.perf_counter()
         source = io.BytesIO()
@@ -553,6 +560,7 @@ def main():
         data, mime = optimize(
             image, payload["recipe"], payload["profile"], exact, exact_mask
         )
+        optimized = time.perf_counter()
         result = {
             "source": base64.b64encode(source.getvalue()).decode(),
             "output": base64.b64encode(data).decode(),
@@ -560,11 +568,19 @@ def main():
             "warnings": warnings,
             "isolation": isolation,
             "timings": {
-                "drawing_seconds": drawn - started,
+                "drawing_seconds": drawn - isolated,
                 "source_encoding_seconds": encoded - drawn,
-                "optimization_seconds": time.perf_counter() - encoded,
+                "optimization_seconds": optimized - encoded,
+                "output_encoding_seconds": time.perf_counter() - optimized,
             },
         }
+    if "timings" in result:
+        result["timings"].update(
+            worker_ready_at=initialized,
+            worker_finished_at=time.perf_counter(),
+            input_seconds=input_ready - initialized,
+            sandbox_seconds=isolated - input_ready,
+        )
     sys.stdout.write(json.dumps(result, separators=(",", ":")))
 
 

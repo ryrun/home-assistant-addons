@@ -62,7 +62,7 @@ from profiles import (
 )
 from storage import Store, new_id
 
-VERSION = '0.9.4'
+VERSION = '0.9.5'
 FLASHER_ORIGIN = 'https://paperlesspaper.github.io'
 LOGGER = logging.getLogger(__name__)
 WEB = Path(__file__).parent / 'web'
