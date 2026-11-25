@@ -112,7 +112,7 @@ screen.text("Hello World", {{x:400,y:300,font:"{font_id}",fontSize:40,color:pale
                     assert await page.locator('#dynamic-preview-stage img').evaluate('(img)=>img.naturalWidth>img.naturalHeight')
                     assert 'current draft' in await page.locator('#dynamic-render-status').inner_text()
                     assert 'Render timings' in await page.locator('#dynamic-timings').inner_text()
-                    await page.locator('#dynamic-timings summary').click()
+                    await page.locator('#dynamic-timings > details > summary').click()
                     timings=await page.locator('#dynamic-timings').inner_text()
                     for label in ('Process start + imports', 'Sandbox setup', 'QuickJS execution',
                                   'Response transfer + process exit', 'Base64 decoding', 'Image validation'):
@@ -135,8 +135,8 @@ screen.text("Hello World", {{x:400,y:300,font:"{font_id}",fontSize:40,color:pale
                     await page.locator('#notice').filter(has_text='Calendar rendering requires').wait_for()
                     await page.locator('#dynamic-calendars').fill('')
                     await page.get_by_text('Home Assistant inputs',exact=True).click()
-                    await page.locator('#dynamic-timings summary').wait_for()
-                    await page.locator('#dynamic-timings summary').click()
+                    await page.locator('#dynamic-timings > details > summary').wait_for()
+                    await page.locator('#dynamic-timings > details > summary').click()
                     await page.wait_for_timeout(2200)
                     assert await page.locator('#dynamic-timings details').evaluate('(el)=>el.open')
                     await page.locator('#dynamic-preview-stage img').wait_for()
