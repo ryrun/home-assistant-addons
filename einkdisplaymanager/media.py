@@ -7,6 +7,7 @@ import struct
 import warnings
 from pathlib import Path
 
+from image_formats import LIBRARY_IMAGE_FORMATS, custom_png
 from PIL import Image, ImageChops, ImageCms, ImageColor, ImageOps
 from profiles import PROFILES, display_profile
 
@@ -177,20 +178,6 @@ def validate_variant(data, profile_id, *, monochrome=False):
         raise ValueError('The Inkplate PNG is damaged or unreadable.') from exc
 
 
-def custom_png(image, profile):
-    image = image.convert('RGB')
-    if colors := profile['rgb_colors']:
-        palette = Image.new('P', (1, 1))
-        values = [c for hex_color in (colors + [colors[0]] * (256 - len(colors)))
-                  for c in ImageColor.getrgb(hex_color)]
-        palette.putpalette(values)
-        dither = Image.Dither.FLOYDSTEINBERG if profile['dither'] == 'floyd' else Image.Dither.NONE
-        image = image.quantize(palette=palette, dither=dither).convert('RGB')
-    output = io.BytesIO()
-    image.save(output, 'PNG')
-    return output.getvalue()
-
-
 def custom_original(data, profile, upside_down=False):
     with Image.open(io.BytesIO(data)) as source:
         image = ImageOps.pad(editor_image(source), (profile['width'], profile['height']),
@@ -225,7 +212,7 @@ def inspect_image(data):
         warnings.simplefilter('error', Image.DecompressionBombWarning)
         try:
             with Image.open(io.BytesIO(data)) as image:
-                if image.format not in ('JPEG', 'PNG', 'BMP') or getattr(image, 'n_frames', 1) != 1:
+                if image.format not in LIBRARY_IMAGE_FORMATS or getattr(image, 'n_frames', 1) != 1:
                     raise ValueError('Use a single-frame JPEG, PNG, or BMP image.')
                 if image.width * image.height > MAX_PIXELS:
                     raise ValueError('Images must contain at most 32 million pixels.')

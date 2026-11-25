@@ -1380,7 +1380,8 @@ and render totals plus a separate queue wait. The Script worker and Render
 worker sections break down those two phase totals. Process start and imports
 include Python initialization and pre-sandbox resource loading. The script
 worker loads QuickJS and the drawing API. The render worker loads Pillow and the
-optimizer resources. Expand **Process start + imports breakdown** in the Render
+optimizer resources. Pillow preloads its common codecs and the EXIF parser,
+while embedded images are limited to library JPEG, PNG, and BMP inputs. Expand **Process start + imports breakdown** in the Render
 worker to see the time for Python startup, imports, optimizer resources, and
 Pillow setup. These four durations add up to the startup subtotal. Input and response
 measurements include pipe transport and protocol overhead. QuickJS execution

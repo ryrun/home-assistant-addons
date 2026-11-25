@@ -1,7 +1,11 @@
 """Run inside the actual unprivileged Linux image on both supported architectures."""
 
 import asyncio
+import base64
+import io
 import sys
+
+from PIL import Image, ImageCms
 
 sys.path.insert(0, "/app")
 from dynamic import recipe, worker
@@ -59,8 +63,6 @@ async def main():
                 ),
             }
         )
-        import base64
-
         result = await worker(
             {
                 "mode": "render",
@@ -148,6 +150,30 @@ async def main():
         })
         assert widget["mime"] == "image/png"
         validate_variant(base64.b64decode(widget["output"]), profile)
+    # Keep JPEG/PNG EXIF, ICC conversion and BMP usable with bounded codec setup.
+    source_images = {}
+    image_commands = []
+    icc = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    exif = Image.Exif()
+    exif[274] = 6  # Rotate portrait input into a landscape strip.
+    for index, fmt in enumerate(("JPEG", "PNG", "BMP")):
+        picture = Image.new("RGB", (8, 16), "white")
+        picture.paste("black", (0, 0, 8, 8))
+        options = {"exif": exif, "icc_profile": icc} if fmt != "BMP" else {}
+        with io.BytesIO() as encoded:
+            picture.save(encoded, fmt, **options)
+            source_images[fmt] = base64.b64encode(encoded.getvalue()).decode()
+        image_commands.append({"type": "image", "id": fmt, "x": 16 * index, "y": 0})
+    embedded = await worker({
+        "mode": "render", "size": [64, 64], "profile": {**custom, "rgb_colors": [], "dither": "none"},
+        "recipe": {}, "commands": image_commands, "palette": {}, "images": source_images, "fonts": {},
+    })
+    with Image.open(io.BytesIO(base64.b64decode(embedded["output"]))) as image:
+        for left in (0, 16):
+            assert image.getpixel((left + 2, 4))[0] >= 245
+            assert image.getpixel((left + 13, 4))[0] <= 10
+        assert image.getpixel((34, 4)) == (0, 0, 0)
+        assert image.getpixel((34, 12)) == (255, 255, 255)
     print(
         "Verified Linux seccomp, bounded JavaScript, and native output for all display profiles."
     )

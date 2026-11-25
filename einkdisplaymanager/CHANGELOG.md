@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.8
+
+- Reduce render-worker startup by limiting Pillow codec initialization and decoupling PNG encoding from media storage imports.
+
 ## 0.9.7
 
 - Break down render-worker startup into Python launch, module imports, optimizer resources, and Pillow setup.

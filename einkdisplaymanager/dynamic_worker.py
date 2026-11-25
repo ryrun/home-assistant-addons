@@ -14,7 +14,7 @@ from pathlib import Path
 
 import quickjs
 from dynamic_script import context, run_worker, validate
-from media import custom_png
+from image_formats import LIBRARY_IMAGE_FORMATS, custom_png
 from PIL import Image, ImageCms, ImageColor, ImageDraw, ImageFont, ImageOps
 
 IMPORTS_READY_AT = time.perf_counter()
@@ -46,7 +46,10 @@ OPTIONS = (
 )
 OPTIONS = "const getProcessingPreset=epd.getPreset;\n" + OPTIONS
 OPTIMIZER_READY_AT = time.perf_counter()
-Image.init()  # Load codec modules before filesystem access is disabled.
+# Pillow's common plugins cover all accepted library formats and PNG output.
+# JPEG and PNG EXIF can also need TIFF's metadata parser inside the sandbox.
+Image.preinit()
+from PIL import TiffImagePlugin  # noqa: F401
 Image.MAX_IMAGE_PIXELS = 8_000_000
 DEFAULT_FONT = ImageFont.load_default(size=16)  # Pillow's bundled Aileron.
 SRGB = ImageCms.createProfile("sRGB")
@@ -272,7 +275,7 @@ def draw(payload):
                     f"Image {c.get('id', '')} is missing; nothing was drawn."
                 )
                 continue
-            with Image.open(io.BytesIO(base64.b64decode(source))) as original:
+            with Image.open(io.BytesIO(base64.b64decode(source)), formats=LIBRARY_IMAGE_FORMATS) as original:
                 original = ImageOps.exif_transpose(original)
                 alpha = original.convert("RGBA").getchannel("A")
                 profile_data = original.info.get("icc_profile")
@@ -345,7 +348,7 @@ def _quantize(image, recipe, profile):
         + PANEL_PALETTES
     )
     if recipe["dither"] == "blueNoise":
-        with Image.open(io.BytesIO(BLUE_NOISE_PNG)) as noise:
+        with Image.open(io.BytesIO(BLUE_NOISE_PNG), formats=("PNG",)) as noise:
             mask = noise.convert("I;16").tobytes()
             ctx.set("__noise", mask.decode("latin1"))
             ctx.set("__noiseWidth", noise.width)
