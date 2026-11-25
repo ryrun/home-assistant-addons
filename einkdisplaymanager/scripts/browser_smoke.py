@@ -374,9 +374,17 @@ async def main():
                     async with session.get(url) as response:
                         assert response.content_type == 'image/jpeg'
                         assert await response.read() == rotate_delivery(sample_image(), 'image/jpeg')
+                    await expect(page.get_by_label('Battery type')).to_have_value('none')
+                    await expect(page.locator('#device-battery-summary')).to_be_hidden()
+                    await page.get_by_label('Battery type').select_option('alkaline')
+                    await page.get_by_role('button',name='Save settings',exact=True).click()
                     await expect(page.locator('#device-battery-estimate')).to_have_text('100% · activity estimate')
                     assert await page.locator('#device-battery-fallback-help').is_visible()
                     assert await page.locator('#device-battery-forecast').is_hidden()
+                    await page.get_by_label('Battery type').select_option('none')
+                    await page.get_by_role('button',name='Save settings',exact=True).click()
+                    await expect(page.locator('#device-battery-summary')).to_be_hidden()
+                    await expect(page.locator('#device-fetch-health')).to_be_visible()
                     await page.get_by_label('Name',exact=True).fill('Unsaved device draft')
                     await page.get_by_role('button', name='Next image', exact=True).click()
                     await page.get_by_text('Selection updated.', exact=False).wait_for()
