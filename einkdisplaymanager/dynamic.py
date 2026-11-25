@@ -181,13 +181,14 @@ async def worker(payload, timeout=40):
         raise ValueError(
             "Selected image/font resources exceed the 20 MiB render input budget."
         )
+    entrypoint = "dynamic_script.py" if payload["mode"] in ("commands", "probe") else "dynamic_worker.py"
     spawning = time.perf_counter()
     process = await asyncio.create_subprocess_exec(
         sys.executable,
         "-B",
         "-E",
         "-s",
-        str(ROOT / "dynamic_worker.py"),
+        str(ROOT / entrypoint),
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,

@@ -1,21 +1,18 @@
-"""Disposable restricted QuickJS / Pillow worker; inputs and outputs are pipes only."""
+"""Disposable Pillow and image optimizer worker."""
 
 import base64
 import io
 import json
-import math
 import struct
-import sys
 import time
 from pathlib import Path
 
 import quickjs
+from dynamic_script import context, run_worker, validate
 from media import custom_png
 from PIL import Image, ImageCms, ImageColor, ImageDraw, ImageFont, ImageOps
-from sandbox import probe, restrict
 
 ROOT = Path(__file__).parent
-API = (ROOT / "web" / "drawing-api.js").read_text()
 VENDOR = (ROOT / "web" / "vendor" / "epdoptimize-1.4.1.mjs").read_text()
 # The pinned ESM build is evaluated only in the trusted processing context.
 # Disable URL resolution there; blue-noise samples are loaded before isolation.
@@ -48,100 +45,6 @@ DEFAULT_FONT = ImageFont.load_default(size=16)  # Pillow's bundled Aileron.
 SRGB = ImageCms.createProfile("sRGB")
 # Force optional native modules to load before seccomp denies opens.
 Image.new("RGB", (1, 1)).save(io.BytesIO(), "PNG")
-
-
-def context(seconds=2, memory=32):
-    ctx = quickjs.Context()
-    ctx.set_memory_limit(memory * 1024 * 1024)
-    ctx.set_max_stack_size(512 * 1024)
-    ctx.set_time_limit(seconds)
-    return ctx
-
-
-def commands(payload):
-    ctx = context()
-    ctx.set("__input", json.dumps(payload["input"], allow_nan=False))
-    ctx.set("__source", payload["source"])
-    try:
-        return json.loads(ctx.eval(API))
-    except quickjs.JSException as error:
-        if "InternalError: interrupted" in str(error):
-            raise ValueError(
-                "Script execution exceeded its CPU limit. Check for long or infinite loops."
-            ) from None
-        raise
-
-
-def validate(commands):
-    if not isinstance(commands, list) or len(commands) > 1000:
-        raise ValueError("At most 1000 drawing commands are allowed.")
-    fields = {
-        "clear": {"color"},
-        "text": {
-            "text",
-            "x",
-            "y",
-            "font",
-            "fontSize",
-            "color",
-            "align",
-            "verticalAlign",
-            "verticalMetrics",
-            "maxWidth",
-        },
-        "line": {"x1", "y1", "x2", "y2", "stroke", "strokeWidth"},
-        "rectangle": {"x", "y", "width", "height", "fill", "stroke", "strokeWidth"},
-        "circle": {"x", "y", "radius", "fill", "stroke", "strokeWidth"},
-        "image": {"id", "x", "y", "width", "height", "fit"},
-    }
-    numeric = {
-        "x",
-        "y",
-        "x1",
-        "x2",
-        "y1",
-        "y2",
-        "width",
-        "height",
-        "radius",
-        "strokeWidth",
-        "fontSize",
-        "maxWidth",
-    }
-    for c in commands:
-        if (
-            not isinstance(c, dict)
-            or c.get("type") not in fields
-            or set(c) - fields[c["type"]] - {"type"}
-        ):
-            raise ValueError("Unknown drawing command or option.")
-        for key, value in c.items():
-            if key in numeric:
-                if (
-                    type(value) not in (float, int)
-                    or not math.isfinite(value)
-                    or abs(value) > 10000
-                ):
-                    raise ValueError(
-                        "Drawing coordinates must be finite numbers within ±10000."
-                    )
-                if (
-                    key
-                    in {
-                        "width",
-                        "height",
-                        "radius",
-                        "strokeWidth",
-                        "fontSize",
-                        "maxWidth",
-                    }
-                    and not 0 < value <= 4096
-                ):
-                    raise ValueError("Drawing sizes must be between 0 and 4096 pixels.")
-            elif not isinstance(value, str) or len(value) > (
-                8192 if key == "text" else 120
-            ):
-                raise ValueError("Invalid drawing text or option.")
 
 
 def draw(payload):
@@ -531,74 +434,35 @@ def _optimize(image, recipe, profile, exact=None, exact_mask=None):
     return output.getvalue(), "image/png" if gray else "image/bmp"
 
 
-def main():
-    initialized = time.perf_counter()
-    payload = json.loads(sys.stdin.buffer.read(24 * 1024 * 1024))
-    input_ready = time.perf_counter()
-    isolation = restrict()
-    isolated = time.perf_counter()
-    if payload["mode"] == "probe":
-        probe()
-        result = {"isolation": isolation}
-    elif payload["mode"] == "commands":
-        result = commands(payload)
-        executed = time.perf_counter()
-        validate(result["commands"])
-        result["timings"] = {
-            "quickjs_seconds": executed - isolated,
-            "command_validation_seconds": time.perf_counter() - executed,
-        }
-    elif payload["mode"] == "font":
+def render_request(payload, isolation, isolated):
+    if payload["mode"] == "font":
         font = ImageFont.truetype(io.BytesIO(base64.b64decode(payload["data"])), 32)
-        result = {"valid": bool(font.getbbox("Font validation"))}
-    else:
-        image, warnings, exact, exact_mask = draw(payload)
-        drawn = time.perf_counter()
-        source = io.BytesIO()
-        image.save(source, "PNG")
-        encoded = time.perf_counter()
-        data, mime = optimize(
-            image, payload["recipe"], payload["profile"], exact, exact_mask
-        )
-        optimized = time.perf_counter()
-        result = {
-            "source": base64.b64encode(source.getvalue()).decode(),
-            "output": base64.b64encode(data).decode(),
-            "mime": mime,
-            "warnings": warnings,
-            "isolation": isolation,
-            "timings": {
-                "drawing_seconds": drawn - isolated,
-                "source_encoding_seconds": encoded - drawn,
-                "optimization_seconds": optimized - encoded,
-                "output_encoding_seconds": time.perf_counter() - optimized,
-            },
-        }
-    if "timings" in result:
-        result["timings"].update(
-            worker_ready_at=initialized,
-            worker_finished_at=time.perf_counter(),
-            input_seconds=input_ready - initialized,
-            sandbox_seconds=isolated - input_ready,
-        )
-    sys.stdout.write(json.dumps(result, separators=(",", ":")))
+        return {"valid": bool(font.getbbox("Font validation"))}
+    if payload["mode"] != "render":
+        raise ValueError("Unsupported render worker mode.")
+    image, warnings, exact, exact_mask = draw(payload)
+    drawn = time.perf_counter()
+    source = io.BytesIO()
+    image.save(source, "PNG")
+    encoded = time.perf_counter()
+    data, mime = optimize(
+        image, payload["recipe"], payload["profile"], exact, exact_mask
+    )
+    optimized = time.perf_counter()
+    return {
+        "source": base64.b64encode(source.getvalue()).decode(),
+        "output": base64.b64encode(data).decode(),
+        "mime": mime,
+        "warnings": warnings,
+        "isolation": isolation,
+        "timings": {
+            "drawing_seconds": drawn - isolated,
+            "source_encoding_seconds": encoded - drawn,
+            "optimization_seconds": optimized - encoded,
+            "output_encoding_seconds": time.perf_counter() - optimized,
+        },
+    }
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except quickjs.JSException as error:
-        # QuickJS errors contain only user-source locations, not Python paths.
-        sys.stdout.write(json.dumps({"error": str(error)[:1000]}))
-    except Exception as error:  # noqa: BLE001 — untrusted rendering must not expose host tracebacks.
-        # Native host exception text can contain filesystem paths or input data.
-        sys.stdout.write(
-            json.dumps(
-                {
-                    "error": str(error)[:300]
-                    if isinstance(error, ValueError)
-                    else "Isolated render failed."
-                }
-            )
-        )
-        sys.exit(1)
+    run_worker(render_request)

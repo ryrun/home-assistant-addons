@@ -1378,7 +1378,9 @@ targets. Draft totals include server-side request processing and preview creatio
 but exclude browser/network download time. Each target shows script, resource,
 and render totals plus a separate queue wait. The Script worker and Render
 worker sections break down those two phase totals. Process start and imports
-include Python initialization and pre-sandbox resource loading. Input and response
+include Python initialization and pre-sandbox resource loading. The script
+worker loads QuickJS and the drawing API. The render worker loads Pillow and the
+optimizer resources. Input and response
 measurements include pipe transport and protocol overhead. QuickJS execution
 includes context setup and command extraction. Output Base64 handling and
 parent-side image validation have their own measurements.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.6
+
+- Start dynamic QuickJS scripts in a lightweight isolated worker that skips Pillow and image optimizer resources.
+
 ## 0.9.5
 
 - Break down dynamic-image render timings by worker startup, sandbox setup, QuickJS, image processing, pipe transfer, and output validation.
