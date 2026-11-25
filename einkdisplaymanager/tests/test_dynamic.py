@@ -495,6 +495,8 @@ async def test_unavailable_palette_entry_is_an_error_not_a_silent_fallback():
 
 async def test_inkplate_full_preview_lab_nearest_color_completes(system):
     manager, admin, _frames = system
+    assert manager.dynamic.renderer.process is not None
+    await manager.dynamic.renderer.close()  # Exercise cold startup timing.
     data = {
         "name": "LAB preview",
         "script": 'screen.clear("#ffffff");screen.text("Hello World",{x:400,y:300,align:"center",fontSize:48});',
@@ -528,6 +530,23 @@ async def test_inkplate_full_preview_lab_nearest_color_completes(system):
         assert image.size == (800, 600)
     assert not manager.store.all("asset")
     assert not manager.dynamic.cache  # Drafts remain separate from device output.
+    process = manager.dynamic.renderer.process
+    warm = await (await admin.post("/api/dynamic-preview", json=data)).json()
+    assert manager.dynamic.renderer.process is process
+    assert warm["timings"]["render_worker"]["startup_seconds"] == 0
+    assert warm["output"] == result["output"]
+    with pytest.raises(ValueError, match="Unsupported render worker mode"):
+        await manager.dynamic.renderer.render({"mode": "invalid"})
+    assert process.returncode is not None
+    assert manager.dynamic.renderer.process is None
+    recovered = await (await admin.post("/api/dynamic-preview", json=data)).json()
+    assert recovered["output"] == result["output"]
+    assert manager.dynamic.renderer.process is not process
+    process = manager.dynamic.renderer.process
+    with pytest.raises(ValueError, match="exceeded its time limit"):
+        await manager.dynamic.renderer.render({"mode": "render"}, timeout=0)
+    assert process.returncode is not None
+    assert manager.dynamic.renderer.process is None
 
 
 def test_optimizer_timeout_reports_processing_stage(monkeypatch):

@@ -117,11 +117,7 @@ screen.text("Hello World", {{x:400,y:300,font:"{font_id}",fontSize:40,color:pale
                     for label in ('Process start + imports', 'Sandbox setup', 'QuickJS execution',
                                   'Response transfer + process exit', 'Base64 decoding', 'Image validation'):
                         assert label in timings
-                    await page.get_by_text('Process start + imports breakdown',exact=True).click()
-                    startup=await page.locator('#dynamic-timings').inner_text()
-                    for label in ('Process launch + Python startup', 'Module imports',
-                                  'Optimizer resources', 'Pillow initialization + setup'):
-                        assert label in startup
+                    assert 'Used an initialized process.' in timings
                     assert await page.locator('#dynamic-timings').evaluate('(el)=>el.scrollWidth<=el.clientWidth')
                     await page.screenshot(path=str(artifacts/'dynamic-editor-desktop.png'),full_page=True)
                     await page.locator('#dynamic-save').click()
@@ -137,10 +133,9 @@ screen.text("Hello World", {{x:400,y:300,font:"{font_id}",fontSize:40,color:pale
                     await page.get_by_text('Home Assistant inputs',exact=True).click()
                     await page.locator('#dynamic-timings > details > summary').wait_for()
                     await page.locator('#dynamic-timings > details > summary').click()
-                    await page.get_by_text('Process start + imports breakdown',exact=True).click()
                     await page.wait_for_timeout(2200)
                     assert await page.locator('#dynamic-timings > details').evaluate('(el)=>el.open')
-                    assert await page.get_by_text('Pillow initialization + setup',exact=True).is_visible()
+                    assert await page.get_by_text('Used an initialized process.',exact=True).is_visible()
                     await page.locator('#dynamic-preview-stage img').wait_for()
                     assert await page.locator('#dynamic-profile').is_disabled()
                     await page.get_by_role('button',name='Close dialog').click()

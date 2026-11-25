@@ -10,12 +10,14 @@ import base64
 import io
 import json
 import struct
+import sys
 from pathlib import Path
 
 import quickjs
-from dynamic_script import context, run_worker, validate
+from dynamic_script import context, run_worker, validate, worker_error
 from image_formats import LIBRARY_IMAGE_FORMATS, custom_png
 from PIL import Image, ImageCms, ImageColor, ImageDraw, ImageFont, ImageOps
+from sandbox import probe, restrict
 
 IMPORTS_READY_AT = time.perf_counter()
 ROOT = Path(__file__).parent
@@ -479,5 +481,54 @@ def render_request(payload, isolation, isolated):
     }
 
 
+MAX_MESSAGE = 20 * 1024 * 1024
+
+
+def send_frame(data):
+    sys.stdout.buffer.write(struct.pack(">I", len(data)))
+    sys.stdout.buffer.write(data)
+    sys.stdout.buffer.flush()
+
+
+def serve_renders():
+    ready = time.perf_counter()
+    isolation = restrict()
+    probe()
+    sandbox_seconds = time.perf_counter() - ready
+    send_frame(isolation.encode())
+    # Keep the original 30 s CPU limit for the process. Retire while enough
+    # budget remains for another job with a 20 s optimizer CPU limit.
+    for index in range(24):
+        header = sys.stdin.buffer.read(4)
+        if not header:
+            return
+        started = time.perf_counter()
+        size = struct.unpack(">I", header)[0]
+        if not 0 < size <= MAX_MESSAGE:
+            raise ValueError("Render input exceeds its RAM budget.")
+        payload = json.loads(sys.stdin.buffer.read(size))
+        input_ready = time.perf_counter()
+        try:
+            if payload["mode"] != "render":
+                raise ValueError("Unsupported render worker mode.")
+            result = render_request(payload, isolation, input_ready)
+        except Exception as error:  # noqa: BLE001 — retire on any failed render.
+            send_frame(json.dumps(worker_error(error), separators=(",", ":")).encode())
+            return
+        result["retire"] = index == 23 or time.process_time() > 8
+        timings = result["timings"]
+        if index:
+            timings.pop("startup_breakdown")
+        timings.update(worker_ready_at=ready, worker_finished_at=time.perf_counter(),
+                       input_seconds=input_ready - started, sandbox_seconds=sandbox_seconds if not index else 0.0)
+        send_frame(json.dumps(result, separators=(",", ":")).encode())
+        if result["retire"]:
+            return
+        del payload, result, timings
+
+
 if __name__ == "__main__":
-    run_worker(render_request)
+    if sys.argv[1:] == ["--persistent"]:
+        serve_renders()
+    else:
+        run_worker(render_request)

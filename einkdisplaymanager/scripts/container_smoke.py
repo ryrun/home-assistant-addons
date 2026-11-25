@@ -8,7 +8,7 @@ import sys
 from PIL import Image, ImageCms
 
 sys.path.insert(0, "/app")
-from dynamic import recipe, worker
+from dynamic import RenderWorker, recipe, worker
 from media import validate_variant
 from profiles import PROFILES
 
@@ -164,10 +164,26 @@ async def main():
             picture.save(encoded, fmt, **options)
             source_images[fmt] = base64.b64encode(encoded.getvalue()).decode()
         image_commands.append({"type": "image", "id": fmt, "x": 16 * index, "y": 0})
-    embedded = await worker({
+    payload = {
         "mode": "render", "size": [64, 64], "profile": {**custom, "rgb_colors": [], "dither": "none"},
         "recipe": {}, "commands": image_commands, "palette": {}, "images": source_images, "fonts": {},
-    })
+    }
+    renderer = RenderWorker()
+    try:
+        await renderer.prewarm()
+        assert renderer.process is not None
+        process = renderer.process
+        embedded = await renderer.render(payload)
+        repeated = await renderer.render(payload)
+        blank = await renderer.render({**payload, "commands": [], "images": {}})
+        assert renderer.process is process
+        assert embedded["isolation"] == "linux-seccomp"
+        assert repeated["output"] == embedded["output"]
+        assert repeated["timings"]["startup_seconds"] == 0
+        with Image.open(io.BytesIO(base64.b64decode(blank["output"]))) as image:
+            assert image.getextrema() == ((255, 255), (255, 255), (255, 255))
+    finally:
+        await renderer.close()
     with Image.open(io.BytesIO(base64.b64decode(embedded["output"]))) as image:
         for left in (0, 16):
             assert image.getpixel((left + 2, 4))[0] >= 245

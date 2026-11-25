@@ -1309,7 +1309,7 @@ system; local tests do not replace Green/Supervisor or physical-device testing.
   64 KiB source, 1000 drawing commands/256 KiB command output, 8 MiB per embedded
   resource and 12 MiB combined resources. Generation intervals are 10 seconds to
   30 days. Complex/frequent renders consume CPU; there is no unlimited catch-up.
-- Each disposable worker has sanitized environment/closed inherited descriptors,
+- Each worker has sanitized environment/closed inherited descriptors,
   CPU and wall-clock limits, a limited QuickJS heap/stack and (Linux) a 512 MiB
   process address-space limit. Linux installs a default-deny seccomp filter with
   no-new-privileges; macOS development uses Seatbelt. Native file access, network
@@ -1383,7 +1383,12 @@ worker loads QuickJS and the drawing API. The render worker loads Pillow and the
 optimizer resources. Pillow preloads its common codecs and the EXIF parser,
 while embedded images are limited to library JPEG, PNG, and BMP inputs. Expand **Process start + imports breakdown** in the Render
 worker to see the time for Python startup, imports, optimizer resources, and
-Pillow setup. These four durations add up to the startup subtotal. Input and response
+Pillow setup. These four durations add up to the startup subtotal on a cold request.
+The add-on starts a render process at launch and reuses it for sequential jobs.
+Warm requests show zero startup and sandbox setup. The renderer keeps the same
+OS isolation, uses fresh job-local images and QuickJS contexts, and retires after
+24 jobs, eight seconds of accumulated CPU use, or a failed or timed-out job.
+The separate user-script process still starts for every script execution. Input and response
 measurements include pipe transport and protocol overhead. QuickJS execution
 includes context setup and command extraction. Output Base64 handling and
 parent-side image validation have their own measurements.

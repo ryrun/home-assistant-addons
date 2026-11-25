@@ -121,23 +121,19 @@ def exchange(handle):
     sys.stdout.write(json.dumps(result, separators=(",", ":")))
 
 
+def worker_error(error):
+    if isinstance(error, quickjs.JSException):
+        # QuickJS errors contain only user-source locations.
+        return {"error": str(error)[:1000]}
+    # Native host exception text can contain filesystem paths or input data.
+    return {"error": str(error)[:300] if isinstance(error, ValueError) else "Isolated render failed."}
+
+
 def run_worker(handle):
     try:
         exchange(handle)
-    except quickjs.JSException as error:
-        # QuickJS errors contain only user-source locations, not Python paths.
-        sys.stdout.write(json.dumps({"error": str(error)[:1000]}))
     except Exception as error:  # noqa: BLE001 — untrusted rendering must not expose host tracebacks.
-        # Native host exception text can contain filesystem paths or input data.
-        sys.stdout.write(
-            json.dumps(
-                {
-                    "error": str(error)[:300]
-                    if isinstance(error, ValueError)
-                    else "Isolated render failed."
-                }
-            )
-        )
+        sys.stdout.write(json.dumps(worker_error(error)))
         sys.exit(1)
 
 

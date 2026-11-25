@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.9
+
+- Reuse a preinitialized isolated render process for sequential dynamic image jobs. Recycle it after failures, timeouts, or its job and CPU budget.
+
 ## 0.9.8
 
 - Reduce render-worker startup by limiting Pillow codec initialization and decoupling PNG encoding from media storage imports.

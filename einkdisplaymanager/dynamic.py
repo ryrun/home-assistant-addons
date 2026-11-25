@@ -7,6 +7,7 @@ import json
 import os
 import re
 import signal
+import struct
 import sys
 import time
 from collections import OrderedDict
@@ -174,29 +175,81 @@ def definition(data, old=None):
     return result
 
 
-async def worker(payload, timeout=40):
-    encoding_started = time.perf_counter()
+MAX_WORKER_MESSAGE = 20 * 1024 * 1024
+
+
+def encode_worker_request(payload):
     encoded = json.dumps(payload, allow_nan=False, separators=(",", ":")).encode()
-    if len(encoded) > 20 * 1024 * 1024:
+    if len(encoded) > MAX_WORKER_MESSAGE:
         raise ValueError(
             "Selected image/font resources exceed the 20 MiB render input budget."
         )
-    entrypoint = "dynamic_script.py" if payload["mode"] in ("commands", "probe") else "dynamic_worker.py"
-    spawning = time.perf_counter()
-    process = await asyncio.create_subprocess_exec(
+    return encoded
+
+
+async def spawn_worker(entrypoint, *arguments):
+    return await asyncio.create_subprocess_exec(
         sys.executable,
         "-B",
         "-E",
         "-s",
         str(ROOT / entrypoint),
+        *arguments,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
         env={"LANG": "C.UTF-8"},
         cwd="/",
         start_new_session=True,
-        limit=20 * 1024 * 1024,
+        limit=MAX_WORKER_MESSAGE,
     )
+
+
+async def stop_worker(process):
+    if process.returncode is None:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+    # Drain after killing so a full stdout pipe cannot hold up process reaping.
+    while await process.stdout.read(65536):
+        pass
+    await process.wait()
+
+
+def worker_response(data, received, spawning, encoding_seconds):
+    result = json.loads(data)
+    if result.get("error"):
+        raise ValueError(result["error"])
+    if timings := result.get("timings"):
+        # perf_counter uses the same monotonic clock in both processes.
+        ready = timings.pop("worker_ready_at")
+        finished = timings.pop("worker_finished_at")
+        startup = timings.pop("startup_breakdown", None)
+        if startup and spawning is not None:
+            entered = startup["module_entered_at"]
+            imports = startup["imports_ready_at"]
+            optimizer = startup["optimizer_ready_at"]
+            timings["startup_breakdown"] = {
+                "python_seconds": entered - spawning,
+                "imports_seconds": imports - entered,
+                "optimizer_resources_seconds": optimizer - imports,
+                "pillow_setup_seconds": ready - optimizer,
+            }
+        timings.update(
+            startup_seconds=ready - spawning if spawning is not None else 0.0,
+            request_encoding_seconds=encoding_seconds,
+            response_transfer_seconds=received - finished,
+            response_decoding_seconds=time.perf_counter() - received,
+        )
+    return result
+
+
+async def worker(payload, timeout=40):
+    encoding_started = time.perf_counter()
+    encoded = encode_worker_request(payload)
+    entrypoint = "dynamic_script.py" if payload["mode"] in ("commands", "probe") else "dynamic_worker.py"
+    spawning = time.perf_counter()
+    encoding_seconds = spawning - encoding_started
+    process = await spawn_worker(entrypoint)
     try:
         # Read a bounded response rather than communicate(), which buffers without
         # a size limit if a compromised child writes unbounded output.
@@ -207,36 +260,16 @@ async def worker(payload, timeout=40):
             chunks, size = [], 0
             while block := await process.stdout.read(65536):
                 size += len(block)
-                if size > 20 * 1024 * 1024:
+                if size > MAX_WORKER_MESSAGE:
                     raise ValueError("Render output exceeds its RAM budget.")
                 chunks.append(block)
             await process.wait()
             received = time.perf_counter()
-            result = json.loads(b"".join(chunks))
-            if result.get("error"):
-                raise ValueError(result["error"])
+            if process.returncode and not chunks:
+                raise ValueError("The isolated render process stopped unexpectedly.")
+            result = worker_response(b"".join(chunks), received, spawning, encoding_seconds)
             if process.returncode:
                 raise ValueError("The isolated render process stopped unexpectedly.")
-            if timings := result.get("timings"):
-                # perf_counter uses the same monotonic clock in both processes.
-                ready = timings.pop("worker_ready_at")
-                finished = timings.pop("worker_finished_at")
-                if startup := timings.get("startup_breakdown"):
-                    entered = startup["module_entered_at"]
-                    imports = startup["imports_ready_at"]
-                    optimizer = startup["optimizer_ready_at"]
-                    timings["startup_breakdown"] = {
-                        "python_seconds": entered - spawning,
-                        "imports_seconds": imports - entered,
-                        "optimizer_resources_seconds": optimizer - imports,
-                        "pillow_setup_seconds": ready - optimizer,
-                    }
-                timings.update(
-                    startup_seconds=ready - spawning,
-                    request_encoding_seconds=spawning - encoding_started,
-                    response_transfer_seconds=received - finished,
-                    response_decoding_seconds=time.perf_counter() - received,
-                )
             return result
 
         return await asyncio.wait_for(exchange(), timeout)
@@ -249,10 +282,75 @@ async def worker(payload, timeout=40):
             "The isolated render process stopped without a valid result."
         ) from None
     finally:
-        if process.returncode is None:
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(process.pid, signal.SIGKILL)
-            await process.wait()
+        await stop_worker(process)
+
+
+class RenderWorker:
+    """One isolated process serving bounded, sequential render jobs."""
+
+    def __init__(self):
+        self.process = None
+        self.lock = asyncio.Lock()
+
+    async def read_frame(self):
+        header = await self.process.stdout.readexactly(4)
+        size = struct.unpack(">I", header)[0]
+        if not 0 < size <= MAX_WORKER_MESSAGE:
+            raise ValueError("Render output exceeds its RAM budget.")
+        return await self.process.stdout.readexactly(size)
+
+    async def open(self):
+        await self.close()
+        self.process = await spawn_worker("dynamic_worker.py", "--persistent")
+        if await self.read_frame() not in (b"linux-seccomp", b"macos-seatbelt"):
+            raise ValueError("The render worker could not initialize its sandbox.")
+
+    async def close(self):
+        if self.process is not None:
+            process, self.process = self.process, None
+            await stop_worker(process)
+
+    async def prewarm(self):
+        started = False
+        try:
+            async with asyncio.timeout(8):
+                await self.open()
+            started = True
+        except (TimeoutError, OSError, ValueError, asyncio.IncompleteReadError):
+            # A later render can retry startup and report a concrete error.
+            pass
+        finally:
+            if not started:
+                await self.close()
+
+    async def render(self, payload, timeout=40):
+        async with self.lock:
+            encoding_started = time.perf_counter()
+            encoded = encode_worker_request(payload)
+            encoding_seconds = time.perf_counter() - encoding_started
+            spawning = None
+            succeeded = False
+            try:
+                async with asyncio.timeout(timeout):
+                    if self.process is None or self.process.returncode is not None:
+                        spawning = time.perf_counter()
+                        await self.open()
+                    self.process.stdin.write(struct.pack(">I", len(encoded)))
+                    self.process.stdin.write(encoded)
+                    await self.process.stdin.drain()
+                    data = await self.read_frame()
+                    result = worker_response(data, time.perf_counter(), spawning, encoding_seconds)
+                    if spawning is None:
+                        result["timings"]["sandbox_seconds"] = 0.0
+                    succeeded = not result.pop("retire")
+                    return result
+            except TimeoutError:
+                raise ValueError("Rendering exceeded its time limit; the worker was stopped.") from None
+            except (asyncio.IncompleteReadError, OSError, json.JSONDecodeError):
+                raise ValueError("The isolated render process stopped without a valid result.") from None
+            finally:
+                if not succeeded:
+                    await self.close()
 
 
 class DynamicImages:
@@ -261,6 +359,7 @@ class DynamicImages:
         self.cache, self.statuses, self.jobs, self.due = OrderedDict(), {}, {}, {}
         self.dirty = set()
         self.lock = asyncio.Semaphore(1)
+        self.renderer = RenderWorker()
         self.pending = 0
         self.isolation = None
         self.isolation_error = None
@@ -274,6 +373,8 @@ class DynamicImages:
             self.isolation_error = (
                 "Process isolation verification failed. Dynamic execution is disabled."
             )
+        if self.isolation:
+            await self.renderer.prewarm()
         self.session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=8), trust_env=False
         )
@@ -288,6 +389,7 @@ class DynamicImages:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        await self.renderer.close()
         if self.session:
             await self.session.close()
         self.cache.clear()
@@ -510,7 +612,7 @@ class DynamicImages:
             except (KeyError, OSError):
                 continue  # Renderer implements the agreed missing-resource fallbacks.
         resources_done = time.perf_counter()
-        result = await worker(
+        result = await self.renderer.render(
             {
                 "mode": "render",
                 "commands": command_result["commands"],

@@ -20,7 +20,8 @@ function workerTimingDetails(title,data,fields){
   if(!data)return '';
   const startup=data.startup_breakdown?`<details class="option-details"><summary>Process start + imports breakdown</summary>
     ${timingRows(data.startup_breakdown,startupFields)}</details>`:'';
-  return `<div class="timing-phase"><h5>${title}</h5>${timingRows(data,fields)}${startup}</div>`;
+  const warm=data.startup_seconds===0?'<p class="help">Used an initialized process.</p>':'';
+  return `<div class="timing-phase"><h5>${title}</h5>${warm}${timingRows(data,fields)}${startup}</div>`;
 }
 function timingDetails(timings,preview=false){
   if(!timings)return '';
